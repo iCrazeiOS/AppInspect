@@ -105,6 +105,9 @@ async function loadTabData(tabId: string): Promise<void> {
         case "security":
           renderSecurity(panel, (tabData as any)?.data ?? tabData);
           break;
+        case "files":
+          renderFiles(panel, (tabData as any)?.data ?? tabData);
+          break;
         default:
           break;
       }
