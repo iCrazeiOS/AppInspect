@@ -61,12 +61,19 @@ let encryptionBannerDismissed = false;
 const loadedTabs = new Set<string>();
 
 // ── App state transitions ──
+function setTabsDisabled(disabled: boolean): void {
+  tabButtons.forEach((btn) => {
+    btn.classList.toggle("tab-btn--disabled", disabled);
+  });
+}
+
 function setState(state: AppState): void {
   appState = state;
 
   emptyState.classList.toggle("hidden", state !== "empty");
   loadingBar.classList.toggle("hidden", state !== "loading");
   tabContent.classList.toggle("hidden", state !== "content");
+  setTabsDisabled(state !== "content");
 }
 
 function setLoadingPhase(phase: string, percent?: number): void {
@@ -448,7 +455,7 @@ window.api.onError((data) => {
 /** Show or hide export buttons based on whether analysis is loaded */
 function updateExportVisibility(visible: boolean): void {
   sidebarFooter.classList.toggle("hidden", !visible);
-  exportTabBtns.forEach((btn) => btn.classList.toggle("hidden", !visible));
+  exportTabBtns.forEach((btn) => btn.classList.toggle("export-active", visible));
 }
 
 /** Export all analysis data */
