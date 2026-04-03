@@ -40,6 +40,7 @@ File type is detected automatically by magic bytes.
 - **JSON export** — export all analysis data or individual tabs
 - **Drag-and-drop** — drop files onto the window to start analysis
 - **Search** — per-tab search with regex support (Ctrl+F / Cmd+F)
+- **Copy on double-click** — double-click any table cell to copy its contents
 
 ## Setup & Building
 
@@ -78,10 +79,14 @@ bun run build:css        # Copy stylesheets to dist/renderer/
 ### Package for distribution
 
 ```bash
-npx electron-builder
+bun run dist            # Build for current platform
+bun run dist:mac        # macOS (universal DMG)
+bun run dist:win        # Windows (NSIS installer)
+bun run dist:win:portable  # Windows (portable exe, no install)
+bun run dist:linux      # Linux (AppImage + deb)
 ```
 
-Uses [electron-builder](https://www.electron.build/) for packaging. Configuration can be added to `package.json` or an `electron-builder.yml` file.
+Output goes to `release/`. Uses [electron-builder](https://www.electron.build/) with configuration in the `"build"` field of `package.json`.
 
 ## Project structure
 
@@ -97,8 +102,9 @@ src/
                      #   chained fixups, plists)
   preload/           # Electron preload bridge
   renderer/          # UI
-    components/      # Reusable UI components (tables, search, JSON tree)
+    components/      # Reusable UI components (tables, search, JSON tree, toast)
     tabs/            # Tab renderers (one per analysis tab)
+    utils/           # Shared helpers (DOM utilities, Mach-O decoders)
   shared/            # Types and IPC channel definitions
 ```
 
