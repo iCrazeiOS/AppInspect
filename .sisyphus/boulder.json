@@ -1,0 +1,24 @@
+{
+  "active_plan": "C:\\Users\\PC\\Desktop\\ios-app-scanner\\.sisyphus\\plans\\disect.md",
+  "started_at": "2026-04-03T15:36:45.620Z",
+  "session_ids": [
+    "ses_2ac1dabd6ffeV6IbrqeG8LOqSy",
+    "ses_2ac00186affergRqCrl0gqzcC1",
+    "ses_2abf37268ffezWbU53pA12s6VQ",
+    "ses_2abeb6ca8ffeI7TubvvDcnJ1DZ",
+    "ses_2abd44aa2ffeasBJ5kN7WaqhWw"
+  ],
+  "plan_name": "disect",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Electron Project Scaffold + Config + Build Verification",
+      "session_id": "ses_2abf37268ffezWbU53pA12s6VQ",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-04-03T16:01:47.068Z"
+    }
+  }
+}

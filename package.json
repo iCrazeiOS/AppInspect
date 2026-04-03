@@ -1,0 +1,28 @@
+{
+  "name": "disect",
+  "version": "0.1.0",
+  "description": "IPA reverse engineering desktop app",
+  "main": "dist/main/index.js",
+  "private": true,
+  "scripts": {
+    "build": "bun run build:main && bun run build:preload && bun run build:renderer && bun run build:css",
+    "build:main": "bun build src/main/index.ts --outdir dist/main --target node --external electron",
+    "build:preload": "bun build src/preload/index.ts --outdir dist/preload --target node --external electron",
+    "build:renderer": "bun build src/renderer/index.ts --outdir dist/renderer --target browser",
+    "build:css": "cp src/renderer/index.css dist/renderer/index.css",
+    "start": "bun run build && electron ."
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.11",
+    "electron-builder": "^26.8.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "bplist-parser": "^0.3.2",
+    "electron": "35.1.2",
+    "fflate": "^0.8.2",
+    "plist": "^3.1.0"
+  }
+}
