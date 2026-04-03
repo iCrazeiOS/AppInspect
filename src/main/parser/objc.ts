@@ -59,22 +59,70 @@ export function vmaddrToFileOffset(
 }
 
 /**
+ * For dyld_shared_cache extracted binaries, pointers may have auth/tag bits
+ * in the upper bytes and a rebased target that doesn't directly match
+ * segment vmaddrs. This function detects and caches the slide base.
+ */
+let cachedSlideBase: bigint | null = null;
+let slideBaseComputed = false;
+
+function resolveSharedCachePointer(
+  raw: bigint,
+  segments: Segment64[],
+): bigint {
+  // For arm64e shared cache extracted binaries, pointers have PAC/auth bits
+  // in the upper bytes. The actual target is in the lower 36 bits (sufficient
+  // to address the shared cache region when combined with a base offset).
+  const target = raw & 0xFFFFFFFFFn; // lower 36 bits
+  if (target === 0n) return 0n;
+
+  // Use cached base if already found
+  if (slideBaseComputed && cachedSlideBase !== null) {
+    const candidate = target + cachedSlideBase;
+    if (vmaddrToFileOffset(candidate, segments) !== null) {
+      return candidate;
+    }
+  }
+
+  // Probe common shared cache base addresses
+  for (const base of [0x180000000n, 0x200000000n, 0x100000000n, 0x0n]) {
+    const c = target + base;
+    if (vmaddrToFileOffset(c, segments) !== null) {
+      cachedSlideBase = base;
+      slideBaseComputed = true;
+      return c;
+    }
+  }
+
+  return raw;
+}
+
+/**
  * Resolve an 8-byte pointer at the given file offset.
  *
  * If the rebaseMap contains a resolved value for this file offset, use
  * that (chained fixups). Otherwise read the raw BigUint64 from the
- * buffer.
+ * buffer. For dyld_shared_cache extracted binaries, attempts slide-base
+ * correction when the raw pointer doesn't resolve to any segment.
  */
 export function resolvePointer(
   view: DataView,
   fileOffset: number,
   rebaseMap: Map<number, bigint>,
   littleEndian: boolean,
+  segments?: Segment64[],
 ): bigint {
   const resolved = rebaseMap.get(fileOffset);
   if (resolved !== undefined) return resolved;
   if (fileOffset + 8 > view.byteLength) return 0n;
-  return view.getBigUint64(fileOffset, littleEndian);
+  const raw = view.getBigUint64(fileOffset, littleEndian);
+
+  // If segments provided and raw pointer doesn't resolve, try shared cache fixup
+  if (segments && raw !== 0n && vmaddrToFileOffset(raw & POINTER_MASK, segments) === null) {
+    return resolveSharedCachePointer(raw, segments);
+  }
+
+  return raw;
 }
 
 /**
@@ -193,7 +241,7 @@ function parseTypeEncoding(enc: string): string[] {
  * Build a full ObjC method signature string from selector and type encoding.
  * e.g. "-(void)initWithFrame:(CGRect)frame style:(NSInteger)style"
  */
-function buildMethodSignature(selector: string, typeEncoding: string, isInstance = true): string {
+export function buildMethodSignature(selector: string, typeEncoding: string, isInstance = true): string {
   const types = parseTypeEncoding(typeEncoding);
   const prefix = isInstance ? "-" : "+";
 
@@ -247,11 +295,13 @@ function findObjCSection(
   sections: Section64[],
   sectname: string,
 ): Section64 | null {
-  return (
-    findSection(sections, "__DATA", sectname) ??
-    findSection(sections, "__DATA_CONST", sectname) ??
-    null
-  );
+  // Check all segments that can contain ObjC metadata, including
+  // __AUTH_CONST, __AUTH, __DATA_DIRTY (dyld_shared_cache binaries).
+  for (const seg of ["__DATA", "__DATA_CONST", "__AUTH_CONST", "__AUTH", "__DATA_DIRTY"]) {
+    const found = findSection(sections, seg, sectname);
+    if (found) return found;
+  }
+  return null;
 }
 
 // ── Method List Parsing ──────────────────────────────────────────────
@@ -268,6 +318,7 @@ function parseMethodList(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   le: boolean,
+  methodListVmaddr: bigint | null = null,
 ): ObjCMethod[] {
   if (
     methodListFileOffset < 0 ||
@@ -299,23 +350,42 @@ function parseMethodList(
       const nameRelOffset = view.getInt32(entryOffset, le);
       const selectorRefFileOffset = entryOffset + nameRelOffset;
 
+      let name = "";
+
       if (
-        selectorRefFileOffset < 0 ||
-        selectorRefFileOffset + 8 > view.byteLength
+        selectorRefFileOffset >= 0 &&
+        selectorRefFileOffset + 8 <= view.byteLength
       ) {
-        continue;
+        // Normal case: selref is within the file
+        const selectorVmaddr = resolvePointer(
+          view, selectorRefFileOffset, rebaseMap, le, segments,
+        );
+        if (selectorVmaddr !== 0n) {
+          const selectorFileOffset = vmaddrToFileOffset(selectorVmaddr, segments);
+          if (selectorFileOffset !== null) {
+            name = readString(view, selectorFileOffset);
+          }
+        }
       }
 
-      const selectorVmaddr = resolvePointer(
-        view, selectorRefFileOffset, rebaseMap, le,
-      );
-      if (selectorVmaddr === 0n) continue;
-
-      const selectorFileOffset = vmaddrToFileOffset(selectorVmaddr, segments);
-      if (selectorFileOffset === null) continue;
-
-      const name = readString(view, selectorFileOffset);
-      if (name.length === 0) continue;
+      // Shared cache fallback: the relative offset targets a selref outside
+      // this extracted file. Compute the selref's vmaddr from the method
+      // entry's vmaddr and try to resolve the selector string directly.
+      if (name.length === 0 && methodListVmaddr !== null) {
+        const entryVmaddr = methodListVmaddr + BigInt(8 + i * entrySize);
+        const selrefVmaddr = entryVmaddr + BigInt(nameRelOffset);
+        // The selref vmaddr may be outside our segments (in another cache image),
+        // but sometimes the selector string vmaddr can be found in __objc_selrefs
+        // within our file. Try looking up the selref in our local selrefs.
+        const localSelrefOff = vmaddrToFileOffset(selrefVmaddr, segments);
+        if (localSelrefOff !== null) {
+          const selVmaddr = resolvePointer(view, localSelrefOff, rebaseMap, le, segments);
+          if (selVmaddr !== 0n) {
+            const selOff = vmaddrToFileOffset(selVmaddr, segments);
+            if (selOff !== null) name = readString(view, selOff);
+          }
+        }
+      }
 
       // types_offset is a signed 32-bit relative offset from its own position
       const typesRelOffset = view.getInt32(entryOffset + 4, le);
@@ -323,9 +393,11 @@ function parseMethodList(
       const typeEncoding = (typesFileOffset >= 0 && typesFileOffset < view.byteLength)
         ? readString(view, typesFileOffset) : "";
 
+      // Keep entry even with empty name — the orchestrator can fill it
+      // from symbol table data for shared cache binaries.
       methods.push({
         selector: name,
-        signature: buildMethodSignature(name, typeEncoding),
+        signature: name.length > 0 ? buildMethodSignature(name, typeEncoding) : typeEncoding,
       });
     }
   } else {
@@ -337,7 +409,7 @@ function parseMethodList(
       const entryOffset = entriesStart + i * entrySize;
       if (entryOffset + 16 > view.byteLength) break;
 
-      const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le);
+      const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments);
       if (nameVmaddr === 0n) continue;
 
       const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
@@ -347,7 +419,7 @@ function parseMethodList(
       if (name.length === 0) continue;
 
       // types pointer at offset 8 within the entry
-      const typesVmaddr = resolvePointer(view, entryOffset + 8, rebaseMap, le);
+      const typesVmaddr = resolvePointer(view, entryOffset + 8, rebaseMap, le, segments);
       let typeEncoding = "";
       if (typesVmaddr !== 0n) {
         const typesFileOffset = vmaddrToFileOffset(typesVmaddr, segments);
@@ -391,7 +463,7 @@ function parseClass(
   if (classFileOffset + 40 > view.byteLength) return null;
 
   const dataFieldOffset = classFileOffset + 32;
-  let dataVmaddr = resolvePointer(view, dataFieldOffset, rebaseMap, le);
+  let dataVmaddr = resolvePointer(view, dataFieldOffset, rebaseMap, le, segments);
   dataVmaddr = dataVmaddr & POINTER_MASK; // strip low 3 flag bits
 
   if (dataVmaddr === 0n) return null;
@@ -404,7 +476,7 @@ function parseClass(
 
   // name pointer at offset 24 within class_ro_t
   const nameFieldOffset = roFileOffset + 24;
-  const nameVmaddr = resolvePointer(view, nameFieldOffset, rebaseMap, le);
+  const nameVmaddr = resolvePointer(view, nameFieldOffset, rebaseMap, le, segments);
   if (nameVmaddr === 0n) return null;
 
   const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
@@ -420,13 +492,14 @@ function parseClass(
     baseMethodsFieldOffset,
     rebaseMap,
     le,
+    segments,
   );
 
   let methods: ObjCMethod[] = [];
   if (baseMethodsVmaddr !== 0n) {
     const methodsFileOffset = vmaddrToFileOffset(baseMethodsVmaddr, segments);
     if (methodsFileOffset !== null) {
-      methods = parseMethodList(view, methodsFileOffset, segments, rebaseMap, le);
+      methods = parseMethodList(view, methodsFileOffset, segments, rebaseMap, le, baseMethodsVmaddr);
     }
   }
 
@@ -453,7 +526,7 @@ function parseProtocols(
   const protolistSection = findObjCSection(sections, "__objc_protolist");
   if (!protolistSection) return [];
 
-  const sectionOffset = protolistSection.offset;
+  const sectionOffset = vmaddrToFileOffset(protolistSection.addr, segments) ?? protolistSection.offset;
   const sectionSize = Number(protolistSection.size);
   const pointerCount = Math.floor(sectionSize / 8);
   const protocols: string[] = [];
@@ -462,7 +535,7 @@ function parseProtocols(
     const ptrFileOffset = sectionOffset + i * 8;
     if (ptrFileOffset + 8 > view.byteLength) break;
 
-    let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le);
+    let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments);
     protoVmaddr = protoVmaddr & POINTER_MASK;
     if (protoVmaddr === 0n) continue;
 
@@ -477,6 +550,7 @@ function parseProtocols(
       protoFileOffset + 8,
       rebaseMap,
       le,
+      segments,
     );
     if (nameVmaddr === 0n) continue;
 
@@ -512,6 +586,10 @@ export function extractObjCMetadata(
   const view = new DataView(buffer);
   const le = littleEndian;
 
+  // Reset shared cache slide base detection for each new binary
+  cachedSlideBase = null;
+  slideBaseComputed = false;
+
   const result: ObjCMetadata = {
     classes: [],
     protocols: [],
@@ -521,7 +599,9 @@ export function extractObjCMetadata(
   const classlistSection = findObjCSection(sections, "__objc_classlist");
 
   if (classlistSection) {
-    const sectionOffset = classlistSection.offset;
+    // Use vmaddr→fileoff mapping instead of section.offset, because
+    // dyld_shared_cache extracted binaries have stale section offsets.
+    const sectionOffset = vmaddrToFileOffset(classlistSection.addr, segments) ?? classlistSection.offset;
     const sectionSize = Number(classlistSection.size);
     const pointerCount = Math.floor(sectionSize / 8);
 
@@ -531,7 +611,7 @@ export function extractObjCMetadata(
       if (ptrFileOffset + 8 > view.byteLength) break;
 
       // Resolve the pointer (may be a chained fixup)
-      let classVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le);
+      let classVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments);
       classVmaddr = classVmaddr & POINTER_MASK; // strip low 3 flag bits
 
       if (classVmaddr === 0n) continue;

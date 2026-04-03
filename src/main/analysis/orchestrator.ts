@@ -47,7 +47,7 @@ import { extractStrings } from "../parser/strings";
 import type { StringEntry as ParserStringEntry } from "../parser/strings";
 import { parseSymbolTable, parseExportTrie } from "../parser/symbols";
 import type { Symbol as ParserSymbol } from "../parser/symbols";
-import { extractObjCMetadata } from "../parser/objc";
+import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
 import { parseCodeSignature, extractEntitlements } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
 import { runSecurityScan, getBinaryHardening } from "./security";
@@ -136,6 +136,12 @@ export function buildFileTree(dirPath: string): FileEntry[] {
   } catch {
     return [];
   }
+}
+
+/** Build signature from prefix (-/+), selector, and raw type encoding using the full ObjC type parser. */
+function buildMethodSignatureFromParts(prefix: string, selector: string, typeEncoding: string): string {
+  if (!typeEncoding) return `${prefix}${selector}`;
+  return buildMethodSignature(selector, typeEncoding, prefix === "-");
 }
 
 // ── Section / Segment conversion helpers ────────────────────────────
@@ -687,6 +693,138 @@ async function analyzeBinaryFile(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`ObjC metadata error: ${msg}`);
+  }
+
+  // Step 10b: Enrich classes with methods from symbol table when method
+  // selector names couldn't be resolved (common with dyld_shared_cache
+  // extracted binaries where relative method offsets point outside the file).
+  // The method list may have type encodings but empty selectors — we merge
+  // symbol table names with those type encodings by index.
+  {
+    const classesNeedingEnrichment = classes.filter(
+      (c) => c.methods.length > 0 && c.methods.some((m) => m.selector === "")
+    );
+    const classesWithNoMethods = classes.filter((c) => c.methods.length === 0);
+
+    if ((classesNeedingEnrichment.length > 0 || classesWithNoMethods.length > 0) && rawSymbols.length > 0) {
+      // Build map: className → ordered methods from ObjC symbols like -[Class method:]
+      const symMethodMap = new Map<string, { selector: string; prefix: string }[]>();
+      for (const sym of rawSymbols) {
+        const m = sym.name.match(/^([+-])\[(\S+)\s+(.+)\]$/);
+        if (!m) continue;
+        const className = m[2]!;
+        if (!symMethodMap.has(className)) symMethodMap.set(className, []);
+        symMethodMap.get(className)!.push({
+          selector: m[3]!,
+          prefix: m[1]!,
+        });
+      }
+
+      // Merge: fill in selector names from symbols, keep type encodings from method list.
+      // Method list and symbol table may be in different orders, so match by
+      // argument count (colons in selector == arg types in encoding).
+      for (const cls of classesNeedingEnrichment) {
+        const symMethods = symMethodMap.get(cls.name);
+        if (!symMethods) continue;
+
+        const symInstanceMethods = symMethods.filter((m) => m.prefix === "-");
+
+        // Group unnamed method entries by arg count (from type encoding)
+        // Type encoding args = total decoded types - 3 (return, self, _cmd)
+        const countArgsFromEncoding = (enc: string): number => {
+          let count = 0;
+          let pos = 0;
+          while (pos < enc.length) {
+            const ch = enc[pos]!;
+            // Skip offset digits
+            if ((ch >= "0" && ch <= "9") || ch === "-") { pos++; continue; }
+            // Skip qualifiers
+            if ("rnNoORV".includes(ch)) { pos++; continue; }
+            // Count a type
+            if (ch === "{") { const c = enc.indexOf("}", pos); pos = c !== -1 ? c + 1 : pos + 1; }
+            else if (ch === "(") { const c = enc.indexOf(")", pos); pos = c !== -1 ? c + 1 : pos + 1; }
+            else if (ch === "[") { const c = enc.indexOf("]", pos); pos = c !== -1 ? c + 1 : pos + 1; }
+            else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === "?") { pos += 2; }
+            else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === '"') {
+              const c = enc.indexOf('"', pos + 2); pos = c !== -1 ? c + 1 : pos + 1;
+            }
+            else if (ch === "^") { pos++; continue; } // pointer prefix, next char is the type
+            else { pos++; }
+            count++;
+          }
+          return Math.max(0, count - 3); // subtract return, self, _cmd
+        };
+
+        // Build map: argCount → list of unnamed method entries with their type encoding
+        const byArgCount = new Map<number, { method: typeof cls.methods[0]; enc: string }[]>();
+        for (const method of cls.methods) {
+          if (method.selector !== "") continue;
+          const enc = method.signature; // raw type encoding stored when name was empty
+          const argc = countArgsFromEncoding(enc);
+          if (!byArgCount.has(argc)) byArgCount.set(argc, []);
+          byArgCount.get(argc)!.push({ method, enc });
+        }
+
+        // Match symbols to method entries by arg count
+        const usedSymbols = new Set<number>();
+        for (const [argc, entries] of byArgCount) {
+          const matchingSyms = symInstanceMethods
+            .map((s, i) => ({ s, i }))
+            .filter(({ s, i }) => !usedSymbols.has(i) && (s.selector.match(/:/g) || []).length === argc);
+
+          if (matchingSyms.length === entries.length) {
+            // Unique match — pair them with full type info
+            for (let j = 0; j < entries.length; j++) {
+              const { method, enc } = entries[j]!;
+              const { s, i } = matchingSyms[j]!;
+              method.selector = s.selector;
+              method.signature = buildMethodSignatureFromParts(s.prefix, s.selector, enc);
+              usedSymbols.add(i);
+            }
+          } else {
+            // Ambiguous — more entries than symbols or vice versa.
+            // Assign names and try type info (may be wrong for some).
+            for (let j = 0; j < Math.min(entries.length, matchingSyms.length); j++) {
+              const { method, enc } = entries[j]!;
+              const { s, i } = matchingSyms[j]!;
+              method.selector = s.selector;
+              method.signature = buildMethodSignatureFromParts(s.prefix, s.selector, enc);
+              usedSymbols.add(i);
+            }
+          }
+        }
+
+        // Assign any remaining unmatched symbols to remaining unnamed methods
+        const remainingSyms = symInstanceMethods.filter((_, i) => !usedSymbols.has(i));
+        const remainingMethods = cls.methods.filter((m) => m.selector === "");
+        for (let j = 0; j < Math.min(remainingMethods.length, remainingSyms.length); j++) {
+          remainingMethods[j]!.selector = remainingSyms[j]!.selector;
+          remainingMethods[j]!.signature = `${remainingSyms[j]!.prefix}${remainingSyms[j]!.selector}`;
+        }
+
+        // Add class methods (+) not in the instance method list
+        const symClassMethods = symMethods.filter((m) => m.prefix === "+");
+        for (const cm of symClassMethods) {
+          if (!cls.methods.some((m) => m.selector === cm.selector)) {
+            cls.methods.push({ selector: cm.selector, signature: `+${cm.selector}` });
+          }
+        }
+
+        // Remove any remaining unnamed methods
+        cls.methods = cls.methods.filter((m) => m.selector !== "");
+      }
+
+      // Classes with no methods at all — populate entirely from symbols
+      for (const cls of classesWithNoMethods) {
+        const symMethods = symMethodMap.get(cls.name);
+        if (symMethods) {
+          cls.methods = symMethods.map((m) => ({
+            selector: m.selector,
+            signature: `${m.prefix}${m.selector}`,
+          }));
+        }
+      }
+    }
   }
 
   // Step 11: Parse code signature + entitlements
