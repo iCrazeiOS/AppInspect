@@ -825,3 +825,333 @@ html, body {
   font-size: 12px;
   color: #79c0ff;
 }
+
+/* ══════════════════════════════════════════════
+   Security Scan Tab (sec-)
+   ══════════════════════════════════════════════ */
+
+.sec-root {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Summary badges ── */
+.sec-summary {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sec-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.sec-badge--critical {
+  background-color: rgba(248, 81, 73, 0.18);
+  color: #f85149;
+}
+
+.sec-badge--warning {
+  background-color: rgba(210, 153, 34, 0.18);
+  color: #d29922;
+}
+
+.sec-badge--info {
+  background-color: rgba(88, 166, 255, 0.18);
+  color: #58a6ff;
+}
+
+/* ── Section title ── */
+.sec-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+/* ── Binary hardening grid ── */
+.sec-hardening {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.sec-hardening-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.sec-hardening-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.sec-hardening-icon {
+  font-size: 16px;
+  font-weight: 700;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sec-hardening-pass {
+  color: #3fb950;
+}
+
+.sec-hardening-fail {
+  color: #f85149;
+}
+
+.sec-hardening-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* ── Filter buttons ── */
+.sec-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sec-filter-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.sec-filter-btn {
+  padding: 4px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.sec-filter-btn:hover {
+  border-color: var(--text-muted);
+}
+
+.sec-filter-btn--critical.sec-filter-btn--active {
+  background-color: rgba(248, 81, 73, 0.18);
+  color: #f85149;
+  border-color: rgba(248, 81, 73, 0.4);
+}
+
+.sec-filter-btn--warning.sec-filter-btn--active {
+  background-color: rgba(210, 153, 34, 0.18);
+  color: #d29922;
+  border-color: rgba(210, 153, 34, 0.4);
+}
+
+.sec-filter-btn--info.sec-filter-btn--active {
+  background-color: rgba(88, 166, 255, 0.18);
+  color: #58a6ff;
+  border-color: rgba(88, 166, 255, 0.4);
+}
+
+/* ── Search wrapper ── */
+.sec-search {
+  flex-shrink: 0;
+}
+
+/* ── Findings list ── */
+.sec-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sec-finding-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 150ms ease;
+}
+
+.sec-finding-card:hover {
+  border-color: var(--text-muted);
+}
+
+.sec-finding-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sec-finding-category {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  background-color: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.sec-finding-message {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.sec-finding-evidence {
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  background-color: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  border-radius: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.sec-finding-location {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.sec-no-findings {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 32px 16px;
+  font-size: 14px;
+}
+
+/* ══════════════════════════════════════════════
+   File Browser Tab (ft-)
+   ══════════════════════════════════════════════ */
+
+.ft-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.ft-tree {
+  user-select: text;
+}
+
+.ft-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: background-color 100ms ease;
+  white-space: nowrap;
+}
+
+.ft-row:hover {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+.ft-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+.ft-toggle-active {
+  cursor: pointer;
+}
+
+.ft-toggle-active:hover {
+  color: var(--accent);
+}
+
+.ft-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+.ft-name {
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-name-match {
+  background-color: rgba(210, 153, 34, 0.3);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.ft-size {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  padding-right: 4px;
+}
+
+/* ── File-type badges ── */
+.ft-badge {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ft-badge-binary {
+  background-color: var(--accent);
+}
+
+.ft-badge-plist {
+  background-color: #3fb950;
+}
+
+.ft-badge-provision {
+  background-color: #ffa657;
+}
+
+.ft-badge-framework {
+  background-color: #58a6ff;
+}
+
+/* ── Expand / collapse animation ── */
+.ft-children {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 150ms ease, opacity 150ms ease;
+}
+
+.ft-children-open {
+  max-height: 100000px;
+  opacity: 1;
+}

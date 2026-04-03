@@ -2,8 +2,13 @@
 /// <reference path="./global.d.ts" />
 
 import type { AnalysisResult } from "../shared/types";
+import { renderOverview } from "./tabs/overview";
+import { renderLibraries } from "./tabs/libraries";
+import { renderHeaders } from "./tabs/headers";
 import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
+import { renderSecurity } from "./tabs/security";
+import { renderFiles } from "./tabs/files";
 
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
@@ -82,11 +87,23 @@ async function loadTabData(tabId: string): Promise<void> {
     const panel = document.getElementById(`tab-${tabId}`);
     if (panel && tabData != null) {
       switch (tabId) {
+        case "overview":
+          renderOverview(panel, (tabData as any)?.data ?? tabData);
+          break;
+        case "libraries":
+          renderLibraries(panel, (tabData as any)?.data ?? tabData);
+          break;
+        case "headers":
+          renderHeaders(panel, (tabData as any)?.data ?? tabData);
+          break;
         case "strings":
           renderStrings(panel, tabData);
           break;
         case "symbols":
           renderSymbols(panel, tabData);
+          break;
+        case "security":
+          renderSecurity(panel, (tabData as any)?.data ?? tabData);
           break;
         default:
           break;
@@ -120,6 +137,13 @@ async function startAnalysis(filePath: string): Promise<void> {
     analysisResult = result;
     loadedTabs.add("overview"); // Overview is included in the full result
     setState("content");
+
+    // Render overview immediately from the full result
+    const overviewPanel = document.getElementById("tab-overview");
+    if (overviewPanel) {
+      renderOverview(overviewPanel, result.overview);
+    }
+
     switchTab("overview");
     console.log("[Disect] Analysis complete:", result);
   } catch (err) {
