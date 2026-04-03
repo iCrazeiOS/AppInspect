@@ -50,6 +50,7 @@ import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
 import { parseCodeSignature, extractEntitlements } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
 import { runSecurityScan, getBinaryHardening } from "./security";
+import { parseFunctionStarts, buildStringXrefMap, formatFunctionName } from "../parser/xrefs";
 import { extractDEB } from "../deb/extractor";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import {
@@ -798,8 +799,8 @@ async function analyzeBinaryFile(
     errors.push(`Code signature parse error: ${msg}`);
   }
 
-  // Step 12: Run security scan
-  progressCallback("Running security scan...", basePercent + 55);
+  // Step 12: Run security scan (first pass — without xrefs)
+  progressCallback("Running security scan...", basePercent + 52);
   await yieldToEventLoop();
   try {
     // Convert strings back to the format security.ts expects
@@ -833,6 +834,55 @@ async function analyzeBinaryFile(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`Security scan error: ${msg}`);
+  }
+
+  // Step 12b: Enrich findings with function names (only if there are
+  // string-based findings that benefit from attribution)
+  const stringFindings = findings.filter((f) =>
+    f.category === "credential-leak" || f.category === "jailbreak-detection"
+  );
+  if (stringFindings.length > 0) {
+    progressCallback("Resolving function references...", basePercent + 57);
+    await yieldToEventLoop();
+    try {
+      const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
+      if (textSeg) {
+        let funcStarts: bigint[] = [];
+        if (lcResult.functionStartsInfo) {
+          funcStarts = parseFunctionStarts(
+            buffer,
+            lcResult.functionStartsInfo.offset,
+            lcResult.functionStartsInfo.size,
+            textSeg.vmaddr,
+          );
+        }
+        const stringXrefs = buildStringXrefMap(
+          buffer,
+          lcResult.segments,
+          funcStarts,
+          rawSymbols,
+          machoFile.littleEndian,
+          rebaseMap,
+        );
+
+        // Annotate findings with function names
+        for (const finding of stringFindings) {
+          if (finding.location) {
+            const match = finding.location.match(/offset=0x([0-9a-f]+)/);
+            if (match) {
+              const offset = parseInt(match[1]!, 16);
+              const names = stringXrefs.get(offset);
+              if (names && names.length > 0) {
+                finding.functionName = formatFunctionName(names[0]!);
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Cross-reference analysis error: ${msg}`);
+    }
   }
 
   // Step 13: Detect hooks

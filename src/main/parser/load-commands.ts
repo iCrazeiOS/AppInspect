@@ -165,6 +165,7 @@ export interface LoadCommandsResult {
   symtabInfo: SymtabCommand | null;
   codeSignatureInfo: { offset: number; size: number } | null;
   chainedFixupsInfo: { offset: number; size: number } | null;
+  functionStartsInfo: { offset: number; size: number } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -276,6 +277,7 @@ export function parseLoadCommands(
     symtabInfo: null,
     codeSignatureInfo: null,
     chainedFixupsInfo: null,
+    functionStartsInfo: null,
   };
 
   const endOffset = offset + sizeofcmds;
@@ -467,6 +469,7 @@ export function parseLoadCommands(
           dataoff: view.getUint32(cursor + 8, le),
           datasize: view.getUint32(cursor + 12, le),
         };
+        result.functionStartsInfo = { offset: fs.dataoff, size: fs.datasize };
         parsed = fs;
         break;
       }

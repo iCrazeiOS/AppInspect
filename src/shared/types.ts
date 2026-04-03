@@ -196,6 +196,7 @@ export interface SecurityFinding {
   message: string;
   evidence: string;
   location?: string;
+  functionName?: string;
 }
 
 export interface BinaryHardening {

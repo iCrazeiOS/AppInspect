@@ -13,6 +13,7 @@ interface SecurityFinding {
   message: string;
   evidence: string;
   location?: string;
+  functionName?: string;
 }
 
 interface BinaryHardening {
@@ -183,7 +184,8 @@ export function renderSecurity(container: HTMLElement, data: any): void {
               re.test(f.message) ||
               re.test(f.category) ||
               re.test(f.evidence) ||
-              (f.location && re.test(f.location))
+              (f.location && re.test(f.location)) ||
+              (f.functionName && re.test(f.functionName))
           );
         } catch {
           // Invalid regex, skip filtering
@@ -195,7 +197,8 @@ export function renderSecurity(container: HTMLElement, data: any): void {
             f.message.toLowerCase().includes(lower) ||
             f.category.toLowerCase().includes(lower) ||
             f.evidence.toLowerCase().includes(lower) ||
-            (f.location && f.location.toLowerCase().includes(lower))
+            (f.location && f.location.toLowerCase().includes(lower)) ||
+            (f.functionName && f.functionName.toLowerCase().includes(lower))
         );
       }
     }
@@ -256,6 +259,21 @@ export function renderSecurity(container: HTMLElement, data: any): void {
             ? finding.evidence.slice(0, MAX_EVIDENCE_LEN) + "\u2026"
             : finding.evidence;
         card.appendChild(evi);
+      }
+
+      // Function name
+      if (finding.functionName) {
+        const fn = document.createElement("div");
+        fn.className = "sec-finding-function";
+        const label = document.createElement("span");
+        label.className = "sec-finding-function-label";
+        label.textContent = "Referenced in: ";
+        const name = document.createElement("code");
+        name.className = "sec-finding-function-name";
+        name.textContent = finding.functionName;
+        fn.appendChild(label);
+        fn.appendChild(name);
+        card.appendChild(fn);
       }
 
       // Location

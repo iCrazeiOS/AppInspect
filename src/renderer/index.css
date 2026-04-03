@@ -1197,6 +1197,29 @@ html, body {
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
 }
 
+.sec-finding-function {
+  font-size: 12px;
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.sec-finding-function-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sec-finding-function-name {
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
 .sec-no-findings {
   text-align: center;
   color: var(--text-muted);
