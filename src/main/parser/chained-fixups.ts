@@ -13,14 +13,17 @@ import { readCString } from "./load-commands";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-/** Pointer format: DYLD_CHAINED_PTR_64_OFFSET */
+/** Pointer format: DYLD_CHAINED_PTR_64 (absolute vmaddr targets) */
+export const DYLD_CHAINED_PTR_64 = 2;
+
+/** Pointer format: DYLD_CHAINED_PTR_64_OFFSET (image-base-relative targets) */
 export const DYLD_CHAINED_PTR_64_OFFSET = 6;
 
 /** Sentinel: no fixups in this page */
 export const DYLD_CHAINED_PTR_START_NONE = 0xffff;
 
-/** Stride for DYLD_CHAINED_PTR_64_OFFSET */
-const STRIDE_64_OFFSET = 4;
+/** Stride for both DYLD_CHAINED_PTR_64 and DYLD_CHAINED_PTR_64_OFFSET */
+const STRIDE_64 = 4;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -187,7 +190,7 @@ function walkChain(
       rebaseMap.set(currentOffset, resolved);
 
       if (next === 0) break;
-      currentOffset += next * STRIDE_64_OFFSET;
+      currentOffset += next * STRIDE_64;
     } else {
       // Bind entry (dyld_chained_ptr_64_bind)
       //   ordinal: bits 0-23 (24 bits)
@@ -208,7 +211,7 @@ function walkChain(
       bindMap.set(currentOffset, { ordinal, symbolName, addend });
 
       if (next === 0) break;
-      currentOffset += next * STRIDE_64_OFFSET;
+      currentOffset += next * STRIDE_64;
     }
   }
 }
@@ -292,8 +295,12 @@ export function buildFixupMap(
 
     const startsInSeg = parseStartsInSegment(view, startsInSegOffset, le);
 
-    // Only support DYLD_CHAINED_PTR_64_OFFSET (format 6)
-    if (startsInSeg.pointer_format !== DYLD_CHAINED_PTR_64_OFFSET) {
+    // Support DYLD_CHAINED_PTR_64 (format 2) and DYLD_CHAINED_PTR_64_OFFSET (format 6)
+    // Both have identical bit layouts and stride; format 2 targets are absolute vmaddrs,
+    // format 6 targets are image-base-relative offsets. Both resolve the same way since
+    // we store the raw resolved value and let vmaddrToFileOffset handle translation.
+    if (startsInSeg.pointer_format !== DYLD_CHAINED_PTR_64_OFFSET &&
+        startsInSeg.pointer_format !== DYLD_CHAINED_PTR_64) {
       continue;
     }
 

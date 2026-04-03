@@ -354,7 +354,14 @@ async function analyzeBinaryFile(
       const selectedArch = arm64Arch ?? fatArchs[0];
 
       if (selectedArch) {
-        const headerResult = parseMachOHeader(buffer, selectedArch.offset);
+        // Slice the buffer to the selected architecture so all internal
+        // offsets (symoff, stroff, section offsets, etc.) are correct.
+        // For thin binaries (offset=0, size=full), this is a no-op.
+        if (selectedArch.offset > 0) {
+          buffer = buffer.slice(selectedArch.offset, selectedArch.offset + selectedArch.size);
+        }
+
+        const headerResult = parseMachOHeader(buffer, 0);
         if (headerResult.ok) {
           machoFile = headerResult.data;
           header = machoFile.header;
