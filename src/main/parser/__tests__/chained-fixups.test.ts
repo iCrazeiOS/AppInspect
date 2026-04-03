@@ -23,19 +23,21 @@ function writeCString(view: DataView, offset: number, str: string): void {
 
 /**
  * Encode a DYLD_CHAINED_PTR_64_OFFSET rebase entry as a BigInt.
- * bit 63 = 0 (rebase), bits 0-35 = target, bits 36-51 = high8, bits 52-62 = next
+ * Layout: target(36) | high8(8) | reserved(7) | next(12) | bind(1)
+ *   bits 0-35 = target, bits 36-43 = high8, bits 51-62 = next, bit 63 = 0
  */
 function encodeRebase(target: bigint, high8: bigint, next: number): bigint {
   return (
     (target & 0xFFFFFFFFFn) |
-    ((high8 & 0xFFFFn) << 36n) |
-    (BigInt(next & 0x7ff) << 52n)
+    ((high8 & 0xFFn) << 36n) |
+    (BigInt(next & 0xfff) << 51n)
   );
 }
 
 /**
  * Encode a DYLD_CHAINED_PTR_64_OFFSET bind entry as a BigInt.
- * bit 63 = 1 (bind), bits 0-23 = ordinal, bit 24 = addend sign, bits 25-42 = addend, bits 52-62 = next
+ * Layout: ordinal(24) | addend_sign(1) | addend(18) | reserved(9) | next(12) | bind(1)
+ *   bits 0-23 = ordinal, bit 24 = sign, bits 25-42 = addend, bits 51-62 = next, bit 63 = 1
  */
 function encodeBind(ordinal: number, addend: bigint, next: number): bigint {
   const sign = addend < 0n ? 1n : 0n;
@@ -45,7 +47,7 @@ function encodeBind(ordinal: number, addend: bigint, next: number): bigint {
     (BigInt(ordinal) & 0xFFFFFFn) |
     (sign << 24n) |
     ((absAddend & 0x3FFFFn) << 25n) |
-    (BigInt(next & 0x7ff) << 52n)
+    (BigInt(next & 0xfff) << 51n)
   );
 }
 
@@ -208,7 +210,7 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
         view.setBigUint64(entryOffset, page.entries[e], le);
         // Calculate next delta from the entry itself to advance
         const raw = page.entries[e];
-        const next = Number((raw >> 52n) & 0x7FFn);
+        const next = Number((raw >> 51n) & 0xFFFn);
         if (next === 0) break;
         entryOffset += next * 4;
       }

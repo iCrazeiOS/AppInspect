@@ -172,10 +172,15 @@ function walkChain(
     const bind = (raw >> 63n) & 1n;
 
     if (bind === 0n) {
-      // Rebase entry
+      // Rebase entry (dyld_chained_ptr_64_rebase)
+      //   target: bits 0-35  (36 bits)
+      //   high8:  bits 36-43 (8 bits)
+      //   reserved: bits 44-50 (7 bits)
+      //   next:   bits 51-62 (12 bits)
+      //   bind:   bit 63
       const target = raw & 0xFFFFFFFFFn; // bits 0-35
-      const high8 = (raw >> 36n) & 0xFFFFn; // bits 36-51
-      const next = Number((raw >> 52n) & 0x7FFn); // bits 52-62
+      const high8 = (raw >> 36n) & 0xFFn; // bits 36-43
+      const next = Number((raw >> 51n) & 0xFFFn); // bits 51-62
 
       // Resolved value: target | (high8 << 56) for DYLD_CHAINED_PTR_64_OFFSET
       const resolved = target | (high8 << 56n);
@@ -184,11 +189,16 @@ function walkChain(
       if (next === 0) break;
       currentOffset += next * STRIDE_64_OFFSET;
     } else {
-      // Bind entry
+      // Bind entry (dyld_chained_ptr_64_bind)
+      //   ordinal: bits 0-23 (24 bits)
+      //   addend:  bits 24-31 (8 bits)
+      //   reserved: bits 32-50 (19 bits)
+      //   next:   bits 51-62 (12 bits)
+      //   bind:   bit 63
       const ordinal = Number(raw & 0xFFFFFFn); // bits 0-23
       const addendSign = (raw >> 24n) & 1n; // bit 24
       const addendRaw = (raw >> 25n) & 0x3FFFFn; // bits 25-42 (18 bits)
-      const next = Number((raw >> 52n) & 0x7FFn); // bits 52-62
+      const next = Number((raw >> 51n) & 0xFFFn); // bits 51-62
 
       const addend = addendSign === 1n ? -addendRaw : addendRaw;
 
