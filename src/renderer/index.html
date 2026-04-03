@@ -40,44 +40,60 @@
           <button class="tab-btn active" data-tab="overview">
             <span class="tab-icon">&#x1F4CA;</span>
             <span class="tab-label">Overview</span>
+            <button class="export-tab-btn hidden" data-export-tab="overview" title="Export Overview as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="strings">
             <span class="tab-icon">&#x1F524;</span>
             <span class="tab-label">Strings</span>
+            <button class="export-tab-btn hidden" data-export-tab="strings" title="Export Strings as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="headers">
             <span class="tab-icon">&#x1F4D1;</span>
             <span class="tab-label">Headers</span>
+            <button class="export-tab-btn hidden" data-export-tab="headers" title="Export Headers as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="libraries">
             <span class="tab-icon">&#x1F4DA;</span>
             <span class="tab-label">Libraries</span>
+            <button class="export-tab-btn hidden" data-export-tab="libraries" title="Export Libraries as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="symbols">
             <span class="tab-icon">&#x1F523;</span>
             <span class="tab-label">Symbols</span>
+            <button class="export-tab-btn hidden" data-export-tab="symbols" title="Export Symbols as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="classes">
             <span class="tab-icon">&#x1F3D7;</span>
             <span class="tab-label">Classes</span>
+            <button class="export-tab-btn hidden" data-export-tab="classes" title="Export Classes as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="entitlements">
             <span class="tab-icon">&#x1F512;</span>
             <span class="tab-label">Entitlements</span>
+            <button class="export-tab-btn hidden" data-export-tab="entitlements" title="Export Entitlements as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="infoplist">
             <span class="tab-icon">&#x2699;</span>
             <span class="tab-label">Info.plist</span>
+            <button class="export-tab-btn hidden" data-export-tab="infoPlist" title="Export Info.plist as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="security">
             <span class="tab-icon">&#x1F6E1;</span>
             <span class="tab-label">Security</span>
+            <button class="export-tab-btn hidden" data-export-tab="security" title="Export Security as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="files">
             <span class="tab-icon">&#x1F4C1;</span>
             <span class="tab-label">Files</span>
+            <button class="export-tab-btn hidden" data-export-tab="files" title="Export Files as JSON">&#x2B07;</button>
           </button>
         </nav>
+        <div class="sidebar-footer hidden" id="sidebar-footer">
+          <button id="btn-export-all" class="btn-export-all">
+            <span class="btn-icon">&#x1F4E4;</span>
+            Export All
+          </button>
+        </div>
       </aside>
 
       <!-- Main content area -->

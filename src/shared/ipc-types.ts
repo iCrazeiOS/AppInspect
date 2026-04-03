@@ -102,7 +102,7 @@ export type InvokeChannelMap = {
   };
   'export-json': {
     params: { tabs?: TabName[] };
-    result: string;
+    result: { success: boolean; path?: string };
   };
   'open-file-picker': {
     params: void;
