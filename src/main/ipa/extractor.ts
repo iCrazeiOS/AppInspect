@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { execFileSync } from "child_process";
 import { unzipSync } from "fflate";
 
 export interface BinaryInfo {
@@ -19,10 +20,33 @@ export interface ExtractionError {
 }
 
 /**
- * Extract an IPA file (which is a ZIP archive) to a destination directory.
- * Uses fflate.unzipSync for decompression.
+ * Extract an IPA file (ZIP archive) to a destination directory.
+ * Uses system tools for large files, fflate for small ones.
  */
 export function extractIPA(
+  ipaPath: string,
+  destDir: string
+): ExtractionResult | ExtractionError {
+  try {
+    // Ensure destDir exists
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const stat = fs.statSync(ipaPath);
+
+    // For files > 50MB, use system extraction to avoid memory issues
+    if (stat.size > 50 * 1024 * 1024) {
+      return extractWithSystem(ipaPath, destDir);
+    }
+
+    // For smaller files, use fflate (fast, in-process)
+    return extractWithFflate(ipaPath, destDir);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Failed to extract IPA: ${message}` };
+  }
+}
+
+function extractWithFflate(
   ipaPath: string,
   destDir: string
 ): ExtractionResult | ExtractionError {
@@ -31,26 +55,42 @@ export function extractIPA(
     const data = new Uint8Array(fileBuffer);
     const unzipped = unzipSync(data);
 
-    // Ensure destDir exists
-    fs.mkdirSync(destDir, { recursive: true });
-
     for (const [filePath, fileData] of Object.entries(unzipped)) {
-      // Normalize path separators for the current OS
       const normalizedPath = filePath.split("/").join(path.sep);
       const fullPath = path.join(destDir, normalizedPath);
 
-      // Skip directory entries (they end with / and have zero length)
       if (filePath.endsWith("/")) {
         fs.mkdirSync(fullPath, { recursive: true });
         continue;
       }
 
-      // Ensure parent directory exists
       const parentDir = path.dirname(fullPath);
       fs.mkdirSync(parentDir, { recursive: true });
-
-      // Write the file
       fs.writeFileSync(fullPath, fileData);
+    }
+
+    return { success: true, extractedDir: destDir };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, error: `Failed to extract IPA: ${message}` };
+  }
+}
+
+function extractWithSystem(
+  ipaPath: string,
+  destDir: string
+): ExtractionResult | ExtractionError {
+  try {
+    if (process.platform === "win32") {
+      // Use tar on Windows (available since Windows 10 1803, handles ZIP)
+      execFileSync("tar", ["-xf", ipaPath, "-C", destDir], {
+        timeout: 120000,
+      });
+    } else {
+      // Use unzip on macOS/Linux
+      execFileSync("unzip", ["-o", "-q", ipaPath, "-d", destDir], {
+        timeout: 120000,
+      });
     }
 
     return { success: true, extractedDir: destDir };
