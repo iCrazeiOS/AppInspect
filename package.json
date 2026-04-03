@@ -6,8 +6,8 @@
   "private": true,
   "scripts": {
     "build": "bun run build:main && bun run build:preload && bun run build:renderer && bun run build:css",
-    "build:main": "bun build src/main/index.ts --outdir dist/main --target node --external electron",
-    "build:preload": "bun build src/preload/index.ts --outdir dist/preload --target node --external electron",
+    "build:main": "bun build src/main/index.ts --outdir dist/main --target node --format cjs --external electron",
+    "build:preload": "bun build src/preload/index.ts --outdir dist/preload --target node --format cjs --external electron",
     "build:renderer": "bun build src/renderer/index.ts --outdir dist/renderer --target browser",
     "build:css": "cp src/renderer/index.css dist/renderer/index.css",
     "start": "bun run build && electron ."
