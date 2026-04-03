@@ -9,9 +9,9 @@ import { ipcMain, dialog, BrowserWindow } from "electron";
 import { writeFileSync } from "fs";
 import type { TabName } from "../../shared/ipc-types";
 import {
-  analyzeIPA,
-  analyzeFile,
-  analyzeBinary,
+  analyseIPA,
+  analyseFile,
+  analyseBinary,
   getCachedResult,
 } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
@@ -40,10 +40,10 @@ function sanitizeBigInts<T>(obj: T): T {
 }
 
 export function registerIPCHandlers(win: BrowserWindow): void {
-  // ── analyze-ipa ──
-  ipcMain.handle("analyze-ipa", async (_event, args: { path: string }) => {
+  // ── analyse-ipa ──
+  ipcMain.handle("analyse-ipa", async (_event, args: { path: string }) => {
     try {
-      const result = await analyzeIPA(args.path, (phase, percent) => {
+      const result = await analyseIPA(args.path, (phase, percent) => {
         win.webContents.send("update-progress", {
           phase,
           percent,
@@ -61,10 +61,10 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     }
   });
 
-  // ── analyze-file (unified: IPA, Mach-O, or DEB) ──
-  ipcMain.handle("analyze-file", async (_event, args: { path: string }) => {
+  // ── analyse-file (unified: IPA, Mach-O, or DEB) ──
+  ipcMain.handle("analyse-file", async (_event, args: { path: string }) => {
     try {
-      const result = await analyzeFile(args.path, (phase, percent) => {
+      const result = await analyseFile(args.path, (phase, percent) => {
         win.webContents.send("update-progress", {
           phase,
           percent,
@@ -82,10 +82,10 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     }
   });
 
-  // ── analyze-binary ──
-  ipcMain.handle("analyze-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
+  // ── analyse-binary ──
+  ipcMain.handle("analyse-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
     try {
-      const result = await analyzeBinary(args.binaryIndex, (phase, percent) => {
+      const result = await analyseBinary(args.binaryIndex, (phase, percent) => {
         win.webContents.send("update-progress", { phase, percent, message: phase });
       }, args.cpuType, args.cpuSubtype);
 

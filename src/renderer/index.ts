@@ -308,7 +308,7 @@ async function handleBinaryChange(): Promise<void> {
   setBinarySwitchLoading(true);
 
   try {
-    const result = await window.api.analyzeBinary(selectedIndex);
+    const result = await window.api.analyseBinary(selectedIndex);
     analysisResult = result;
 
     // Clear all cached tab renders so they re-render with new data
@@ -399,7 +399,7 @@ async function handleArchChange(): Promise<void> {
   setBinarySwitchLoading(true);
 
   try {
-    const result = await window.api.analyzeBinary(currentBinaryIndex, cpuType, cpuSubtype);
+    const result = await window.api.analyseBinary(currentBinaryIndex, cpuType, cpuSubtype);
     analysisResult = result;
     clearAllTabContent();
     loadedTabs.add(currentTab);
@@ -433,7 +433,7 @@ async function startAnalysis(filePath: string): Promise<void> {
   currentArchIndex = 0;
 
   try {
-    const result = await window.api.analyzeFile(filePath);
+    const result = await window.api.analyseFile(filePath);
     analysisResult = result;
     loadedTabs.add("overview"); // Overview is included in the full result
     setState("content");

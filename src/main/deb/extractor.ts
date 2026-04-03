@@ -294,7 +294,7 @@ export async function extractDEB(
           control = parseControlFile(fs.readFileSync(controlFilePath, "utf-8"));
         }
       } catch (err) {
-        // Non-fatal: we can still analyze binaries without control metadata
+        // Non-fatal: we can still analyse binaries without control metadata
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[DEB] Failed to parse control: ${msg}`);
       }

@@ -2,9 +2,9 @@ import type { AnalysisResult } from "../shared/types";
 import type { TabData, TabName, ProgressPayload, AnalysisErrorPayload } from "../shared/ipc-types";
 
 export interface AppInspectAPI {
-  analyzeFile(filePath: string): Promise<AnalysisResult>;
-  analyzeIPA(filePath: string): Promise<AnalysisResult>;
-  analyzeBinary(binaryIndex: number, cpuType?: number, cpuSubtype?: number): Promise<AnalysisResult>;
+  analyseFile(filePath: string): Promise<AnalysisResult>;
+  analyseIPA(filePath: string): Promise<AnalysisResult>;
+  analyseBinary(binaryIndex: number, cpuType?: number, cpuSubtype?: number): Promise<AnalysisResult>;
   getTabData(tab: TabName, binaryIndex?: number): Promise<TabData>;
   exportJSON(tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
   openFilePicker(): Promise<string | null>;

@@ -99,11 +99,11 @@ export type TabName = TabData['tab'];
 // ── Invoke channels (renderer -> main) ──
 
 export type InvokeChannelMap = {
-  'analyze-file': {
+  'analyse-file': {
     params: { path: string };
     result: AnalysisResult;
   };
-  'analyze-ipa': {
+  'analyse-ipa': {
     params: { path: string };
     result: AnalysisResult;
   };
@@ -119,7 +119,7 @@ export type InvokeChannelMap = {
     params: void;
     result: string | null;
   };
-  'analyze-binary': {
+  'analyse-binary': {
     params: { binaryIndex: number };
     result: AnalysisResult;
   };

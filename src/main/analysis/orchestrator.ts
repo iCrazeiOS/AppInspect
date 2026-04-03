@@ -400,7 +400,7 @@ interface BinaryAnalysisResult {
   errors: string[];
 }
 
-async function analyzeBinaryFile(
+async function analyseBinaryFile(
   binaryPath: string,
   progressCallback: (phase: string, percent: number) => void,
   basePercent: number,
@@ -910,7 +910,7 @@ async function analyzeBinaryFile(
 
 // ── Main orchestrator ───────────────────────────────────────────────
 
-export async function analyzeIPA(
+export async function analyseIPA(
   ipaPath: string,
   progressCallback: (phase: string, percent: number) => void,
 ): Promise<AnalysisResult> {
@@ -971,10 +971,10 @@ export async function analyzeIPA(
     // Non-critical
   }
 
-  // Steps 4-12: Analyze main binary (index 0)
+  // Steps 4-12: Analyse main binary (index 0)
   progressCallback("Reading binary...", 25);
   const mainBinary = binaries[0]!;
-  const binaryResult = await analyzeBinaryFile(mainBinary.path, progressCallback, 25);
+  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
 
   // If code-signature entitlements were empty, try mobileprovision
   let finalEntitlements = binaryResult.entitlements;
@@ -1043,16 +1043,16 @@ export async function analyzeIPA(
   return result;
 }
 
-// ── Re-analyze a different binary ───────────────────────────────────
+// ── Re-analyse a different binary ───────────────────────────────────
 
-export async function analyzeBinary(
+export async function analyseBinary(
   binaryIndex: number,
   progressCallback: (phase: string, percent: number) => void,
   cpuType?: number,
   cpuSubtype?: number,
 ): Promise<AnalysisResult> {
   if (!cachedResult) {
-    throw new Error("No previous analysis. Run analyzeFile first.");
+    throw new Error("No previous analysis. Run analyseFile first.");
   }
 
   if (binaryIndex < 0 || binaryIndex >= cachedBinaries.length) {
@@ -1060,7 +1060,7 @@ export async function analyzeBinary(
   }
 
   const binary = cachedBinaries[binaryIndex]!;
-  const binaryResult = await analyzeBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
+  const binaryResult = await analyseBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
 
   // Rebuild the result with the new binary data but keep IPA-level info
   const result: AnalysisResult = {
@@ -1140,9 +1140,9 @@ export function detectFileType(filePath: string): SourceType {
   return "macho";
 }
 
-// ── Analyze bare Mach-O / dylib ────────────────────────────────────
+// ── Analyse bare Mach-O / dylib ────────────────────────────────────
 
-export async function analyzeMachO(
+export async function analyseMachO(
   filePath: string,
   progressCallback: (phase: string, percent: number) => void,
 ): Promise<AnalysisResult> {
@@ -1164,8 +1164,8 @@ export async function analyzeMachO(
     type: "main",
   }];
 
-  progressCallback("Analyzing binary...", 10);
-  const binaryResult = await analyzeBinaryFile(filePath, progressCallback, 10);
+  progressCallback("Analysing binary...", 10);
+  const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
 
   const result: AnalysisResult = {
     overview: {
@@ -1211,9 +1211,9 @@ export async function analyzeMachO(
   return result;
 }
 
-// ── Analyze DEB package ────────────────────────────────────────────
+// ── Analyse DEB package ────────────────────────────────────────────
 
-export async function analyzeDEB(
+export async function analyseDEB(
   debPath: string,
   progressCallback: (phase: string, percent: number) => void,
 ): Promise<AnalysisResult> {
@@ -1243,10 +1243,10 @@ export async function analyzeDEB(
     throw new Error("No Mach-O binaries found in .deb package");
   }
 
-  // Step 2: Analyze main binary
-  progressCallback("Analyzing binary...", 20);
+  // Step 2: Analyse main binary
+  progressCallback("Analysing binary...", 20);
   const mainBinary = cachedBinaries[0]!;
-  const binaryResult = await analyzeBinaryFile(mainBinary.path, progressCallback, 20);
+  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
 
   // Step 3: Build file tree from extracted data
   progressCallback("Building file tree...", 90);
@@ -1322,7 +1322,7 @@ export async function analyzeDEB(
 
 // ── Unified file analysis entry point ──────────────────────────────
 
-export async function analyzeFile(
+export async function analyseFile(
   filePath: string,
   progressCallback: (phase: string, percent: number) => void,
 ): Promise<AnalysisResult> {
@@ -1330,10 +1330,10 @@ export async function analyzeFile(
 
   switch (fileType) {
     case "ipa":
-      return analyzeIPA(filePath, progressCallback);
+      return analyseIPA(filePath, progressCallback);
     case "macho":
-      return analyzeMachO(filePath, progressCallback);
+      return analyseMachO(filePath, progressCallback);
     case "deb":
-      return analyzeDEB(filePath, progressCallback);
+      return analyseDEB(filePath, progressCallback);
   }
 }

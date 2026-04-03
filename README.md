@@ -1,6 +1,6 @@
 # AppInspect
 
-A desktop app for analyzing iOS binaries. Open an IPA, DEB, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
+A desktop app for analysing iOS binaries. Open an IPA, DEB, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
 Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
@@ -10,7 +10,7 @@ Built with Electron and TypeScript. All analysis runs locally, offline, with no 
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
-- **Mach-O / dylib** — analyzes bare binaries directly (64-bit, fat/universal)
+- **Mach-O / dylib** — analyses bare binaries directly (64-bit, fat/universal)
 
 File type is detected automatically by magic bytes.
 
@@ -33,7 +33,7 @@ File type is detected automatically by magic bytes.
 ### Other capabilities
 
 - **Multi-binary switching** — select between main app, frameworks, extensions, or multiple dylibs in a DEB
-- **Fat binary architecture selector** — choose which slice to analyze in universal binaries
+- **Fat binary architecture selector** — choose which slice to analyse in universal binaries
 - **FairPlay encryption detection** — warns when a binary is still encrypted (App Store builds)
 - **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings
 - **Function attribution** — security findings show which function references the flagged string (arm64 xref analysis, runs lazily only when needed)
