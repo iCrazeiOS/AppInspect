@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe("extractIPA", () => {
-  it("should extract a valid IPA/ZIP file preserving directory structure", () => {
+  it("should extract a valid IPA/ZIP file preserving directory structure", async () => {
     const tmpDir = makeTempDir("extract");
     tempDirs.push(tmpDir);
 
@@ -62,7 +62,7 @@ describe("extractIPA", () => {
     fs.writeFileSync(ipaPath, ipaData);
 
     const destDir = path.join(tmpDir, "extracted");
-    const result = extractIPA(ipaPath, destDir);
+    const result = await extractIPA(ipaPath, destDir);
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -94,7 +94,7 @@ describe("extractIPA", () => {
     expect(fs.existsSync(fwBinary)).toBe(true);
   });
 
-  it("should return an error for non-ZIP data", () => {
+  it("should return an error for non-ZIP data", async () => {
     const tmpDir = makeTempDir("nonzip");
     tempDirs.push(tmpDir);
 
@@ -107,18 +107,18 @@ describe("extractIPA", () => {
     fs.writeFileSync(badPath, randomBytes);
 
     const destDir = path.join(tmpDir, "extracted");
-    const result = extractIPA(badPath, destDir);
+    const result = await extractIPA(badPath, destDir);
 
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error).toContain("Failed to extract IPA");
   });
 
-  it("should return an error for a non-existent file", () => {
+  it("should return an error for a non-existent file", async () => {
     const tmpDir = makeTempDir("nofile");
     tempDirs.push(tmpDir);
 
-    const result = extractIPA(
+    const result = await extractIPA(
       path.join(tmpDir, "does-not-exist.ipa"),
       path.join(tmpDir, "out")
     );
@@ -128,7 +128,7 @@ describe("extractIPA", () => {
 });
 
 describe("discoverAppBundle", () => {
-  it("should find the .app directory inside Payload/", () => {
+  it("should find the .app directory inside Payload/", async () => {
     const tmpDir = makeTempDir("discover");
     tempDirs.push(tmpDir);
 
@@ -137,7 +137,7 @@ describe("discoverAppBundle", () => {
     fs.writeFileSync(ipaPath, ipaData);
 
     const destDir = path.join(tmpDir, "extracted");
-    extractIPA(ipaPath, destDir);
+    await extractIPA(ipaPath, destDir);
 
     const appBundle = discoverAppBundle(destDir);
     expect(appBundle).not.toBeNull();
@@ -145,7 +145,7 @@ describe("discoverAppBundle", () => {
     expect(path.basename(appBundle!)).toBe("TestApp.app");
   });
 
-  it("should return null if Payload directory is missing", () => {
+  it("should return null if Payload directory is missing", async () => {
     const tmpDir = makeTempDir("nopayload");
     tempDirs.push(tmpDir);
 
@@ -157,7 +157,7 @@ describe("discoverAppBundle", () => {
     fs.writeFileSync(ipaPath, zipData);
 
     const destDir = path.join(tmpDir, "extracted");
-    extractIPA(ipaPath, destDir);
+    await extractIPA(ipaPath, destDir);
 
     const appBundle = discoverAppBundle(destDir);
     expect(appBundle).toBeNull();
@@ -173,7 +173,7 @@ describe("discoverAppBundle", () => {
 });
 
 describe("discoverBinaries", () => {
-  it("should find the main binary and framework", () => {
+  it("should find the main binary and framework", async () => {
     const tmpDir = makeTempDir("binaries");
     tempDirs.push(tmpDir);
 
@@ -182,7 +182,7 @@ describe("discoverBinaries", () => {
     fs.writeFileSync(ipaPath, ipaData);
 
     const destDir = path.join(tmpDir, "extracted");
-    extractIPA(ipaPath, destDir);
+    await extractIPA(ipaPath, destDir);
 
     const appBundle = discoverAppBundle(destDir);
     expect(appBundle).not.toBeNull();
