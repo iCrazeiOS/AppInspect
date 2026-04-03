@@ -208,6 +208,15 @@ function findBinariesRecursive(
           type: "executable",
         });
       }
+    } else if (relPath.includes(".app/") && !entry.name.includes(".")) {
+      // App bundle binaries (e.g. /Applications/Ghost.app/Ghost)
+      if (isMachO(fullPath)) {
+        results.push({
+          name: entry.name,
+          path: fullPath,
+          type: "executable",
+        });
+      }
     } else if (relPath.includes(".bundle/") && !entry.name.includes(".")) {
       // Bundle binaries (PreferenceBundles, ControlCenter modules, etc.)
       if (isMachO(fullPath)) {
