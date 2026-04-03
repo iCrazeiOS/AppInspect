@@ -10,6 +10,7 @@ import { writeFileSync } from "fs";
 import type { TabName } from "../../shared/ipc-types";
 import {
   analyzeIPA,
+  analyzeFile,
   analyzeBinary,
   getCachedResult,
 } from "../analysis/orchestrator";
@@ -60,6 +61,27 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     }
   });
 
+  // ── analyze-file (unified: IPA, Mach-O, or DEB) ──
+  ipcMain.handle("analyze-file", async (_event, args: { path: string }) => {
+    try {
+      const result = await analyzeFile(args.path, (phase, percent) => {
+        win.webContents.send("update-progress", {
+          phase,
+          percent,
+          message: phase,
+        });
+      });
+
+      const sanitized = sanitizeBigInts(result);
+      win.webContents.send("analysis-complete");
+      return sanitized;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { message });
+      throw err;
+    }
+  });
+
   // ── analyze-binary ──
   ipcMain.handle("analyze-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
     try {
@@ -89,7 +111,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
       switch (tab) {
         case "overview":
-          return sanitizeBigInts({ tab: "overview", data: cached.overview });
+          return sanitizeBigInts({ tab: "overview", data: { ...cached.overview, hooks: cached.hooks } });
         case "strings":
           return sanitizeBigInts({ tab: "strings", data: cached.strings });
         case "headers":
@@ -115,6 +137,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
           return sanitizeBigInts({ tab: "security", data: cached.security });
         case "files":
           return sanitizeBigInts({ tab: "files", data: cached.files });
+        case "hooks":
+          return sanitizeBigInts({ tab: "hooks", data: cached.hooks });
         default:
           throw new Error(`Unknown tab: ${tab}`);
       }
@@ -157,7 +181,13 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   ipcMain.handle("open-file-picker", async () => {
     try {
       const result = await dialog.showOpenDialog(win, {
-        filters: [{ name: "IPA Files", extensions: ["ipa"] }],
+        filters: [
+          { name: "Supported Files", extensions: ["ipa", "deb", "dylib"] },
+          { name: "IPA Files", extensions: ["ipa"] },
+          { name: "DEB Packages", extensions: ["deb"] },
+          { name: "Mach-O Binaries", extensions: ["dylib"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
         properties: ["openFile"],
       });
 

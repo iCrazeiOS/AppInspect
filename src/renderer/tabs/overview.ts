@@ -94,15 +94,11 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 
   const wrapper = el("div", "ov-grid");
 
-  // ── App Summary card ──
+  // ── Summary card (adapts to source type) ──
+  const sourceType = (data as any).sourceType ?? "ipa";
   const { header, buildVersion, encryptionInfo, hardening, ipa } = data;
 
   const infoPlist = (data as any).infoPlist as Record<string, any> | undefined;
-  const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
-  const displayName =
-    infoPlist?.["CFBundleDisplayName"] ?? infoPlist?.["CFBundleName"] ?? ipa?.appName ?? "N/A";
-  const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
-  const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
   const minIOS = buildVersion?.minos ?? "N/A";
   const arch = decodeCpuType(header.cputype);
   const fileType = decodeFileType(header.filetype);
@@ -115,26 +111,99 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
   const teamId = (data as any).teamId ?? "N/A";
   const uuid = (data as any).uuid ?? "N/A";
 
-  const summaryItems: HTMLElement[] = [
-    buildKV("Bundle ID", String(bundleId)),
-    buildKV("Display Name", String(displayName)),
-    buildKV("Version", String(version)),
-    buildKV("Build", String(buildNumber)),
-    buildKV("Min iOS", String(minIOS)),
-    buildKV("Architecture", arch),
-    buildKV("File Type", fileType),
-    buildKV("UUID", String(uuid)),
-  ];
+  if (sourceType === "deb") {
+    // ── DEB Package Info card ──
+    const debControl = (data as any).debControl as Record<string, any> | undefined;
+    const debItems: HTMLElement[] = [];
+    if (debControl) {
+      debItems.push(buildKV("Package", String(debControl.package || "N/A")));
+      debItems.push(buildKV("Name", String(debControl.name || "N/A")));
+      debItems.push(buildKV("Version", String(debControl.version || "N/A")));
+      debItems.push(buildKV("Architecture", String(debControl.architecture || "N/A")));
+      if (debControl.author) debItems.push(buildKV("Author", String(debControl.author)));
+      if (debControl.maintainer) debItems.push(buildKV("Maintainer", String(debControl.maintainer)));
+      if (debControl.section) debItems.push(buildKV("Section", String(debControl.section)));
+      if (debControl.depends) debItems.push(buildKV("Depends", String(debControl.depends)));
+      if (debControl.description) {
+        const descRow = el("div", "ov-kv");
+        descRow.appendChild(el("span", "ov-kv-label", "Description"));
+        descRow.appendChild(el("span", "ov-kv-value", String(debControl.description)));
+        debItems.push(descRow);
+      }
+      if (debControl.installedSize) {
+        debItems.push(buildKV("Installed Size", `${debControl.installedSize} KB`));
+      }
+    }
+    wrapper.appendChild(buildCard("Package Info", ...debItems));
+  } else if (sourceType === "macho") {
+    // ── Bare Mach-O Binary Info card ──
+    const filePath = (data as any).filePath ?? "N/A";
+    const fileName = filePath.split(/[\\/]/).pop() ?? "N/A";
+    const binarySize = ipa?.binaries?.[0]?.size;
 
-  // Encryption row with badge
-  const encRow = el("div", "ov-kv");
-  encRow.appendChild(el("span", "ov-kv-label", "Encryption"));
-  encRow.appendChild(encBadge);
-  summaryItems.push(encRow);
+    const machoItems: HTMLElement[] = [
+      buildKV("File Name", fileName),
+      buildKV("Architecture", arch),
+      buildKV("File Type", fileType),
+      buildKV("UUID", String(uuid)),
+    ];
+    if (binarySize != null) {
+      const sizeStr = binarySize > 1024 * 1024
+        ? `${(binarySize / (1024 * 1024)).toFixed(1)} MB`
+        : `${(binarySize / 1024).toFixed(1)} KB`;
+      machoItems.push(buildKV("File Size", sizeStr));
+    }
+    machoItems.push(buildKV("Min iOS", minIOS));
+    machoItems.push(buildKV("Team ID", String(teamId)));
+    wrapper.appendChild(buildCard("Binary Info", ...machoItems));
+  } else {
+    // ── IPA App Summary card (existing) ──
+    const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+    const displayName =
+      infoPlist?.["CFBundleDisplayName"] ?? infoPlist?.["CFBundleName"] ?? ipa?.appName ?? "N/A";
+    const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
+    const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
 
-  summaryItems.push(buildKV("Team ID", String(teamId)));
+    const summaryItems: HTMLElement[] = [
+      buildKV("Bundle ID", String(bundleId)),
+      buildKV("Display Name", String(displayName)),
+      buildKV("Version", String(version)),
+      buildKV("Build", String(buildNumber)),
+      buildKV("Min iOS", String(minIOS)),
+      buildKV("Architecture", arch),
+      buildKV("File Type", fileType),
+      buildKV("UUID", String(uuid)),
+    ];
 
-  wrapper.appendChild(buildCard("App Summary", ...summaryItems));
+    // Encryption row with badge
+    const encRow = el("div", "ov-kv");
+    encRow.appendChild(el("span", "ov-kv-label", "Encryption"));
+    encRow.appendChild(encBadge);
+    summaryItems.push(encRow);
+
+    summaryItems.push(buildKV("Team ID", String(teamId)));
+
+    wrapper.appendChild(buildCard("App Summary", ...summaryItems));
+  }
+
+  // ── Binary Details card (for DEB/Mach-O — show architecture/header info) ──
+  if (sourceType === "deb") {
+    const binDetails: HTMLElement[] = [
+      buildKV("Architecture", arch),
+      buildKV("File Type", fileType),
+      buildKV("UUID", String(uuid)),
+      buildKV("Min iOS", minIOS),
+      buildKV("Team ID", String(teamId)),
+    ];
+
+    // Encryption row
+    const encRow = el("div", "ov-kv");
+    encRow.appendChild(el("span", "ov-kv-label", "Encryption"));
+    encRow.appendChild(encBadge);
+    binDetails.push(encRow);
+
+    wrapper.appendChild(buildCard("Binary Details", ...binDetails));
+  }
 
   // ── Binary Hardening card ──
   const hardeningItems = [
@@ -144,6 +213,36 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     buildHardeningRow("Stripped", hardening.stripped),
   ];
   wrapper.appendChild(buildCard("Binary Hardening", ...hardeningItems));
+
+  // ── Hooks summary (compact — full detail in Hooks tab) ──
+  const hooks = (data as any).hooks as {
+    frameworks?: string[];
+    targetBundles?: string[];
+    hookedClasses?: string[];
+    methods?: unknown[];
+  } | undefined;
+
+  if (hooks && (hooks.frameworks?.length || hooks.hookedClasses?.length || hooks.targetBundles?.length)) {
+    const hookItems: HTMLElement[] = [];
+
+    if (hooks.frameworks?.length) {
+      hookItems.push(buildKV("Hook Framework", hooks.frameworks.join(", ")));
+    }
+
+    if (hooks.targetBundles?.length) {
+      hookItems.push(buildKV("Target Bundles", hooks.targetBundles.join(", ")));
+    }
+
+    if (hooks.hookedClasses?.length) {
+      hookItems.push(buildKV("Hooked Classes", String(hooks.hookedClasses.length)));
+    }
+
+    if (hooks.methods?.length) {
+      hookItems.push(buildKV("Hooked Methods", String(hooks.methods.length)));
+    }
+
+    wrapper.appendChild(buildCard("Hooks", ...hookItems));
+  }
 
   // ── Provisioning Profile card (if available) ──
   const profile = (data as any).provisioningProfile as Record<string, any> | undefined;

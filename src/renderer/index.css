@@ -1727,6 +1727,85 @@ html, body {
   color: var(--text);
 }
 
+.ov-hook-classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+}
+
+.ov-hook-class-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(130, 80, 223, 0.15);
+  color: #b392f0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+}
+
+/* ── Hooks Tab ── */
+
+.hooks-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.hooks-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hooks-chip--framework {
+  background: rgba(130, 80, 223, 0.18);
+  color: #b392f0;
+}
+
+.hooks-chip--bundle {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  font-family: var(--font-mono, monospace);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.hooks-stat {
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+}
+
+.hooks-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #c9d1d9);
+  margin-bottom: 8px;
+  padding: 0 12px;
+}
+
+.hooks-class-list {
+  padding: 12px 0;
+}
+
+.hooks-class-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+.hooks-note {
+  font-size: 12px;
+  color: var(--text-muted, #8b949e);
+  padding: 0 12px 8px;
+  line-height: 1.4;
+}
+
 /* ══════════════════════════════════════════════
    Libraries Tab (lib-)
    ══════════════════════════════════════════════ */

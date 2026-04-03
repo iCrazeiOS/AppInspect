@@ -12,6 +12,7 @@ import { renderFiles } from "./tabs/files";
 import { renderClasses } from "./tabs/classes";
 import { renderEntitlements } from "./tabs/entitlements";
 import { renderPlist } from "./tabs/plist";
+import { renderHooks } from "./tabs/hooks";
 import { showToast } from "./components/toast";
 
 // ── Types ──
@@ -31,6 +32,8 @@ const binaryDropdown = $<HTMLSelectElement>("#binary-dropdown");
 const archSelector = $<HTMLDivElement>("#arch-selector");
 const archDropdown = $<HTMLSelectElement>("#arch-dropdown");
 const sidebarFooter = $<HTMLDivElement>("#sidebar-footer");
+const tabBtnInfoPlist = $<HTMLButtonElement>("#tab-btn-infoplist");
+const tabBtnHooks = $<HTMLButtonElement>("#tab-btn-hooks");
 const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-btn");
 
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
@@ -87,6 +90,14 @@ function setLoadingPhase(phase: string, percent?: number): void {
 function showError(message: string): void {
   setState("empty");
   showToast(message, "error");
+}
+
+// ── Tab visibility based on source type ──
+function updateTabsForSourceType(sourceType: string): void {
+  const isTweak = sourceType === "deb" || sourceType === "macho";
+  // Show Hooks tab for tweaks/binaries, Info.plist for IPAs
+  tabBtnInfoPlist.classList.toggle("hidden", isTweak);
+  tabBtnHooks.classList.toggle("hidden", !isTweak);
 }
 
 // ── Encryption warning banner ──
@@ -193,6 +204,9 @@ async function loadTabData(tabId: string): Promise<void> {
           renderPlist(panel, plistData);
           break;
         }
+        case "hooks":
+          renderHooks(panel, (tabData as any)?.data ?? tabData);
+          break;
         default:
           break;
       }
@@ -425,7 +439,7 @@ async function startAnalysis(filePath: string): Promise<void> {
   currentArchIndex = 0;
 
   try {
-    const result = await window.api.analyzeIPA(filePath);
+    const result = await window.api.analyzeFile(filePath);
     analysisResult = result;
     loadedTabs.add("overview"); // Overview is included in the full result
     setState("content");
@@ -437,18 +451,20 @@ async function startAnalysis(filePath: string): Promise<void> {
 
     // Populate arch selector if fat binary
     if (result.overview?.fatArchs) {
-      currentArchCpuType = result.overview.header.cputype;
       populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
     }
 
     // Render overview immediately from the full result
     const overviewPanel = document.getElementById("tab-overview");
     if (overviewPanel) {
-      renderOverview(overviewPanel, result.overview);
+      renderOverview(overviewPanel, Object.assign({}, result.overview, { hooks: (result as any).hooks }) as any);
     }
 
     // Check for encryption and show banner
     checkEncryptionBanner(result);
+
+    // Show/hide tabs based on file type
+    updateTabsForSourceType(result.overview?.sourceType ?? "ipa");
 
     // Show export buttons now that analysis is loaded
     updateExportVisibility(true);
@@ -528,12 +544,19 @@ document.addEventListener("drop", (e: DragEvent) => {
     return;
   }
 
-  if (!filePath.toLowerCase().endsWith(".ipa")) {
-    showToast("Not a valid IPA file", "warning");
-    return;
+  const lowerPath = filePath.toLowerCase();
+  const supported = lowerPath.endsWith(".ipa") || lowerPath.endsWith(".deb") || lowerPath.endsWith(".dylib");
+  if (!supported) {
+    // Allow extensionless files (bare Mach-O executables) — they'll be detected by magic bytes
+    const fileName = filePath.split(/[\\/]/).pop() ?? "";
+    const hasExtension = fileName.includes(".");
+    if (hasExtension) {
+      showToast("Unsupported file type. Supported: IPA, DEB, dylib, Mach-O", "warning");
+      return;
+    }
   }
 
-  console.log("[AppInspect] Dropped IPA:", filePath);
+  console.log("[AppInspect] Dropped file:", filePath);
   startAnalysis(filePath);
 });
 

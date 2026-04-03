@@ -27,6 +27,9 @@ import type {
   PlistValue,
   Section,
   Segment,
+  SourceType,
+  HookInfo,
+  HookMethod,
 } from "../../shared/types";
 
 import {
@@ -48,6 +51,16 @@ import { extractObjCMetadata } from "../parser/objc";
 import { parseCodeSignature, extractEntitlements } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
 import { runSecurityScan, getBinaryHardening } from "./security";
+import { extractDEB } from "../deb/extractor";
+import type { DEBBinaryInfo } from "../deb/extractor";
+import {
+  MH_MAGIC_64,
+  MH_CIGAM_64,
+  MH_MAGIC,
+  MH_CIGAM,
+  FAT_MAGIC,
+  FAT_CIGAM,
+} from "../parser/macho";
 
 // ── BigInt serialization helpers ────────────────────────────────────
 
@@ -69,6 +82,8 @@ let cachedExtractedDir: string | null = null;
 let cachedAppBundlePath: string | null = null;
 let cachedBinaries: BinaryInfo[] = [];
 let cachedInfoPlist: Record<string, unknown> = {};
+let cachedSourceType: SourceType = "ipa";
+let cachedFilePath: string = "";
 
 export function getCachedResult(): AnalysisResult | null {
   return cachedResult;
@@ -272,6 +287,147 @@ function convertEntitlements(
   }));
 }
 
+// ── Hook detection ─────────────────────────────────────────────────
+
+/** Known hook framework symbols → framework name */
+const HOOK_SYMBOLS: Record<string, string> = {
+  "_MSHookMessageEx": "Substrate",
+  "_MSHookFunction": "Substrate",
+  "_MSHookClassPair": "Substrate",
+  "_MSGetImageByName": "Substrate",
+  "_MSFindSymbol": "Substrate",
+  "_LHHookMessageEx": "Libhooker",
+  "_LHHookFunction": "Libhooker",
+  "_LHOpenImage": "Libhooker",
+  "_LBHookMessage": "Libhooker",
+  "_rebind_symbols": "fishhook",
+  "_rebind_symbols_image": "fishhook",
+  "_substitute_hook_functions": "Substitute",
+  "_SubHookMessageEx": "Substitute",
+  // ObjC runtime swizzling APIs (used by compiled Logos/Theos tweaks)
+  "_class_replaceMethod": "ObjC Runtime",
+  "_method_setImplementation": "ObjC Runtime",
+  "_method_exchangeImplementations": "ObjC Runtime",
+};
+
+/** System class prefixes (unlikely to be defined by a tweak) */
+const SYSTEM_CLASS_PREFIXES = [
+  "UI", "NS", "CA", "CK", "AV", "MF", "WK", "SK", "SB", "SF",
+  "MP", "PH", "CL", "MK", "SC", "GK", "HK", "CN", "EK", "AS",
+  "CT", "NW", "ST", "TI", "AB", "MB", "LS", "BS", "FBS", "RBS",
+  "CSP", "SSB", "SFL", "SPT", "NCN", "BLT", "WiFi", "CarPlay",
+  "Spring", "Web", "WAK", "DOM",
+];
+
+function detectHooks(
+  symbols: SymbolEntry[],
+  classes: ObjCClass[],
+  strings: StringEntry[],
+): HookInfo {
+  const frameworks = new Set<string>();
+  const hookSymbols: string[] = [];
+  const hookedClasses = new Set<string>();
+  const methods: HookMethod[] = [];
+  const seenMethods = new Set<string>(); // "ClassName.selector" dedup key
+
+  // 1. Check imported symbols for hook framework functions
+  for (const sym of symbols) {
+    if (sym.type === "imported") {
+      const framework = HOOK_SYMBOLS[sym.name];
+      if (framework) {
+        frameworks.add(framework);
+        hookSymbols.push(sym.name);
+      }
+    }
+
+    // Logos-generated symbols encode exact class+method pairs:
+    //   _logos_method$group$ClassName$selector$  (instance method)
+    //   _logos_meta_method$group$ClassName$selector$  (class method)
+    if (sym.name.startsWith("_logos_method$") || sym.name.startsWith("_logos_meta_method$")) {
+      frameworks.add("Logos");
+      hookSymbols.push(sym.name);
+
+      const parts = sym.name.split("$");
+      // parts: ["_logos_method", group, ClassName, selector_part1, selector_part2, ...]
+      if (parts.length >= 4) {
+        const className = parts[2]!;
+        // Logos encodes selector components separated by $, with : replaced
+        // e.g., _logos_method$_ungrouped$UIView$setFrame$  → setFrame:
+        // e.g., _logos_method$_ungrouped$UIView$hitTest$withEvent$  → hitTest:withEvent:
+        const selectorParts = parts.slice(3).filter((p) => p !== "");
+        const selector = selectorParts.length > 0
+          ? selectorParts.map((p) => p + ":").join("")
+          : "";
+
+        if (className && selector) {
+          hookedClasses.add(className);
+          const key = `${className}.${selector}`;
+          if (!seenMethods.has(key)) {
+            seenMethods.add(key);
+            methods.push({ className, selector, source: "logos" });
+          }
+        } else if (className) {
+          hookedClasses.add(className);
+        }
+      }
+    }
+
+    if (sym.name.startsWith("_logos_register")) {
+      frameworks.add("Logos");
+      hookSymbols.push(sym.name);
+    }
+
+    // _logos_orig$ patterns also encode class names
+    if (sym.name.startsWith("_logos_orig$")) {
+      const parts = sym.name.split("$");
+      if (parts.length >= 3) {
+        hookedClasses.add(parts[2]!);
+      }
+    }
+  }
+
+  // 2. Find system classes referenced by the binary
+  const tweakClassNames = new Set(classes.map((c) => c.name));
+
+  // Only look for hooked system classes when a hook framework is actually present.
+  // Regular apps also import objc_getClass and reference system classes — that's normal usage, not hooking.
+  if (frameworks.size > 0) {
+    for (const str of strings) {
+      const val = str.value;
+      if (val.length < 3 || val.length > 80 || !/^[A-Z]/.test(val)) continue;
+      if (/[\s@#$%^&*(){}[\]|\\<>,]/.test(val)) continue;
+      if (tweakClassNames.has(val)) continue;
+
+      for (const prefix of SYSTEM_CLASS_PREFIXES) {
+        if (val.startsWith(prefix) && val.length > prefix.length && /^[A-Z]/.test(val[prefix.length]!)) {
+          hookedClasses.add(val);
+          break;
+        }
+      }
+    }
+  }
+
+  // Note: For Substrate/Libhooker hooks (non-Logos), we cannot reliably determine
+  // which specific methods are hooked without ARM64 disassembly and backward register
+  // tracing (as TweakInspect does). The selectors in __objc_methname include both
+  // hooked methods AND regular API calls, so we only report exact matches from Logos
+  // symbols and list the hooked classes without guessing methods.
+
+  // Sort methods alphabetically
+  methods.sort((a, b) => {
+    const cmp = a.className.localeCompare(b.className);
+    return cmp !== 0 ? cmp : a.selector.localeCompare(b.selector);
+  });
+
+  return {
+    frameworks: [...frameworks],
+    targetBundles: [],
+    hookedClasses: [...hookedClasses].sort(),
+    hookSymbols,
+    methods,
+  };
+}
+
 // ── Binary analysis (steps 4-12) ────────────────────────────────────
 
 interface BinaryAnalysisResult {
@@ -289,6 +445,7 @@ interface BinaryAnalysisResult {
   uuid: string | null;
   teamId: string | null;
   security: { findings: SecurityFinding[]; hardening: BinaryHardening };
+  hooks: HookInfo;
   errors: string[];
 }
 
@@ -319,6 +476,7 @@ async function analyzeBinaryFile(
   let uuid: string | null = null;
   let teamId: string | null = null;
   let findings: SecurityFinding[] = [];
+  let hooks: HookInfo = { frameworks: [], targetBundles: [], hookedClasses: [], hookSymbols: [], methods: [] };
   let hardening: BinaryHardening = {
     pie: false, arc: false, stackCanaries: false, encrypted: false, stripped: true,
   };
@@ -338,7 +496,7 @@ async function analyzeBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors,
     };
   }
 
@@ -378,7 +536,14 @@ async function analyzeBinaryFile(
         }
       }
     } else {
-      errors.push(`Fat header parse: ${fatResult.error}`);
+      // Not a fat binary — try parsing as a thin Mach-O directly
+      const headerResult = parseMachOHeader(buffer, 0);
+      if (headerResult.ok) {
+        machoFile = headerResult.data;
+        header = machoFile.header;
+      } else {
+        errors.push(`Mach-O header parse: ${headerResult.error}`);
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -389,7 +554,7 @@ async function analyzeBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors,
     };
   }
 
@@ -443,7 +608,7 @@ async function analyzeBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors,
     };
   }
 
@@ -581,6 +746,9 @@ async function analyzeBinaryFile(
     errors.push(`Security scan error: ${msg}`);
   }
 
+  // Step 13: Detect hooks
+  hooks = detectHooks(symbols, classes, strings);
+
   return {
     header,
     fatArchs,
@@ -591,8 +759,12 @@ async function analyzeBinaryFile(
     strings,
     symbols,
     classes,
+    protocols,
     entitlements,
+    uuid,
+    teamId,
     security: { findings, hardening },
+    hooks,
     errors,
   };
 }
@@ -615,6 +787,8 @@ export async function analyzeIPA(
   }
 
   cachedExtractedDir = tempDir;
+  cachedSourceType = "ipa";
+  cachedFilePath = ipaPath;
 
   // Step 2: Discover app bundle and binaries
   progressCallback("Discovering binaries...", 15);
@@ -683,6 +857,8 @@ export async function analyzeIPA(
   const appName = path.basename(appBundlePath, ".app");
   const result: AnalysisResult = {
     overview: {
+      sourceType: "ipa",
+      filePath: ipaPath,
       ipa: {
         bundlePath: appBundlePath,
         appName,
@@ -717,6 +893,7 @@ export async function analyzeIPA(
     entitlements: finalEntitlements,
     infoPlist: infoPlistData,
     security: binaryResult.security,
+    hooks: binaryResult.hooks,
     files,
   };
 
@@ -733,8 +910,8 @@ export async function analyzeBinary(
   cpuType?: number,
   cpuSubtype?: number,
 ): Promise<AnalysisResult> {
-  if (!cachedResult || !cachedAppBundlePath) {
-    throw new Error("No previous analysis. Run analyzeIPA first.");
+  if (!cachedResult) {
+    throw new Error("No previous analysis. Run analyzeFile first.");
   }
 
   if (binaryIndex < 0 || binaryIndex >= cachedBinaries.length) {
@@ -771,8 +948,251 @@ export async function analyzeBinary(
       ? binaryResult.entitlements
       : cachedResult.entitlements,
     security: binaryResult.security,
+    hooks: binaryResult.hooks,
   };
 
   cachedResult = result;
   return result;
+}
+
+// ── File type detection ────────────────────────────────────────────
+
+const MACHO_MAGICS = new Set([
+  MH_MAGIC_64,  // 0xfeedfacf
+  MH_CIGAM_64,  // 0xcffaedfe
+  MH_MAGIC,     // 0xfeedface
+  MH_CIGAM,     // 0xcefaedfe
+  FAT_MAGIC,    // 0xcafebabe
+  FAT_CIGAM,    // 0xbebafeca
+]);
+
+export function detectFileType(filePath: string): SourceType {
+  const fd = fs.openSync(filePath, "r");
+  const buf = Buffer.alloc(8);
+  fs.readSync(fd, buf, 0, 8, 0);
+  fs.closeSync(fd);
+
+  // DEB: ar archive magic "!<arch>\n"
+  if (buf.toString("ascii", 0, 8) === "!<arch>\n") {
+    return "deb";
+  }
+
+  // Mach-O: check 4-byte magic
+  const magic = buf.readUInt32BE(0);
+  const magicLE = buf.readUInt32LE(0);
+  if (MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE)) {
+    return "macho";
+  }
+
+  // IPA: ZIP file (PK\x03\x04) or assume IPA by extension
+  if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) {
+    return "ipa";
+  }
+
+  // Fallback: check extension
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".ipa") return "ipa";
+  if (ext === ".deb") return "deb";
+  if (ext === ".dylib" || ext === ".a") return "macho";
+
+  // Default to macho for extensionless files (common for executables)
+  return "macho";
+}
+
+// ── Analyze bare Mach-O / dylib ────────────────────────────────────
+
+export async function analyzeMachO(
+  filePath: string,
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<AnalysisResult> {
+  cachedSourceType = "macho";
+  cachedFilePath = filePath;
+  cachedAppBundlePath = null;
+  cachedInfoPlist = {};
+
+  const fileName = path.basename(filePath);
+  let fileSize = 0;
+  try {
+    fileSize = fs.statSync(filePath).size;
+  } catch { /* ignore */ }
+
+  // Set up single-binary list for binary switching
+  cachedBinaries = [{
+    name: fileName,
+    path: filePath,
+    type: "main",
+  }];
+
+  progressCallback("Analyzing binary...", 10);
+  const binaryResult = await analyzeBinaryFile(filePath, progressCallback, 10);
+
+  const result: AnalysisResult = {
+    overview: {
+      sourceType: "macho",
+      filePath,
+      ipa: {
+        bundlePath: path.dirname(filePath),
+        appName: fileName,
+        binaries: [{
+          name: fileName,
+          path: filePath,
+          type: "main",
+          size: fileSize,
+        }],
+      },
+      header: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      buildVersion: binaryResult.buildVersion,
+      encryptionInfo: binaryResult.encryptionInfo,
+      hardening: binaryResult.security.hardening,
+      uuid: binaryResult.uuid ?? undefined,
+      teamId: binaryResult.teamId ?? undefined,
+    },
+    strings: binaryResult.strings,
+    headers: {
+      machO: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      loadCommands: binaryResult.loadCommands,
+    },
+    libraries: binaryResult.libraries,
+    symbols: binaryResult.symbols,
+    classes: binaryResult.classes,
+    protocols: binaryResult.protocols,
+    entitlements: binaryResult.entitlements,
+    infoPlist: {},
+    security: binaryResult.security,
+    hooks: binaryResult.hooks,
+    files: [],
+  };
+
+  cachedResult = result;
+  progressCallback("Analysis complete", 100);
+  return result;
+}
+
+// ── Analyze DEB package ────────────────────────────────────────────
+
+export async function analyzeDEB(
+  debPath: string,
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<AnalysisResult> {
+  cachedSourceType = "deb";
+  cachedFilePath = debPath;
+  cachedInfoPlist = {};
+
+  // Step 1: Extract DEB
+  progressCallback("Extracting DEB package...", 0);
+  const extraction = extractDEB(debPath);
+
+  if (!extraction.success) {
+    throw new Error(extraction.error);
+  }
+
+  cachedExtractedDir = extraction.extractedDir;
+  cachedAppBundlePath = extraction.dataDir;
+
+  // Convert DEB binaries to BinaryInfo for the binary selector
+  cachedBinaries = extraction.binaries.map((b: DEBBinaryInfo) => ({
+    name: b.name,
+    path: b.path,
+    type: b.type === "tweak" ? "main" as const : "framework" as const,
+  }));
+
+  if (cachedBinaries.length === 0) {
+    throw new Error("No Mach-O binaries found in .deb package");
+  }
+
+  // Step 2: Analyze main binary
+  progressCallback("Analyzing binary...", 20);
+  const mainBinary = cachedBinaries[0]!;
+  const binaryResult = await analyzeBinaryFile(mainBinary.path, progressCallback, 20);
+
+  // Step 3: Build file tree from extracted data
+  progressCallback("Building file tree...", 90);
+  const files = buildFileTree(extraction.dataDir);
+
+  const result: AnalysisResult = {
+    overview: {
+      sourceType: "deb",
+      filePath: debPath,
+      debControl: extraction.control,
+      ipa: {
+        bundlePath: extraction.dataDir,
+        appName: extraction.control.name || path.basename(debPath, ".deb"),
+        binaries: cachedBinaries.map((b) => ({
+          name: b.name,
+          path: b.path,
+          type: b.type,
+          size: (() => {
+            try { return fs.statSync(b.path).size; } catch { return 0; }
+          })(),
+        })),
+      },
+      header: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      buildVersion: binaryResult.buildVersion,
+      encryptionInfo: binaryResult.encryptionInfo,
+      hardening: binaryResult.security.hardening,
+      uuid: binaryResult.uuid ?? undefined,
+      teamId: binaryResult.teamId ?? undefined,
+    },
+    strings: binaryResult.strings,
+    headers: {
+      machO: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      loadCommands: binaryResult.loadCommands,
+    },
+    libraries: binaryResult.libraries,
+    symbols: binaryResult.symbols,
+    classes: binaryResult.classes,
+    protocols: binaryResult.protocols,
+    entitlements: binaryResult.entitlements,
+    infoPlist: {},
+    security: binaryResult.security,
+    hooks: binaryResult.hooks,
+    files,
+  };
+
+  // Enrich hooks with tweak filter plist data (target bundles)
+  try {
+    const mainBinaryName = path.basename(mainBinary.path, ".dylib");
+    // Look for filter plist next to the dylib
+    const filterPlistPath = path.join(path.dirname(mainBinary.path), mainBinaryName + ".plist");
+    if (fs.existsSync(filterPlistPath)) {
+      const plistContent = fs.readFileSync(filterPlistPath, "utf-8");
+      // Simple XML plist extraction for Filter > Bundles
+      const bundleMatches = plistContent.match(/<string>([^<]+)<\/string>/g);
+      if (bundleMatches) {
+        const bundles = bundleMatches.map((m) => m.replace(/<\/?string>/g, ""));
+        // Only add bundles that are within the Filter dict context
+        if (plistContent.includes("<key>Filter</key>") || plistContent.includes("<key>Bundles</key>")) {
+          result.hooks.targetBundles = bundles;
+        }
+      }
+    }
+  } catch {
+    // Non-critical
+  }
+
+  cachedResult = result;
+  progressCallback("Analysis complete", 100);
+  return result;
+}
+
+// ── Unified file analysis entry point ──────────────────────────────
+
+export async function analyzeFile(
+  filePath: string,
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<AnalysisResult> {
+  const fileType = detectFileType(filePath);
+
+  switch (fileType) {
+    case "ipa":
+      return analyzeIPA(filePath, progressCallback);
+    case "macho":
+      return analyzeMachO(filePath, progressCallback);
+    case "deb":
+      return analyzeDEB(filePath, progressCallback);
+  }
 }

@@ -15,7 +15,7 @@
     <div id="drop-overlay" class="drop-overlay hidden">
       <div class="drop-overlay-content">
         <div class="drop-icon">&#x1F4E5;</div>
-        <div class="drop-text">Drop IPA file here</div>
+        <div class="drop-text">Drop file here</div>
       </div>
     </div>
 
@@ -28,7 +28,7 @@
           </div>
           <button id="btn-open-ipa" class="btn-open-ipa">
             <span class="btn-icon">&#x1F4C2;</span>
-            Open IPA
+            Open File
           </button>
           <!-- Binary selector (hidden until multiple binaries) -->
           <div id="binary-selector" class="binary-selector hidden">
@@ -77,10 +77,15 @@
             <span class="tab-label">Entitlements</span>
             <button class="export-tab-btn hidden" data-export-tab="entitlements" title="Export Entitlements as JSON">&#x2B07;</button>
           </button>
-          <button class="tab-btn" data-tab="infoplist">
+          <button class="tab-btn" data-tab="infoplist" id="tab-btn-infoplist">
             <span class="tab-icon">&#x2699;</span>
             <span class="tab-label">Info.plist</span>
             <button class="export-tab-btn hidden" data-export-tab="infoPlist" title="Export Info.plist as JSON">&#x2B07;</button>
+          </button>
+          <button class="tab-btn hidden" data-tab="hooks" id="tab-btn-hooks">
+            <span class="tab-icon">&#x1F517;</span>
+            <span class="tab-label">Hooks</span>
+            <button class="export-tab-btn hidden" data-export-tab="hooks" title="Export Hooks as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="security">
             <span class="tab-icon">&#x1F6E1;</span>
@@ -110,16 +115,16 @@
           <div class="loading-bar-track">
             <div class="loading-bar-fill"></div>
           </div>
-          <div id="loading-text" class="loading-text">Extracting IPA...</div>
+          <div id="loading-text" class="loading-text">Analyzing...</div>
         </div>
 
         <!-- Empty state -->
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">&#x1F50D;</div>
-          <p class="empty-text">Open or drop an IPA file to begin analysis</p>
+          <p class="empty-text">Open or drop an IPA, DEB, or Mach-O binary to begin analysis</p>
           <button id="btn-open-ipa-empty" class="btn-open-ipa-alt">
             <span class="btn-icon">&#x1F4C2;</span>
-            Open IPA File
+            Open File
           </button>
         </div>
 
@@ -133,6 +138,7 @@
           <div id="tab-classes" class="tab-panel hidden"></div>
           <div id="tab-entitlements" class="tab-panel hidden"></div>
           <div id="tab-infoplist" class="tab-panel hidden"></div>
+          <div id="tab-hooks" class="tab-panel hidden"></div>
           <div id="tab-security" class="tab-panel hidden"></div>
           <div id="tab-files" class="tab-panel hidden"></div>
         </div>

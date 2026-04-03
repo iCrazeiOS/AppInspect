@@ -14,6 +14,7 @@ import type {
   BinaryHardening,
   FileEntry,
   PlistValue,
+  HookInfo,
 } from './types';
 
 // ── Tab-specific return types ──
@@ -75,6 +76,11 @@ export interface FilesTabData {
   data: FileEntry[];
 }
 
+export interface HooksTabData {
+  tab: 'hooks';
+  data: HookInfo;
+}
+
 export type TabData =
   | OverviewTabData
   | StringsTabData
@@ -85,13 +91,18 @@ export type TabData =
   | EntitlementsTabData
   | InfoPlistTabData
   | SecurityTabData
-  | FilesTabData;
+  | FilesTabData
+  | HooksTabData;
 
 export type TabName = TabData['tab'];
 
 // ── Invoke channels (renderer -> main) ──
 
 export type InvokeChannelMap = {
+  'analyze-file': {
+    params: { path: string };
+    result: AnalysisResult;
+  };
   'analyze-ipa': {
     params: { path: string };
     result: AnalysisResult;

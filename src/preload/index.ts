@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("api", {
+  analyzeFile: (filePath: string) =>
+    ipcRenderer.invoke("analyze-file", { path: filePath }),
   analyzeIPA: (filePath: string) =>
     ipcRenderer.invoke("analyze-ipa", { path: filePath }),
   analyzeBinary: (binaryIndex: number, cpuType?: number, cpuSubtype?: number) =>

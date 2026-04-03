@@ -1,5 +1,22 @@
 // ── Shared analysis data types for AppInspect ──
 
+/** What kind of file was loaded */
+export type SourceType = 'ipa' | 'macho' | 'deb';
+
+/** DEB package control metadata */
+export interface DEBControlInfo {
+  package: string;
+  name: string;
+  version: string;
+  architecture: string;
+  description: string;
+  author?: string;
+  maintainer?: string;
+  section?: string;
+  depends?: string;
+  installedSize?: number;
+}
+
 /** Top-level info extracted from the IPA container */
 export interface IPAInfo {
   bundlePath: string;
@@ -223,10 +240,33 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+// ── Hooks (jailbreak tweaks) ──
+
+export interface HookMethod {
+  className: string;
+  selector: string;
+  source: "logos" | "inferred";
+}
+
+export interface HookInfo {
+  /** Hook framework detected (e.g. "Substrate", "Libhooker", "Logos", "fishhook") */
+  frameworks: string[];
+  /** Target bundle filters from the tweak plist */
+  targetBundles: string[];
+  /** Hooked class names (system classes referenced via objc_getClass or classrefs) */
+  hookedClasses: string[];
+  /** Hook registration symbols found (e.g. _MSHookMessageEx) */
+  hookSymbols: string[];
+  /** Hooked methods with class+selector pairs */
+  methods: HookMethod[];
+}
+
 // ── Top-level Analysis Result ──
 
 export interface AnalysisResult {
   overview: {
+    sourceType: SourceType;
+    filePath: string;
     ipa: IPAInfo;
     header: MachOHeader;
     fatArchs: FatArch[];
@@ -236,7 +276,9 @@ export interface AnalysisResult {
     uuid?: string;
     teamId?: string;
     infoPlist?: { [key: string]: PlistValue };
+    debControl?: DEBControlInfo;
   };
+  hooks: HookInfo;
   strings: StringEntry[];
   headers: {
     machO: MachOHeader;
