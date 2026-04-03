@@ -28,6 +28,12 @@ function createWindow(): void {
 
   win.loadFile(path.join(APP_ROOT, "src/renderer/index.html"));
 
+  if (process.platform === "darwin") {
+    win.webContents.on("dom-ready", () => {
+      win.webContents.executeJavaScript('document.body.classList.add("platform-darwin")');
+    });
+  }
+
   // Open DevTools in development
   win.webContents.openDevTools();
 

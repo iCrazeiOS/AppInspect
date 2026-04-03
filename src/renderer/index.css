@@ -65,7 +65,7 @@ html, body {
 }
 
 .sidebar-header {
-  padding: 38px 14px 12px;
+  padding: 16px 14px 12px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
@@ -74,6 +74,15 @@ html, body {
   display: flex;
   align-items: center;
   margin-bottom: 12px;
+  padding-top: 4px;
+}
+
+/* macOS traffic-light padding */
+body.platform-darwin .sidebar-header {
+  padding-top: 38px;
+}
+body.platform-darwin .app-title-row {
+  padding-top: 0;
 }
 
 .app-title {
