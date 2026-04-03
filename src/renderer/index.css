@@ -640,6 +640,7 @@ body.platform-darwin .app-title-row {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
+  cursor: default;
 }
 
 /* ── Search Bar (sb-) ── */
@@ -2340,27 +2341,27 @@ body.platform-darwin .app-title-row {
 }
 
 .toast--error {
-  background-color: rgba(248, 81, 73, 0.15);
-  border: 1px solid rgba(248, 81, 73, 0.4);
-  color: #f85149;
+  background-color: rgba(248, 81, 73, 0.85);
+  border: 1px solid rgba(248, 81, 73, 0.6);
+  color: #fff;
 }
 
 .toast--warning {
-  background-color: rgba(210, 153, 34, 0.15);
-  border: 1px solid rgba(210, 153, 34, 0.4);
-  color: #d29922;
+  background-color: rgba(210, 153, 34, 0.85);
+  border: 1px solid rgba(210, 153, 34, 0.6);
+  color: #fff;
 }
 
 .toast--info {
-  background-color: rgba(88, 166, 255, 0.15);
-  border: 1px solid rgba(88, 166, 255, 0.4);
-  color: #58a6ff;
+  background-color: rgba(88, 166, 255, 0.85);
+  border: 1px solid rgba(88, 166, 255, 0.6);
+  color: #fff;
 }
 
 .toast--success {
-  background-color: rgba(63, 185, 80, 0.15);
-  border: 1px solid rgba(63, 185, 80, 0.4);
-  color: #3fb950;
+  background-color: rgba(63, 185, 80, 0.85);
+  border: 1px solid rgba(63, 185, 80, 0.6);
+  color: #fff;
 }
 
 .toast-icon {
