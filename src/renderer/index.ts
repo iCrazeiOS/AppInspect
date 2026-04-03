@@ -2,6 +2,8 @@
 /// <reference path="./global.d.ts" />
 
 import type { AnalysisResult } from "../shared/types";
+import { renderStrings } from "./tabs/strings";
+import { renderSymbols } from "./tabs/symbols";
 
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
@@ -76,8 +78,21 @@ async function loadTabData(tabId: string): Promise<void> {
   try {
     const tabData = await window.api.getTabData(tabId);
     loadedTabs.add(tabId);
-    // Tab data is now available for rendering
-    // (Future tasks will add tab-specific rendering here)
+
+    const panel = document.getElementById(`tab-${tabId}`);
+    if (panel && tabData != null) {
+      switch (tabId) {
+        case "strings":
+          renderStrings(panel, tabData);
+          break;
+        case "symbols":
+          renderSymbols(panel, tabData);
+          break;
+        default:
+          break;
+      }
+    }
+
     console.log(`[Disect] Tab data loaded for: ${tabId}`, tabData);
   } catch (err) {
     console.error(`[Disect] Failed to load tab data for ${tabId}:`, err);
