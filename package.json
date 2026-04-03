@@ -14,6 +14,7 @@
     "dist": "bun run build && electron-builder",
     "dist:mac": "bun run build && electron-builder --mac",
     "dist:win": "bun run build && electron-builder --win",
+    "dist:win:portable": "bun run build && electron-builder --win portable",
     "dist:linux": "bun run build && electron-builder --linux"
   },
   "build": {
@@ -37,7 +38,8 @@
       ]
     },
     "win": {
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "signAndEditExecutable": false
     },
     "linux": {
       "target": ["AppImage", "deb"],
