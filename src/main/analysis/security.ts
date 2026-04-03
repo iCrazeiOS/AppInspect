@@ -56,7 +56,6 @@ const SECRET_PATTERNS: Array<{
     pattern: /mysql:\/\/[^\s'"]+/,
     message: 'MySQL connection URI found',
   },
-  // Private Key is handled separately via PEM reassembly in checkSecretPatterns
   {
     name: 'Secret Key assignment',
     pattern: /[sS]ecret[-_]?[kK]ey\s*[:=]\s*['"][^'"]{8,}/,
