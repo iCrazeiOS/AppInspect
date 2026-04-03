@@ -13,6 +13,9 @@ import { readCString } from "./load-commands";
 
 // ── Constants ────────────────────────────────────────────────────────
 
+/** Pointer format: DYLD_CHAINED_PTR_ARM64E (authenticated pointers) */
+export const DYLD_CHAINED_PTR_ARM64E = 1;
+
 /** Pointer format: DYLD_CHAINED_PTR_64 (absolute vmaddr targets) */
 export const DYLD_CHAINED_PTR_64 = 2;
 
@@ -22,8 +25,11 @@ export const DYLD_CHAINED_PTR_64_OFFSET = 6;
 /** Sentinel: no fixups in this page */
 export const DYLD_CHAINED_PTR_START_NONE = 0xffff;
 
-/** Stride for both DYLD_CHAINED_PTR_64 and DYLD_CHAINED_PTR_64_OFFSET */
+/** Stride for DYLD_CHAINED_PTR_64 and DYLD_CHAINED_PTR_64_OFFSET */
 const STRIDE_64 = 4;
+
+/** Stride for DYLD_CHAINED_PTR_ARM64E */
+const STRIDE_ARM64E = 8;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -217,6 +223,80 @@ function walkChain(
 }
 
 /**
+ * Walk a fixup chain for DYLD_CHAINED_PTR_ARM64E (format 1).
+ * ARM64E has authenticated and non-authenticated variants for both
+ * rebase and bind, distinguished by the auth bit (bit 32).
+ * Stride is 8 bytes.
+ */
+function walkChainArm64e(
+  view: DataView,
+  startOffset: number,
+  le: boolean,
+  imports: ChainedImport[],
+  rebaseMap: Map<number, bigint>,
+  bindMap: Map<number, { ordinal: number; symbolName: string; addend: bigint }>,
+): void {
+  let currentOffset = startOffset;
+  const maxIterations = 1_000_000;
+  let iterations = 0;
+
+  while (iterations < maxIterations) {
+    iterations++;
+    if (currentOffset + 8 > view.byteLength) break;
+
+    const raw = view.getBigUint64(currentOffset, le);
+    const bind = (raw >> 62n) & 1n;
+    const auth = (raw >> 63n) & 1n;
+
+    if (bind === 0n) {
+      // Rebase
+      if (auth === 1n) {
+        // Auth rebase: target(32) | diversity(16) | addrDiv(1) | key(2) | next(11) | bind(1) | auth(1)
+        const target = raw & 0xFFFFFFFFn;
+        const next = Number((raw >> 51n) & 0x7FFn);
+        rebaseMap.set(currentOffset, target);
+        if (next === 0) break;
+        currentOffset += next * STRIDE_ARM64E;
+      } else {
+        // Non-auth rebase: target(43) | high8(8) | next(11) | bind(1) | auth(1)
+        const target = raw & 0x7FFFFFFFFFFn; // bits 0-42
+        const high8 = (raw >> 43n) & 0xFFn;  // bits 43-50
+        const next = Number((raw >> 51n) & 0x7FFn);
+        const resolved = target | (high8 << 56n);
+        rebaseMap.set(currentOffset, resolved);
+        if (next === 0) break;
+        currentOffset += next * STRIDE_ARM64E;
+      }
+    } else {
+      // Bind
+      if (auth === 1n) {
+        // Auth bind: ordinal(16) | zero(16) | diversity(16) | addrDiv(1) | key(2) | next(11) | bind(1) | auth(1)
+        const ordinal = Number(raw & 0xFFFFn);
+        const next = Number((raw >> 51n) & 0x7FFn);
+        const symbolName = ordinal < imports.length
+          ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
+        bindMap.set(currentOffset, { ordinal, symbolName, addend: 0n });
+        if (next === 0) break;
+        currentOffset += next * STRIDE_ARM64E;
+      } else {
+        // Non-auth bind: ordinal(16) | addend(19) | next(11) | bind(1) | auth(1)
+        const ordinal = Number(raw & 0xFFFFn);
+        const addendRaw = (raw >> 16n) & 0x7FFFFn;
+        const next = Number((raw >> 51n) & 0x7FFn);
+        // Sign-extend 19-bit addend
+        const addend = (addendRaw & 0x40000n) !== 0n
+          ? addendRaw - 0x80000n : addendRaw;
+        const symbolName = ordinal < imports.length
+          ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
+        bindMap.set(currentOffset, { ordinal, symbolName, addend });
+        if (next === 0) break;
+        currentOffset += next * STRIDE_ARM64E;
+      }
+    }
+  }
+}
+
+/**
  * Build fixup maps from the LC_DYLD_CHAINED_FIXUPS data.
  *
  * @param buffer               The full Mach-O file buffer
@@ -295,12 +375,14 @@ export function buildFixupMap(
 
     const startsInSeg = parseStartsInSegment(view, startsInSegOffset, le);
 
-    // Support DYLD_CHAINED_PTR_64 (format 2) and DYLD_CHAINED_PTR_64_OFFSET (format 6)
-    // Both have identical bit layouts and stride; format 2 targets are absolute vmaddrs,
-    // format 6 targets are image-base-relative offsets. Both resolve the same way since
-    // we store the raw resolved value and let vmaddrToFileOffset handle translation.
-    if (startsInSeg.pointer_format !== DYLD_CHAINED_PTR_64_OFFSET &&
-        startsInSeg.pointer_format !== DYLD_CHAINED_PTR_64) {
+    // Supported formats:
+    //   1 = DYLD_CHAINED_PTR_ARM64E (auth pointers, stride 8)
+    //   2 = DYLD_CHAINED_PTR_64 (absolute vmaddr targets, stride 4)
+    //   6 = DYLD_CHAINED_PTR_64_OFFSET (image-base-relative, stride 4)
+    const fmt = startsInSeg.pointer_format;
+    if (fmt !== DYLD_CHAINED_PTR_ARM64E &&
+        fmt !== DYLD_CHAINED_PTR_64 &&
+        fmt !== DYLD_CHAINED_PTR_64_OFFSET) {
       continue;
     }
 
@@ -315,7 +397,11 @@ export function buildFixupMap(
       const firstFixupOffset =
         segFileOffset + pageIdx * startsInSeg.page_size + pageStart;
 
-      walkChain(view, firstFixupOffset, le, imports, rebaseMap, bindMap);
+      if (fmt === DYLD_CHAINED_PTR_ARM64E) {
+        walkChainArm64e(view, firstFixupOffset, le, imports, rebaseMap, bindMap);
+      } else {
+        walkChain(view, firstFixupOffset, le, imports, rebaseMap, bindMap);
+      }
     }
   }
 
