@@ -1,19 +1,10 @@
 // Renderer entry point
+/// <reference path="./global.d.ts" />
+
+import type { AnalysisResult } from "../shared/types";
 
 // ── Types ──
-type AppState = "empty" | "loading" | "content";
-
-interface WindowApi {
-  analyzeIPA?: (filePath: string) => void;
-  openFilePicker?: () => void;
-  onProgress?: (callback: (phase: string) => void) => void;
-}
-
-declare global {
-  interface Window {
-    api?: WindowApi;
-  }
-}
+type AppState = "empty" | "loading" | "content" | "error";
 
 // ── DOM references ──
 const $ = <T extends HTMLElement>(sel: string): T =>
@@ -32,6 +23,8 @@ const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 // ── State ──
 let currentTab = "overview";
 let appState: AppState = "empty";
+let analysisResult: AnalysisResult | null = null;
+const loadedTabs = new Set<string>();
 
 // ── App state transitions ──
 function setState(state: AppState): void {
@@ -42,8 +35,22 @@ function setState(state: AppState): void {
   tabContent.classList.toggle("hidden", state !== "content");
 }
 
-function setLoadingPhase(phase: string): void {
-  loadingText.textContent = phase;
+function setLoadingPhase(phase: string, percent?: number): void {
+  loadingText.textContent = percent != null
+    ? `${phase} (${Math.round(percent)}%)`
+    : phase;
+}
+
+function showError(message: string): void {
+  setState("empty");
+  // Show error in the empty state area
+  const errorDiv = document.createElement("div");
+  errorDiv.className = "error-message";
+  errorDiv.textContent = `Error: ${message}`;
+  errorDiv.style.cssText = "color: #f85149; padding: 1rem; text-align: center;";
+  emptyState.appendChild(errorDiv);
+  // Auto-remove after 5 seconds
+  setTimeout(() => errorDiv.remove(), 5000);
 }
 
 // ── Tab switching ──
@@ -58,6 +65,23 @@ function switchTab(tabId: string): void {
     const isTarget = panel.id === `tab-${tabId}`;
     panel.classList.toggle("hidden", !isTarget);
   });
+
+  // Lazy-load tab data if we have an analysis result and haven't loaded this tab yet
+  if (analysisResult && !loadedTabs.has(tabId)) {
+    loadTabData(tabId);
+  }
+}
+
+async function loadTabData(tabId: string): Promise<void> {
+  try {
+    const tabData = await window.api.getTabData(tabId);
+    loadedTabs.add(tabId);
+    // Tab data is now available for rendering
+    // (Future tasks will add tab-specific rendering here)
+    console.log(`[Disect] Tab data loaded for: ${tabId}`, tabData);
+  } catch (err) {
+    console.error(`[Disect] Failed to load tab data for ${tabId}:`, err);
+  }
 }
 
 tabButtons.forEach((btn) => {
@@ -69,12 +93,36 @@ tabButtons.forEach((btn) => {
   });
 });
 
+// ── IPA Analysis ──
+async function startAnalysis(filePath: string): Promise<void> {
+  setState("loading");
+  setLoadingPhase("Starting analysis...", 0);
+  loadedTabs.clear();
+  analysisResult = null;
+
+  try {
+    const result = await window.api.analyzeIPA(filePath);
+    analysisResult = result;
+    loadedTabs.add("overview"); // Overview is included in the full result
+    setState("content");
+    switchTab("overview");
+    console.log("[Disect] Analysis complete:", result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showError(message);
+    console.error("[Disect] Analysis failed:", err);
+  }
+}
+
 // ── Open IPA button ──
-function handleOpenIPA(): void {
-  if (window.api?.openFilePicker) {
-    window.api.openFilePicker();
-  } else {
-    console.log("[Disect] openFilePicker not yet wired");
+async function handleOpenIPA(): Promise<void> {
+  try {
+    const filePath = await window.api.openFilePicker();
+    if (filePath) {
+      await startAnalysis(filePath);
+    }
+  } catch (err) {
+    console.error("[Disect] File picker error:", err);
   }
 }
 
@@ -132,20 +180,21 @@ document.addEventListener("drop", (e: DragEvent) => {
   }
 
   console.log("[Disect] Dropped IPA:", filePath);
-
-  if (window.api?.analyzeIPA) {
-    window.api.analyzeIPA(filePath);
-  } else {
-    console.log("[Disect] analyzeIPA not yet wired — would analyze:", filePath);
-  }
+  startAnalysis(filePath);
 });
 
-// ── Progress listener stub ──
-if (window.api?.onProgress) {
-  window.api.onProgress((phase: string) => {
-    setLoadingPhase(phase);
-  });
-}
+// ── IPC listeners ──
+window.api.onProgress((data) => {
+  setLoadingPhase(data.phase, data.percent);
+});
+
+window.api.onComplete(() => {
+  console.log("[Disect] Analysis complete signal received");
+});
+
+window.api.onError((data) => {
+  showError(data.message);
+});
 
 // ── Exports for future use ──
 export { setState, setLoadingPhase, switchTab };

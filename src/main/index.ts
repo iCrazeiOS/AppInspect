@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu } from "electron";
 import path from "path";
+import { registerIPCHandlers } from "./ipc/handlers";
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -18,6 +19,8 @@ function createWindow(): void {
   });
 
   win.loadFile(path.join(__dirname, "../../src/renderer/index.html"));
+
+  registerIPCHandlers(win);
 }
 
 // ── Application menu with Edit shortcuts ──
