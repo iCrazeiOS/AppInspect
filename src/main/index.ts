@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu } from "electron";
 import path from "path";
 import { registerIPCHandlers } from "./ipc/handlers";
 
+const APP_ROOT = path.join(app.getAppPath());
+
 function createWindow(): void {
   const win = new BrowserWindow({
     title: "Disect",
@@ -17,13 +19,16 @@ function createWindow(): void {
       height: 36,
     } : undefined,
     webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
+      preload: path.join(APP_ROOT, "dist/preload/index.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  win.loadFile(path.join(__dirname, "../../src/renderer/index.html"));
+  win.loadFile(path.join(APP_ROOT, "src/renderer/index.html"));
+
+  // Open DevTools in development
+  win.webContents.openDevTools();
 
   registerIPCHandlers(win);
 }
@@ -40,6 +45,18 @@ const menuTemplate: Electron.MenuItemConstructorOptions[] = [
       { role: "copy" },
       { role: "paste" },
       { role: "selectAll" },
+    ],
+  },
+  {
+    label: "View",
+    submenu: [
+      { role: "reload" },
+      { role: "forceReload" },
+      { role: "toggleDevTools" },
+      { type: "separator" },
+      { role: "zoomIn" },
+      { role: "zoomOut" },
+      { role: "resetZoom" },
     ],
   },
 ];

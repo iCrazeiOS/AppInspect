@@ -34,6 +34,8 @@ const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 
+console.log("[Disect] Renderer loaded. window.api =", typeof window.api, window.api);
+
 // ── Search state (imported from dedicated module to avoid circular deps) ──
 import { clearSearchStates, getSearchBar } from "./search-state";
 
@@ -353,8 +355,10 @@ async function startAnalysis(filePath: string): Promise<void> {
 
 // ── Open IPA button ──
 async function handleOpenIPA(): Promise<void> {
+  console.log("[Disect] handleOpenIPA called, window.api =", window.api);
   try {
     const filePath = await window.api.openFilePicker();
+    console.log("[Disect] openFilePicker returned:", filePath);
     if (filePath) {
       await startAnalysis(filePath);
     }
@@ -402,11 +406,13 @@ document.addEventListener("drop", (e: DragEvent) => {
   dropOverlay.classList.add("hidden");
 
   const files = e.dataTransfer?.files;
+  console.log("[Disect] Drop event, files:", files?.length, "file[0]:", files?.[0]);
   if (!files || files.length === 0) return;
 
   const file = files[0];
   // Electron provides .path on File objects
   const filePath = (file as File & { path?: string }).path;
+  console.log("[Disect] Dropped file path:", filePath);
 
   if (!filePath) {
     showToast("No file path available from drop", "warning");
@@ -490,8 +496,6 @@ window.onunhandledrejection = (e: PromiseRejectionEvent) => {
   showToast(e.reason?.message || "Unexpected error", "error");
 };
 
-// ── Exports for future use ──
-export { setState, setLoadingPhase, switchTab };
 
 // ── Init ──
 console.log("[Disect] Renderer loaded");
