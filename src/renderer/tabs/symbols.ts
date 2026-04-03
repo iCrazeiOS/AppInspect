@@ -119,7 +119,6 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
 
   const table = new DataTable(COLUMNS, 28);
   table.mount(tableWrap);
-  table.setData(rows);
 
   function updateCount(): void {
     const shown = table.filteredCount;
@@ -148,6 +147,8 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
     updateCount();
   }
 
-  updateCount();
+  // Append to DOM first so the table has real dimensions for virtual scrolling
   container.appendChild(wrapper);
+  table.setData(rows);
+  updateCount();
 }
