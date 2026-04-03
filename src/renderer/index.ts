@@ -162,10 +162,10 @@ async function loadTabData(tabId: string): Promise<void> {
           renderHeaders(panel, (tabData as any)?.data ?? tabData);
           break;
         case "strings":
-          renderStrings(panel, tabData);
+          renderStrings(panel, (tabData as any)?.data ?? tabData);
           break;
         case "symbols":
-          renderSymbols(panel, tabData);
+          renderSymbols(panel, (tabData as any)?.data ?? tabData);
           break;
         case "security":
           renderSecurity(panel, (tabData as any)?.data ?? tabData);
@@ -179,9 +179,11 @@ async function loadTabData(tabId: string): Promise<void> {
         case "entitlements":
           renderEntitlements(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "infoplist":
-          renderPlist(panel, (tabData as any)?.data ?? tabData);
+        case "infoplist": {
+          const plistData = (tabData as any)?.data ?? tabData;
+          renderPlist(panel, plistData);
           break;
+        }
         default:
           break;
       }

@@ -228,6 +228,9 @@ export interface AnalysisResult {
     buildVersion: BuildVersion | null;
     encryptionInfo: EncryptionInfo | null;
     hardening: BinaryHardening;
+    uuid?: string;
+    teamId?: string;
+    infoPlist?: { [key: string]: PlistValue };
   };
   strings: StringEntry[];
   headers: {
@@ -238,6 +241,7 @@ export interface AnalysisResult {
   libraries: LinkedLibrary[];
   symbols: Symbol[];
   classes: ObjCClass[];
+  protocols: string[];
   entitlements: Entitlement[];
   infoPlist: { [key: string]: PlistValue };
   security: {

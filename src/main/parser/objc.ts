@@ -94,7 +94,7 @@ function findSection(
   sectname: string,
 ): Section64 | null {
   for (const sect of sections) {
-    if (sect.segname === segname && sect.sectname === sectname) {
+    if (sect.segname.trim() === segname && sect.sectname.trim() === sectname) {
       return sect;
     }
   }

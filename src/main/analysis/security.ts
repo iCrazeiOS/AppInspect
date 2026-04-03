@@ -77,14 +77,24 @@ const SECRET_PATTERNS: Array<{
     message: 'URL with embedded credentials found',
   },
   {
-    name: 'Firebase API Key',
+    name: 'Google/Firebase API Key',
     pattern: /AIza[0-9A-Za-z\-_]{35}/,
-    message: 'Firebase API key found',
+    message: 'Google/Firebase/Gemini API key found',
   },
   {
     name: 'Slack token',
     pattern: /xox[bpas]-[0-9A-Za-z\-]+/,
     message: 'Slack token found in binary strings',
+  },
+  {
+    name: 'OpenAI API Key',
+    pattern: /sk-[A-Za-z0-9]{20,}/,
+    message: 'OpenAI API key found in binary strings',
+  },
+  {
+    name: 'Anthropic API Key',
+    pattern: /sk-ant-[A-Za-z0-9\-]{20,}/,
+    message: 'Anthropic API key found in binary strings',
   },
 ];
 

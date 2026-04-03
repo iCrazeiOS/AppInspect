@@ -103,10 +103,17 @@ export function registerIPCHandlers(win: BrowserWindow): void {
         case "symbols":
           return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
         case "classes":
-          return sanitizeBigInts({ tab: "classes", data: cached.classes });
-        case "entitlements":
-          return sanitizeBigInts({ tab: "entitlements", data: cached.entitlements });
+          return sanitizeBigInts({ tab: "classes", data: { classes: cached.classes, protocols: cached.protocols ?? [] } });
+        case "entitlements": {
+          // Convert Entitlement[] to flat object for the renderer
+          const entObj: Record<string, unknown> = {};
+          if (Array.isArray(cached.entitlements)) {
+            for (const e of cached.entitlements) entObj[e.key] = e.value;
+          }
+          return sanitizeBigInts({ tab: "entitlements", data: entObj });
+        }
         case "infoPlist":
+        case "infoplist" as any:
           return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
         case "security":
           return sanitizeBigInts({ tab: "security", data: cached.security });

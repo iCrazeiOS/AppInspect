@@ -53,7 +53,7 @@ const MAX_EVIDENCE_LEN = 200;
 export function renderSecurity(container: HTMLElement, data: any): void {
   container.innerHTML = "";
 
-  const sec: SecurityData = data?.security ?? { findings: [], hardening: {} };
+  const sec: SecurityData = (data?.findings ? data : data?.security) ?? { findings: [], hardening: {} };
   const findings = sec.findings ?? [];
   const hardening = sec.hardening ?? ({} as BinaryHardening);
 

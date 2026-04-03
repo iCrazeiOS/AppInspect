@@ -113,6 +113,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     : buildBadge("Not Encrypted", "green");
 
   const teamId = (data as any).teamId ?? "N/A";
+  const uuid = (data as any).uuid ?? "N/A";
 
   const summaryItems: HTMLElement[] = [
     buildKV("Bundle ID", String(bundleId)),
@@ -122,7 +123,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     buildKV("Min iOS", String(minIOS)),
     buildKV("Architecture", arch),
     buildKV("File Type", fileType),
-    buildKV("UUID", String((data as any).uuid ?? "N/A")),
+    buildKV("UUID", String(uuid)),
   ];
 
   // Encryption row with badge

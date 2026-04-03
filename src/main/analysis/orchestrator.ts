@@ -284,7 +284,10 @@ interface BinaryAnalysisResult {
   strings: StringEntry[];
   symbols: SymbolEntry[];
   classes: ObjCClass[];
+  protocols: string[];
   entitlements: Entitlement[];
+  uuid: string | null;
+  teamId: string | null;
   security: { findings: SecurityFinding[]; hardening: BinaryHardening };
   errors: string[];
 }
@@ -309,7 +312,10 @@ async function analyzeBinaryFile(
   let strings: StringEntry[] = [];
   let symbols: SymbolEntry[] = [];
   let classes: ObjCClass[] = [];
+  let protocols: string[] = [];
   let entitlements: Entitlement[] = [];
+  let uuid: string | null = null;
+  let teamId: string | null = null;
   let findings: SecurityFinding[] = [];
   let hardening: BinaryHardening = {
     pie: false, arc: false, stackCanaries: false, encrypted: false, stripped: true,
@@ -329,8 +335,8 @@ async function analyzeBinaryFile(
     errors.push(`Failed to read binary: ${msg}`);
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, entitlements,
-      security: { findings, hardening }, errors,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      uuid, teamId, security: { findings, hardening }, errors,
     };
   }
 
@@ -367,8 +373,8 @@ async function analyzeBinaryFile(
   if (!machoFile) {
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, entitlements,
-      security: { findings, hardening }, errors,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      uuid, teamId, security: { findings, hardening }, errors,
     };
   }
 
@@ -402,6 +408,10 @@ async function analyzeBinaryFile(
       };
     }
 
+    if (lcResult.uuid) {
+      uuid = lcResult.uuid;
+    }
+
     if (lcResult.encryption) {
       encryptionInfo = {
         cryptoff: lcResult.encryption.cryptoff,
@@ -417,8 +427,8 @@ async function analyzeBinaryFile(
   if (!lcResult) {
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, entitlements,
-      security: { findings, hardening }, errors,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      uuid, teamId, security: { findings, hardening }, errors,
     };
   }
 
@@ -493,6 +503,7 @@ async function analyzeBinaryFile(
       machoFile.littleEndian,
     );
     classes = objcMeta.classes;
+    protocols = objcMeta.protocols;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`ObjC metadata error: ${msg}`);
@@ -509,6 +520,9 @@ async function analyzeBinaryFile(
       );
       if (csResult?.entitlements) {
         entitlements = convertEntitlements(csResult.entitlements);
+      }
+      if (csResult?.codeDirectory?.teamID) {
+        teamId = csResult.codeDirectory.teamID;
       }
     }
   } catch (err) {
@@ -646,9 +660,9 @@ export async function analyzeIPA(
     }
   }
 
-  // Step 13: Build file tree
+  // Step 13: Build file tree (start from the .app bundle directly)
   progressCallback("Building file tree...", 95);
-  const files = buildFileTree(tempDir);
+  const files = buildFileTree(appBundlePath);
 
   // Assemble final result
   const appName = path.basename(appBundlePath, ".app");
@@ -671,6 +685,9 @@ export async function analyzeIPA(
       buildVersion: binaryResult.buildVersion,
       encryptionInfo: binaryResult.encryptionInfo,
       hardening: binaryResult.security.hardening,
+      uuid: binaryResult.uuid ?? undefined,
+      teamId: binaryResult.teamId ?? undefined,
+      infoPlist: infoPlistData,
     },
     strings: binaryResult.strings,
     headers: {
@@ -681,6 +698,7 @@ export async function analyzeIPA(
     libraries: binaryResult.libraries,
     symbols: binaryResult.symbols,
     classes: binaryResult.classes,
+    protocols: binaryResult.protocols,
     entitlements: finalEntitlements,
     infoPlist: infoPlistData,
     security: binaryResult.security,
@@ -719,6 +737,8 @@ export async function analyzeBinary(
       buildVersion: binaryResult.buildVersion,
       encryptionInfo: binaryResult.encryptionInfo,
       hardening: binaryResult.security.hardening,
+      uuid: binaryResult.uuid ?? undefined,
+      teamId: binaryResult.teamId ?? cachedResult.overview.teamId,
     },
     strings: binaryResult.strings,
     headers: {
@@ -729,6 +749,7 @@ export async function analyzeBinary(
     libraries: binaryResult.libraries,
     symbols: binaryResult.symbols,
     classes: binaryResult.classes,
+    protocols: binaryResult.protocols,
     entitlements: binaryResult.entitlements.length > 0
       ? binaryResult.entitlements
       : cachedResult.entitlements,

@@ -107,8 +107,13 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   treeEl.className = "ft-tree";
   container.appendChild(treeEl);
 
-  // Track expanded state by path
+  // Track expanded state by path — auto-expand root entries (the .app folder)
   const expandedSet = new Set<string>();
+  for (const entry of entries) {
+    if (entry.isDirectory) {
+      expandedSet.add(entry.path);
+    }
+  }
 
   // Track node elements by path for search
   const nodeMap = new Map<string, HTMLElement>();
