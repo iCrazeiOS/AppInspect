@@ -65,7 +65,7 @@ html, body {
 }
 
 .sidebar-header {
-  padding: 16px 14px 12px;
+  padding: 38px 14px 12px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
@@ -74,7 +74,6 @@ html, body {
   display: flex;
   align-items: center;
   margin-bottom: 12px;
-  padding-top: 4px;
 }
 
 .app-title {

@@ -13,6 +13,7 @@ function createWindow(): void {
     minHeight: 500,
     backgroundColor: "#0d1117",
     titleBarStyle: "hidden",
+    trafficLightPosition: process.platform === "darwin" ? { x: 14, y: 14 } : undefined,
     titleBarOverlay: process.platform === "win32" ? {
       color: "#161b22",
       symbolColor: "#e6edf3",
