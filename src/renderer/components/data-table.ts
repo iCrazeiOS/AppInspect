@@ -1,0 +1,250 @@
+/**
+ * Virtualized data table component for large datasets.
+ * Uses fixed row height and simple virtual scrolling.
+ */
+
+export interface Column {
+  key: string;
+  label: string;
+  width?: string;
+}
+
+export class DataTable {
+  private columns: Column[];
+  private rowHeight: number;
+  private container: HTMLElement | null = null;
+  private root: HTMLElement | null = null;
+  private headerRow: HTMLElement | null = null;
+  private scrollContainer: HTMLElement | null = null;
+  private spacer: HTMLElement | null = null;
+  private rowContainer: HTMLElement | null = null;
+
+  private allData: Record<string, string | number>[] = [];
+  private filteredData: Record<string, string | number>[] = [];
+  private filterFn: ((row: Record<string, string | number>) => boolean) | null = null;
+
+  private sortKey: string | null = null;
+  private sortAsc = true;
+
+  private rafId = 0;
+  private boundOnScroll: () => void;
+
+  onRowClick?: (row: Record<string, string | number>, index: number) => void;
+
+  private static BUFFER = 20;
+
+  constructor(columns: Column[], rowHeight = 28) {
+    this.columns = columns;
+    this.rowHeight = rowHeight;
+    this.boundOnScroll = this.onScroll.bind(this);
+  }
+
+  mount(container: HTMLElement): void {
+    this.container = container;
+
+    // Root wrapper
+    const root = document.createElement("div");
+    root.className = "dt-root";
+    this.root = root;
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "dt-header";
+    this.headerRow = header;
+    this.renderHeader();
+    root.appendChild(header);
+
+    // Scroll container
+    const scroll = document.createElement("div");
+    scroll.className = "dt-scroll";
+    this.scrollContainer = scroll;
+
+    // Spacer (sets total height for scrollbar)
+    const spacer = document.createElement("div");
+    spacer.className = "dt-spacer";
+    this.spacer = spacer;
+    scroll.appendChild(spacer);
+
+    // Row container (positioned inside spacer)
+    const rowContainer = document.createElement("div");
+    rowContainer.className = "dt-rows";
+    this.rowContainer = rowContainer;
+    scroll.appendChild(rowContainer);
+
+    scroll.addEventListener("scroll", this.boundOnScroll, { passive: true });
+    root.appendChild(scroll);
+
+    container.appendChild(root);
+  }
+
+  private renderHeader(): void {
+    if (!this.headerRow) return;
+    this.headerRow.innerHTML = "";
+
+    for (const col of this.columns) {
+      const cell = document.createElement("div");
+      cell.className = "dt-hcell";
+      if (col.width) cell.style.width = col.width;
+      else cell.style.flex = "1";
+
+      const label = document.createElement("span");
+      label.textContent = col.label;
+      cell.appendChild(label);
+
+      // Sort indicator
+      const indicator = document.createElement("span");
+      indicator.className = "dt-sort-indicator";
+      if (this.sortKey === col.key) {
+        indicator.textContent = this.sortAsc ? " \u25B2" : " \u25BC";
+      }
+      cell.appendChild(indicator);
+
+      cell.addEventListener("click", () => this.handleSort(col.key));
+      this.headerRow.appendChild(cell);
+    }
+  }
+
+  private handleSort(key: string): void {
+    if (this.sortKey === key) {
+      this.sortAsc = !this.sortAsc;
+    } else {
+      this.sortKey = key;
+      this.sortAsc = true;
+    }
+    this.applySort();
+    this.renderHeader();
+    this.renderVisibleRows();
+  }
+
+  private applySort(): void {
+    if (!this.sortKey) return;
+    const key = this.sortKey;
+    const asc = this.sortAsc;
+    this.filteredData.sort((a, b) => {
+      const va = a[key];
+      const vb = b[key];
+      if (va == null && vb == null) return 0;
+      if (va == null) return asc ? -1 : 1;
+      if (vb == null) return asc ? 1 : -1;
+      if (typeof va === "number" && typeof vb === "number") {
+        return asc ? va - vb : vb - va;
+      }
+      const sa = String(va);
+      const sb = String(vb);
+      return asc ? sa.localeCompare(sb) : sb.localeCompare(sa);
+    });
+  }
+
+  setData(data: Record<string, string | number>[]): void {
+    this.allData = data;
+    this.applyFilter();
+    this.applySort();
+    this.updateSpacer();
+    this.renderVisibleRows();
+  }
+
+  setFilter(filterFn: ((row: Record<string, string | number>) => boolean) | null): void {
+    this.filterFn = filterFn;
+    this.applyFilter();
+    this.applySort();
+    this.updateSpacer();
+    if (this.scrollContainer) this.scrollContainer.scrollTop = 0;
+    this.renderVisibleRows();
+  }
+
+  /** Returns current filtered count */
+  get filteredCount(): number {
+    return this.filteredData.length;
+  }
+
+  get totalCount(): number {
+    return this.allData.length;
+  }
+
+  private applyFilter(): void {
+    if (this.filterFn) {
+      this.filteredData = this.allData.filter(this.filterFn);
+    } else {
+      this.filteredData = this.allData.slice();
+    }
+  }
+
+  private updateSpacer(): void {
+    if (this.spacer) {
+      this.spacer.style.height = `${this.filteredData.length * this.rowHeight}px`;
+    }
+  }
+
+  private onScroll(): void {
+    if (this.rafId) return;
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = 0;
+      this.renderVisibleRows();
+    });
+  }
+
+  private renderVisibleRows(): void {
+    if (!this.scrollContainer || !this.rowContainer) return;
+
+    const scrollTop = this.scrollContainer.scrollTop;
+    const viewportHeight = this.scrollContainer.clientHeight;
+    const totalRows = this.filteredData.length;
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / this.rowHeight) - DataTable.BUFFER);
+    const visibleCount = Math.ceil(viewportHeight / this.rowHeight);
+    const endIndex = Math.min(totalRows, startIndex + visibleCount + DataTable.BUFFER * 2);
+
+    // Position the row container
+    this.rowContainer.style.transform = `translateY(${startIndex * this.rowHeight}px)`;
+
+    // Build rows
+    const fragment = document.createDocumentFragment();
+    for (let i = startIndex; i < endIndex; i++) {
+      const row = this.filteredData[i];
+      if (!row) continue;
+      const rowEl = document.createElement("div");
+      rowEl.className = "dt-row";
+      rowEl.style.height = `${this.rowHeight}px`;
+
+      for (const col of this.columns) {
+        const cell = document.createElement("div");
+        cell.className = "dt-cell";
+        if (col.width) cell.style.width = col.width;
+        else cell.style.flex = "1";
+        const val = row[col.key];
+        cell.textContent = val != null ? String(val) : "";
+        cell.title = val != null ? String(val) : "";
+        rowEl.appendChild(cell);
+      }
+
+      if (this.onRowClick) {
+        rowEl.style.cursor = "pointer";
+        const idx = i;
+        rowEl.addEventListener("click", () => {
+          this.onRowClick?.(row, idx);
+        });
+      }
+
+      fragment.appendChild(rowEl);
+    }
+
+    this.rowContainer.innerHTML = "";
+    this.rowContainer.appendChild(fragment);
+  }
+
+  destroy(): void {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    if (this.scrollContainer) {
+      this.scrollContainer.removeEventListener("scroll", this.boundOnScroll);
+    }
+    if (this.root && this.container) {
+      this.container.removeChild(this.root);
+    }
+    this.root = null;
+    this.container = null;
+    this.scrollContainer = null;
+    this.spacer = null;
+    this.rowContainer = null;
+    this.headerRow = null;
+  }
+}
