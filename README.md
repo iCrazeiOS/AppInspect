@@ -47,7 +47,6 @@ File type is detected automatically by magic bytes.
 
 - [Bun](https://bun.sh) (v1.0+) — JavaScript runtime and package manager
 - [Node.js](https://nodejs.org) (v18+) — required by Electron
-- Git
 
 ### Install dependencies
 
