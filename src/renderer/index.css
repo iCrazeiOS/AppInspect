@@ -1355,7 +1355,78 @@ html, body {
   flex: 1;
   background-color: var(--bg);
   padding: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cls-method-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cls-method-search-wrap .sb-root {
+  flex: 1;
+}
+
+.cls-scope-toggle {
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.cls-scope-toggle:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.cls-scope-toggle--active {
+  background-color: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.cls-detail-header {
+  flex-shrink: 0;
+}
+
+.cls-method-scroll {
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
+}
+
+.cls-method-group {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  padding: 8px 8px 4px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.cls-method-group:first-child {
+  border-top: none;
+  margin-top: 0;
+}
+
+.cls-method-group:hover {
+  background-color: rgba(88, 166, 255, 0.06);
 }
 
 .cls-scroll {

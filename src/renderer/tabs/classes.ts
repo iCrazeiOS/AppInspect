@@ -71,11 +71,16 @@ function parseMethodSignature(sig: string): ParsedMethod | null {
 }
 
 function formatSpecForType(type: string): string {
-  const t = type.replace(/\s*\*\s*$/, "").trim();
+  const raw = type.trim();
+  const isPointer = raw.endsWith("*");
+  const t = raw.replace(/\s*\*\s*$/, "").trim();
+  // void * is a pointer, plain void is no-value
+  if (t === "void" && isPointer) return "%p";
+  if (t === "void") return "";
   if (t === "id" || t === "NSString" || t === "NSArray" || t === "NSDictionary" ||
       t === "NSNumber" || t === "NSData" || t === "NSError" || t === "NSObject" ||
       t === "NSURL" || t === "NSSet" || t === "NSDate" ||
-      t.endsWith("*")) return "%@";
+      isPointer) return "%@";
   if (t === "BOOL" || t === "bool") return "%@";
   if (t === "int" || t === "NSInteger" || t === "NSUInteger" ||
       t === "unsigned int" || t === "uint32_t" || t === "int32_t") return "%d";
@@ -90,8 +95,7 @@ function formatSpecForType(type: string): string {
   if (t === "CGRect") return "%@";
   if (t === "CGSize") return "%@";
   if (t === "CGPoint") return "%@";
-  if (t === "void") return "";
-  return "%p"; // pointer fallback
+  return "%p"; // fallback
 }
 
 function argFormatExpr(argName: string, type: string): string {
@@ -118,25 +122,36 @@ function returnFormatExpr(type: string): { fmt: string; expr: string } {
   return { fmt: spec, expr: "orig" };
 }
 
+/** Sanitize types that can't appear in hook code (e.g. "? *", unknown struct pointers) */
+function sanitizeTypeForHook(type: string): string {
+  const t = type.trim();
+  // "? *" or just "?" — unknown type pointer
+  if (t === "?" || t === "? *") return "void *";
+  // Unknown struct/class pointer types (contains non-ObjC chars) — use void *
+  if (t.endsWith("*") && /[^a-zA-Z0-9_ *]/.test(t.replace(/\s*\*\s*$/, ""))) return "void *";
+  return t;
+}
+
 function generateLogosHook(className: string, parsed: ParsedMethod): string {
   const prefix = parsed.isInstance ? "-" : "+";
-  const retType = parsed.returnType;
+  const retType = sanitizeTypeForHook(parsed.returnType);
   const isVoid = retType === "void";
 
-  // Build method declaration
+  // Build method declaration with sanitized types
   let decl: string;
   if (parsed.parts.length === 0) {
     decl = `(${retType})${parsed.selector}`;
   } else {
     const argParts = parsed.parts.map(
-      (p) => `${p.label}:(${p.type})${p.argName}`
+      (p) => `${p.label}:(${sanitizeTypeForHook(p.type)})${p.argName}`
     );
     decl = `(${retType})${argParts.join(" ")}`;
   }
 
   // Build NSLog format string — interleave labels with format specifiers
-  const argFmts = parsed.parts.map((p) => formatSpecForType(p.type));
-  const argExprs = parsed.parts.map((p) => argFormatExpr(p.argName, p.type));
+  // Use sanitized types for format specifiers and arg expressions
+  const argFmts = parsed.parts.map((p) => formatSpecForType(sanitizeTypeForHook(p.type)));
+  const argExprs = parsed.parts.map((p) => argFormatExpr(p.argName, sanitizeTypeForHook(p.type)));
 
   // e.g. "-[Class initWithStyle:%lld reuseIdentifier:%@]"
   let logSelector: string;
@@ -366,43 +381,188 @@ export function renderClasses(container: HTMLElement, data: any): void {
   rightPanel.className = "cls-right";
   wrapper.appendChild(rightPanel);
 
+  // Method search bar + scope toggle (persistent across re-renders)
+  const methodSearchWrap = document.createElement("div");
+  methodSearchWrap.className = "cls-method-search-wrap";
+  rightPanel.appendChild(methodSearchWrap);
+
+  let methodSearchTerm = "";
+  let methodSearchRegex = false;
+  let searchAllClasses = false;
+
+  const methodSearchBar = new SearchBar((term, isRegex) => {
+    methodSearchTerm = term;
+    methodSearchRegex = isRegex;
+    renderMethodList();
+  });
+  methodSearchBar.mount(methodSearchWrap);
+
+  const scopeToggle = document.createElement("button");
+  scopeToggle.className = "cls-scope-toggle";
+  scopeToggle.textContent = "All Classes";
+  scopeToggle.title = "Search across all classes";
+  scopeToggle.addEventListener("click", () => {
+    searchAllClasses = !searchAllClasses;
+    scopeToggle.classList.toggle("cls-scope-toggle--active", searchAllClasses);
+    scopeToggle.textContent = searchAllClasses ? "All Classes" : "All Classes";
+    renderMethodList();
+  });
+  methodSearchWrap.appendChild(scopeToggle);
+
+  // Header area (class name + method count) — re-rendered
+  const detailHeader = document.createElement("div");
+  detailHeader.className = "cls-detail-header";
+  rightPanel.appendChild(detailHeader);
+
+  // Scrollable method list area
+  const methodListContainer = document.createElement("div");
+  methodListContainer.className = "cls-method-scroll";
+  rightPanel.appendChild(methodListContainer);
+
   // ── Right sidebar (method detail) ──
   const sidebar = document.createElement("div");
   sidebar.className = "cls-sidebar";
   wrapper.appendChild(sidebar);
 
+  /** Get filtered methods for the current view */
+  function getFilteredMethods(): { className: string; method: ObjCMethod }[] {
+    let matcher: ((s: string) => boolean) | null = null;
+    if (methodSearchTerm) {
+      try {
+        if (methodSearchRegex) {
+          const re = new RegExp(methodSearchTerm, "i");
+          matcher = (s) => re.test(s);
+        } else {
+          const lower = methodSearchTerm.toLowerCase();
+          matcher = (s) => s.toLowerCase().includes(lower);
+        }
+      } catch {
+        return [];
+      }
+    }
+
+    if (searchAllClasses && methodSearchTerm) {
+      // Search across all classes
+      const results: { className: string; method: ObjCMethod }[] = [];
+      for (const cls of allClasses) {
+        for (const m of cls.methods) {
+          const sig = typeof m === "string" ? m : m.signature;
+          if (!matcher || matcher(sig)) {
+            results.push({ className: cls.name, method: m });
+          }
+        }
+      }
+      return results;
+    }
+
+    if (!selectedClass) return [];
+
+    const clsName = selectedClass.name;
+    return selectedClass.methods
+      .filter((m) => {
+        if (!matcher) return true;
+        const sig = typeof m === "string" ? m : m.signature;
+        return matcher(sig);
+      })
+      .map((m) => ({ className: clsName, method: m }));
+  }
+
   function renderDetail(): void {
-    rightPanel.innerHTML = "";
-    if (!selectedClass) {
+    detailHeader.innerHTML = "";
+    if (!selectedClass && !(searchAllClasses && methodSearchTerm)) {
+      detailHeader.innerHTML = "";
+      // clear method list too
+      methodListContainer.innerHTML = "";
       const hint = document.createElement("div");
       hint.className = "cls-detail-hint";
       hint.textContent = "Select a class to view its methods";
-      rightPanel.appendChild(hint);
+      methodListContainer.appendChild(hint);
+      return;
+    }
+    renderMethodList();
+  }
+
+  function renderMethodList(): void {
+    detailHeader.innerHTML = "";
+    methodListContainer.innerHTML = "";
+
+    const filtered = getFilteredMethods();
+
+    if (searchAllClasses && methodSearchTerm) {
+      // Show global search results header
+      const heading = document.createElement("h3");
+      heading.className = "cls-detail-name";
+      heading.textContent = "Method Search";
+      detailHeader.appendChild(heading);
+
+      const countEl = document.createElement("div");
+      countEl.className = "cls-detail-count";
+      countEl.textContent = `${filtered.length.toLocaleString()} result${filtered.length !== 1 ? "s" : ""} across all classes`;
+      detailHeader.appendChild(countEl);
+
+      methodSearchBar.updateCount(filtered.length, totalMethods);
+    } else if (selectedClass) {
+      const heading = document.createElement("h3");
+      heading.className = "cls-detail-name";
+      heading.textContent = selectedClass.name;
+      detailHeader.appendChild(heading);
+
+      const countEl = document.createElement("div");
+      countEl.className = "cls-detail-count";
+      const total = selectedClass.methods.length;
+      if (methodSearchTerm) {
+        countEl.textContent = `${filtered.length} of ${total} method${total !== 1 ? "s" : ""}`;
+      } else {
+        countEl.textContent = `${total} method${total !== 1 ? "s" : ""}`;
+      }
+      detailHeader.appendChild(countEl);
+
+      methodSearchBar.updateCount(filtered.length, total);
+    } else {
+      const hint = document.createElement("div");
+      hint.className = "cls-detail-hint";
+      hint.textContent = "Select a class to view its methods";
+      methodListContainer.appendChild(hint);
+      methodSearchBar.updateCount(0, 0);
       return;
     }
 
-    const heading = document.createElement("h3");
-    heading.className = "cls-detail-name";
-    heading.textContent = selectedClass.name;
-    rightPanel.appendChild(heading);
-
-    const methodCount = document.createElement("div");
-    methodCount.className = "cls-detail-count";
-    methodCount.textContent = `${selectedClass.methods.length} method${selectedClass.methods.length !== 1 ? "s" : ""}`;
-    rightPanel.appendChild(methodCount);
-
-    if (selectedClass.methods.length === 0) {
+    if (filtered.length === 0) {
       const noMethods = document.createElement("div");
       noMethods.className = "cls-detail-hint";
-      noMethods.textContent = "No methods found for this class.";
-      rightPanel.appendChild(noMethods);
+      noMethods.textContent = methodSearchTerm ? "No matching methods." : "No methods found for this class.";
+      methodListContainer.appendChild(noMethods);
       return;
     }
 
     const methodList = document.createElement("ul");
     methodList.className = "cls-method-list";
-    const cls = selectedClass;
-    for (const m of cls.methods) {
+
+    let lastClassName = "";
+    for (const { className: clsName, method: m } of filtered) {
+      // In global search, show class name group headers
+      if (searchAllClasses && methodSearchTerm && clsName !== lastClassName) {
+        lastClassName = clsName;
+        const groupHeader = document.createElement("li");
+        groupHeader.className = "cls-method-group";
+        groupHeader.textContent = clsName;
+        groupHeader.addEventListener("click", () => {
+          // Click class header to select that class
+          const cls = allClasses.find((c) => c.name === clsName);
+          if (cls) {
+            selectedClass = cls;
+            searchAllClasses = false;
+            scopeToggle.classList.remove("cls-scope-toggle--active");
+            methodSearchTerm = "";
+            methodSearchBar.setValue("", false);
+            renderVisibleRows();
+            renderDetail();
+            renderSidebar();
+          }
+        });
+        methodList.appendChild(groupHeader);
+      }
+
       const sig = typeof m === "string" ? m : m.signature;
       const li = document.createElement("li");
       li.className = "cls-method-item";
@@ -412,13 +572,18 @@ export function renderClasses(container: HTMLElement, data: any): void {
       li.textContent = sig;
       li.title = "Click to inspect";
       li.addEventListener("click", () => {
+        // In global search, also select the parent class
+        if (searchAllClasses) {
+          const cls = allClasses.find((c) => c.name === clsName);
+          if (cls) selectedClass = cls;
+        }
         selectedMethod = m;
-        renderDetail();
+        renderMethodList();
         renderSidebar();
       });
       methodList.appendChild(li);
     }
-    rightPanel.appendChild(methodList);
+    methodListContainer.appendChild(methodList);
   }
 
   function renderSidebar(): void {
