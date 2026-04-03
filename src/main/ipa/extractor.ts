@@ -1,7 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
-import { unzipSync } from "fflate";
 
 export interface BinaryInfo {
   name: string;
@@ -31,39 +30,7 @@ export async function extractIPA(
     // Ensure destDir exists
     fs.mkdirSync(destDir, { recursive: true });
 
-    // Always use system tar/unzip — fflate's unzipSync can blow V8 memory
-    // on real-world IPAs even under 50MB (decompressed size can be much larger)
     return await extractWithSystem(ipaPath, destDir);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: `Failed to extract IPA: ${message}` };
-  }
-}
-
-function extractWithFflate(
-  ipaPath: string,
-  destDir: string
-): ExtractionResult | ExtractionError {
-  try {
-    const fileBuffer = fs.readFileSync(ipaPath);
-    const data = new Uint8Array(fileBuffer);
-    const unzipped = unzipSync(data);
-
-    for (const [filePath, fileData] of Object.entries(unzipped)) {
-      const normalizedPath = filePath.split("/").join(path.sep);
-      const fullPath = path.join(destDir, normalizedPath);
-
-      if (filePath.endsWith("/")) {
-        fs.mkdirSync(fullPath, { recursive: true });
-        continue;
-      }
-
-      const parentDir = path.dirname(fullPath);
-      fs.mkdirSync(parentDir, { recursive: true });
-      fs.writeFileSync(fullPath, fileData);
-    }
-
-    return { success: true, extractedDir: destDir };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: `Failed to extract IPA: ${message}` };
