@@ -287,6 +287,23 @@ function checkBinaryHardeningFindings(
   return findings;
 }
 
+// Base64 detection: at least 20 chars of valid base64 with optional padding
+const BASE64_RE = /^[A-Za-z0-9+/]{20,}={0,2}$/;
+
+function tryBase64Decode(s: string): string | null {
+  const trimmed = s.trim();
+  if (!BASE64_RE.test(trimmed)) return null;
+  try {
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+    // Sanity check: decoded content should be mostly printable ASCII
+    const printable = decoded.replace(/[^\x20-\x7e]/g, '');
+    if (printable.length < decoded.length * 0.7) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
@@ -301,6 +318,23 @@ function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
           evidence: truncate(match[0]),
           location: `offset=0x${entry.offset.toString(16)}`,
         });
+      }
+    }
+
+    // Also check base64-encoded strings
+    const decoded = tryBase64Decode(entry.value);
+    if (decoded) {
+      for (const { pattern, message } of SECRET_PATTERNS) {
+        const match = pattern.exec(decoded);
+        if (match) {
+          findings.push({
+            severity: 'critical',
+            category: 'credential-leak',
+            message: `${message} (base64 encoded)`,
+            evidence: truncate(match[0]),
+            location: `offset=0x${entry.offset.toString(16)}`,
+          });
+        }
       }
     }
   }
