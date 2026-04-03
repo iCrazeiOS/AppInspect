@@ -94,7 +94,9 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
         debItems.push(descRow);
       }
       if (debControl.installedSize) {
-        debItems.push(buildKV("Installed Size", `${debControl.installedSize} KB`));
+        const kb = Number(debControl.installedSize);
+        const sizeStr = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
+        debItems.push(buildKV("Installed Size", sizeStr));
       }
     }
     wrapper.appendChild(buildCard("Package Info", ...debItems));
