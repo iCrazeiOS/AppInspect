@@ -11,6 +11,11 @@ function createWindow(): void {
     minHeight: 500,
     backgroundColor: "#0d1117",
     titleBarStyle: "hidden",
+    titleBarOverlay: process.platform === "win32" ? {
+      color: "#161b22",
+      symbolColor: "#e6edf3",
+      height: 36,
+    } : undefined,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
