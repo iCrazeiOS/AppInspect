@@ -56,11 +56,7 @@ const SECRET_PATTERNS: Array<{
     pattern: /mysql:\/\/[^\s'"]+/,
     message: 'MySQL connection URI found',
   },
-  {
-    name: 'Private Key',
-    pattern: /-----BEGIN (RSA |EC )?PRIVATE KEY-----/,
-    message: 'Private key embedded in binary',
-  },
+  // Private Key is handled separately via PEM reassembly in checkSecretPatterns
   {
     name: 'Secret Key assignment',
     pattern: /[sS]ecret[-_]?[kK]ey\s*[:=]\s*['"][^'"]{8,}/,
@@ -210,7 +206,44 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
 
     const lines = file.content.split('\n');
 
-    for (const line of lines) {
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li]!;
+
+      // PEM private key reassembly across consecutive lines
+      if (PEM_BEGIN_RE.test(line)) {
+        const pemLines = [line];
+        let foundEnd = false;
+        let lj = li + 1;
+        while (lj < lines.length && lj - li < 200) {
+          const next = lines[lj]!.trim();
+          if (PEM_END_RE.test(next)) { pemLines.push(next); foundEnd = true; break; }
+          if (PEM_BASE64_LINE_RE.test(next)) { pemLines.push(next); }
+          else break;
+          lj++;
+        }
+        const hasKeyMaterial = pemLines.length > 2 ||
+          (!foundEnd && pemLines.length === 1);
+
+        if (hasKeyMaterial) {
+          const fullPem = pemLines.join('\n');
+          const key = `credential-leak|pem-key|${file.relativePath}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            findings.push({
+              severity: 'critical',
+              category: 'credential-leak',
+              message: foundEnd
+                ? 'Private key found in bundle file (full PEM block)'
+                : 'Private key header found in bundle file',
+              evidence: truncate(fullPem),
+              source: file.relativePath,
+            });
+          }
+        }
+        if (foundEnd) li = lj;
+        continue;
+      }
+
       // Check secret patterns
       for (const { pattern, message } of SECRET_PATTERNS) {
         const match = pattern.exec(line);
@@ -414,10 +447,67 @@ function tryBase64Decode(s: string): string | null {
   }
 }
 
+// PEM detection patterns
+const PEM_BEGIN_RE = /-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----/;
+const PEM_END_RE = /-----END (RSA |EC |DSA )?PRIVATE KEY-----/;
+const PEM_BASE64_LINE_RE = /^[A-Za-z0-9+/]{1,76}={0,2}$/;
+
 function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
-  for (const entry of strings) {
+  for (let i = 0; i < strings.length; i++) {
+    const entry = strings[i]!;
+
+    // ── PEM private key reassembly ──
+    // The header, base64 lines, and footer are separate null-terminated strings
+    // in the binary. Collect adjacent strings to reconstruct the full PEM block.
+    const pemMatch = PEM_BEGIN_RE.exec(entry.value);
+    if (pemMatch) {
+      const pemLines = [entry.value];
+      let j = i + 1;
+      let foundEnd = false;
+      // Collect up to 200 following strings (RSA-4096 ≈ 50 lines)
+      while (j < strings.length && j - i < 200) {
+        const next = strings[j]!.value;
+        if (PEM_END_RE.test(next)) {
+          pemLines.push(next);
+          foundEnd = true;
+          break;
+        }
+        if (PEM_BASE64_LINE_RE.test(next)) {
+          pemLines.push(next);
+        } else {
+          // Non-base64, non-footer line — stop collecting
+          break;
+        }
+        j++;
+      }
+
+      // Only report if there's actual base64 key material between header and footer.
+      // Bare header+footer with nothing in between are just format strings used
+      // by RSA utility code, not actual embedded keys.
+      const hasKeyMaterial = pemLines.length > 2 ||
+        (!foundEnd && pemLines.length === 1); // lone header with no end = suspicious
+
+      if (hasKeyMaterial) {
+        const fullPem = pemLines.join('\n');
+        findings.push({
+          severity: 'critical',
+          category: 'credential-leak',
+          message: foundEnd
+            ? 'Private key embedded in binary (full PEM block)'
+            : 'Private key header found in binary',
+          evidence: truncate(fullPem),
+          location: `offset=0x${entry.offset.toString(16)}`,
+        });
+      }
+
+      // Skip past the strings we consumed
+      if (foundEnd) i = j;
+      continue;
+    }
+
+    // ── Standard secret patterns ──
     for (const { pattern, message } of SECRET_PATTERNS) {
       const match = pattern.exec(entry.value);
       if (match) {
