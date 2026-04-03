@@ -138,6 +138,37 @@ html, body {
   border-color: var(--accent);
 }
 
+.binary-dropdown:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Binary loading overlay ── */
+.binary-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background-color: rgba(13, 17, 23, 0.75);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: drop-fade-in 150ms ease;
+}
+
+.binary-loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.binary-loading-text {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 /* ── Sidebar nav ── */
 .sidebar-nav {
   flex: 1;
@@ -572,6 +603,22 @@ html, body {
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.sb-count-empty {
+  color: #f85149;
+}
+
+.sb-error {
+  font-size: 12px;
+  color: #f85149;
+  white-space: nowrap;
+  flex-shrink: 0;
+  display: none;
+}
+
+.sb-error-visible {
+  display: inline;
 }
 
 /* ── JSON Tree (jt-) ── */

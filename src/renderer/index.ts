@@ -1,7 +1,7 @@
 // Renderer entry point
 /// <reference path="./global.d.ts" />
 
-import type { AnalysisResult } from "../shared/types";
+import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { renderOverview } from "./tabs/overview";
 import { renderLibraries } from "./tabs/libraries";
 import { renderHeaders } from "./tabs/headers";
@@ -9,6 +9,7 @@ import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
 import { renderSecurity } from "./tabs/security";
 import { renderFiles } from "./tabs/files";
+import { showToast } from "./components/toast";
 
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
@@ -23,6 +24,7 @@ const loadingBar = $<HTMLDivElement>("#loading-bar");
 const loadingText = $<HTMLDivElement>("#loading-text");
 const tabContent = $<HTMLDivElement>("#tab-content");
 const binarySelector = $<HTMLDivElement>("#binary-selector");
+const binaryDropdown = $<HTMLSelectElement>("#binary-dropdown");
 
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
@@ -31,6 +33,10 @@ const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 let currentTab = "overview";
 let appState: AppState = "empty";
 let analysisResult: AnalysisResult | null = null;
+let currentBinaryIndex = 0;
+let isSwitchingBinary = false;
+let isEncrypted = false;
+let encryptionBannerDismissed = false;
 const loadedTabs = new Set<string>();
 
 // ── App state transitions ──
@@ -50,14 +56,46 @@ function setLoadingPhase(phase: string, percent?: number): void {
 
 function showError(message: string): void {
   setState("empty");
-  // Show error in the empty state area
-  const errorDiv = document.createElement("div");
-  errorDiv.className = "error-message";
-  errorDiv.textContent = `Error: ${message}`;
-  errorDiv.style.cssText = "color: #f85149; padding: 1rem; text-align: center;";
-  emptyState.appendChild(errorDiv);
-  // Auto-remove after 5 seconds
-  setTimeout(() => errorDiv.remove(), 5000);
+  showToast(message, "error");
+}
+
+// ── Encryption warning banner ──
+function checkEncryptionBanner(result: AnalysisResult): void {
+  const encrypted =
+    result.overview?.hardening?.encrypted === true ||
+    (result.overview?.encryptionInfo?.cryptid != null &&
+      result.overview.encryptionInfo.cryptid !== 0);
+
+  isEncrypted = encrypted;
+  encryptionBannerDismissed = false;
+  updateEncryptionBanner();
+}
+
+function updateEncryptionBanner(): void {
+  let banner = document.getElementById("encryption-banner");
+  if (isEncrypted && !encryptionBannerDismissed) {
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = "encryption-banner";
+      banner.className = "encryption-banner";
+      banner.innerHTML =
+        '<span class="encryption-banner-icon">\u26A0</span>' +
+        '<span class="encryption-banner-text">This binary is FairPlay encrypted. Strings, classes, and symbols data may be incomplete. Use a decrypted IPA for full analysis.</span>' +
+        '<button class="encryption-banner-close">\u00D7</button>';
+      // Insert before tab-content inside main-content
+      const mainContent = document.getElementById("main-content");
+      if (mainContent && tabContent) {
+        mainContent.insertBefore(banner, tabContent);
+      }
+      banner.querySelector(".encryption-banner-close")!.addEventListener("click", () => {
+        encryptionBannerDismissed = true;
+        updateEncryptionBanner();
+      });
+    }
+    banner.classList.remove("hidden");
+  } else if (banner) {
+    banner.classList.add("hidden");
+  }
 }
 
 // ── Tab switching ──
@@ -128,18 +166,129 @@ tabButtons.forEach((btn) => {
   });
 });
 
+// ── Binary selector ──
+
+/** Badge label for binary type */
+function binaryTypeBadge(type: BinaryInfo["type"]): string {
+  switch (type) {
+    case "main":
+      return "Main";
+    case "framework":
+      return "Framework";
+    case "extension":
+      return "Extension";
+    default:
+      return String(type);
+  }
+}
+
+/** Populate the binary dropdown from discovered binaries */
+function populateBinarySelector(binaries: BinaryInfo[]): void {
+  binaryDropdown.innerHTML = "";
+
+  if (!binaries || binaries.length <= 1) {
+    binarySelector.classList.add("hidden");
+    return;
+  }
+
+  for (let i = 0; i < binaries.length; i++) {
+    const bin = binaries[i];
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = `${bin.name}  [${binaryTypeBadge(bin.type)}]`;
+    opt.dataset["binType"] = bin.type;
+    binaryDropdown.appendChild(opt);
+  }
+
+  binaryDropdown.value = String(currentBinaryIndex);
+  binarySelector.classList.remove("hidden");
+}
+
+/** Clear all tab content and mark tabs as needing reload */
+function clearAllTabContent(): void {
+  loadedTabs.clear();
+  tabPanels.forEach((panel) => {
+    panel.innerHTML = "";
+  });
+}
+
+/** Show/hide the binary-switch loading overlay */
+function setBinarySwitchLoading(show: boolean): void {
+  let overlay = document.getElementById("binary-loading-overlay");
+  if (show) {
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.id = "binary-loading-overlay";
+      overlay.className = "binary-loading-overlay";
+      overlay.innerHTML =
+        '<div class="binary-loading-inner"><div class="ld-spinner"></div><span class="binary-loading-text">Switching binary...</span></div>';
+      tabContent.style.position = "relative";
+      tabContent.appendChild(overlay);
+    }
+    overlay.classList.remove("hidden");
+  } else if (overlay) {
+    overlay.classList.add("hidden");
+  }
+}
+
+/** Handle binary dropdown change */
+async function handleBinaryChange(): Promise<void> {
+  const selectedIndex = parseInt(binaryDropdown.value, 10);
+  if (isNaN(selectedIndex) || selectedIndex === currentBinaryIndex || isSwitchingBinary) {
+    return;
+  }
+
+  isSwitchingBinary = true;
+  currentBinaryIndex = selectedIndex;
+  binaryDropdown.disabled = true;
+  setBinarySwitchLoading(true);
+
+  try {
+    const result = await window.api.analyzeBinary(selectedIndex);
+    analysisResult = result;
+
+    // Clear all cached tab renders so they re-render with new data
+    clearAllTabContent();
+
+    // Render the currently active tab immediately
+    loadedTabs.add(currentTab);
+    await loadTabData(currentTab);
+
+    console.log(`[Disect] Switched to binary index ${selectedIndex}:`, result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showError(message);
+    console.error("[Disect] Binary switch failed:", err);
+  } finally {
+    isSwitchingBinary = false;
+    binaryDropdown.disabled = false;
+    setBinarySwitchLoading(false);
+  }
+}
+
+binaryDropdown.addEventListener("change", handleBinaryChange);
+
 // ── IPA Analysis ──
 async function startAnalysis(filePath: string): Promise<void> {
   setState("loading");
   setLoadingPhase("Starting analysis...", 0);
   loadedTabs.clear();
   analysisResult = null;
+  currentBinaryIndex = 0;
+
+  // Hide binary selector during analysis
+  binarySelector.classList.add("hidden");
 
   try {
     const result = await window.api.analyzeIPA(filePath);
     analysisResult = result;
     loadedTabs.add("overview"); // Overview is included in the full result
     setState("content");
+
+    // Populate binary selector if multiple binaries discovered
+    if (result.overview?.ipa?.binaries) {
+      populateBinarySelector(result.overview.ipa.binaries);
+    }
 
     // Render overview immediately from the full result
     const overviewPanel = document.getElementById("tab-overview");
