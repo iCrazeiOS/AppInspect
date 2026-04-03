@@ -82,7 +82,7 @@ function setState(state: AppState): void {
 }
 
 function setLoadingPhase(phase: string, percent?: number): void {
-  loadingText.textContent = percent != null
+  loadingText.textContent = percent != null && percent > 0
     ? `${phase} (${Math.round(percent)}%)`
     : phase;
 }

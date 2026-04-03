@@ -14,7 +14,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { execFileSync } from "child_process";
+import { execFile } from "child_process";
 import type { DEBControlInfo } from "../../shared/types";
 
 // Mach-O magic values for binary detection
@@ -128,7 +128,7 @@ function parseControlFile(text: string): DEBControlInfo {
 
 // ── Tar extraction helpers ─────────────────────────────────────────
 
-function extractTar(tarPath: string, destDir: string): void {
+function extractTar(tarPath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
 
   // On Windows, use bsdtar from System32 (supports gz/xz/lzma/bz2/zst via libarchive).
@@ -136,7 +136,13 @@ function extractTar(tarPath: string, destDir: string): void {
   const tarBin = process.platform === "win32"
     ? path.join(process.env["SYSTEMROOT"] ?? "C:\\Windows", "System32", "tar.exe")
     : "tar";
-  execFileSync(tarBin, ["xf", tarPath, "-C", destDir], { timeout: 60000 });
+
+  return new Promise((resolve, reject) => {
+    execFile(tarBin, ["xf", tarPath, "-C", destDir], { timeout: 60000 }, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
 }
 
 // ── Binary discovery ───────────────────────────────────────────────
@@ -233,9 +239,9 @@ function discoverDEBBinaries(dataDir: string): DEBBinaryInfo[] {
 
 // ── Main extraction ────────────────────────────────────────────────
 
-export function extractDEB(
+export async function extractDEB(
   debPath: string,
-): DEBExtractionResult | DEBExtractionError {
+): Promise<DEBExtractionResult | DEBExtractionError> {
   try {
     const buf = fs.readFileSync(debPath);
     const members = parseARMembers(buf);
@@ -266,7 +272,7 @@ export function extractDEB(
       const controlTarPath = path.join(tempDir, controlMember.name);
       const controlDir = path.join(tempDir, "control-extracted");
       try {
-        extractTar(controlTarPath, controlDir);
+        await extractTar(controlTarPath, controlDir);
         // control file may be at root or in ./ prefix
         const controlFilePath =
           fs.existsSync(path.join(controlDir, "control"))
@@ -294,7 +300,7 @@ export function extractDEB(
     const dataTarPath = path.join(tempDir, dataMember.name);
     const dataDir = path.join(tempDir, "data");
     try {
-      extractTar(dataTarPath, dataDir);
+      await extractTar(dataTarPath, dataDir);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, error: `Failed to extract data archive: ${msg}` };

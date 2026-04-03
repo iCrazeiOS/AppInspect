@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "child_process";
+import { execFile } from "child_process";
 import { unzipSync } from "fflate";
 
 export interface BinaryInfo {
@@ -21,19 +21,19 @@ export interface ExtractionError {
 
 /**
  * Extract an IPA file (ZIP archive) to a destination directory.
- * Uses system tools for large files, fflate for small ones.
+ * Uses async system tools so the main thread stays responsive.
  */
-export function extractIPA(
+export async function extractIPA(
   ipaPath: string,
   destDir: string
-): ExtractionResult | ExtractionError {
+): Promise<ExtractionResult | ExtractionError> {
   try {
     // Ensure destDir exists
     fs.mkdirSync(destDir, { recursive: true });
 
     // Always use system tar/unzip — fflate's unzipSync can blow V8 memory
     // on real-world IPAs even under 50MB (decompressed size can be much larger)
-    return extractWithSystem(ipaPath, destDir);
+    return await extractWithSystem(ipaPath, destDir);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: `Failed to extract IPA: ${message}` };
@@ -73,27 +73,32 @@ function extractWithFflate(
 function extractWithSystem(
   ipaPath: string,
   destDir: string
-): ExtractionResult | ExtractionError {
-  try {
+): Promise<ExtractionResult | ExtractionError> {
+  return new Promise((resolve) => {
+    const args: string[] = [];
+    let cmd: string;
+
     if (process.platform === "win32") {
-      // Use PowerShell's .NET ZipFile class — handles any extension unlike Expand-Archive
-      execFileSync("powershell.exe", [
+      cmd = "powershell.exe";
+      args.push(
         "-NoProfile",
         "-Command",
         `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${ipaPath.replace(/'/g, "''")}', '${destDir.replace(/'/g, "''")}')`,
-      ], { timeout: 120000 });
+      );
     } else {
-      // Use unzip on macOS/Linux
-      execFileSync("unzip", ["-o", "-q", ipaPath, "-d", destDir], {
-        timeout: 120000,
-      });
+      cmd = "unzip";
+      args.push("-o", "-q", ipaPath, "-d", destDir);
     }
 
-    return { success: true, extractedDir: destDir };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { success: false, error: `Failed to extract IPA: ${message}` };
-  }
+    execFile(cmd, args, { timeout: 120000 }, (err) => {
+      if (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        resolve({ success: false, error: `Failed to extract IPA: ${message}` });
+      } else {
+        resolve({ success: true, extractedDir: destDir });
+      }
+    });
+  });
 }
 
 /**

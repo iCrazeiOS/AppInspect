@@ -61,6 +61,12 @@ import {
   FAT_CIGAM,
 } from "../parser/macho";
 
+// ── Event loop yield ───────────────────────────────────────────────
+
+/** Yield to the event loop so the UI stays responsive during heavy parsing. */
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
+
 // ── BigInt serialization helpers ────────────────────────────────────
 
 /**
@@ -427,6 +433,7 @@ async function analyzeBinaryFile(
 
   // Step 4: Read binary
   progressCallback("Reading binary...", basePercent);
+  await yieldToEventLoop();
   let buffer: ArrayBuffer;
   try {
     const fileBuf = fs.readFileSync(binaryPath);
@@ -446,6 +453,7 @@ async function analyzeBinaryFile(
 
   // Step 5: Parse fat header / select arm64 slice / parse Mach-O header
   progressCallback("Parsing Mach-O header...", basePercent + 5);
+  await yieldToEventLoop();
   let machoFile: MachOFile | null = null;
 
   try {
@@ -580,6 +588,7 @@ async function analyzeBinaryFile(
 
   // Step 8: Extract strings
   progressCallback("Extracting strings...", basePercent + 25);
+  await yieldToEventLoop();
   try {
     const rawStrings = extractStrings(
       buffer,
@@ -596,6 +605,7 @@ async function analyzeBinaryFile(
 
   // Step 9: Parse symbols
   progressCallback("Parsing symbols...", basePercent + 35);
+  await yieldToEventLoop();
   let rawSymbols: ParserSymbol[] = [];
   try {
     rawSymbols = parseSymbolTable(
@@ -618,6 +628,7 @@ async function analyzeBinaryFile(
 
   // Step 10: Extract ObjC metadata
   progressCallback("Extracting ObjC metadata...", basePercent + 40);
+  await yieldToEventLoop();
   try {
     const objcMeta = extractObjCMetadata(
       buffer,
@@ -767,6 +778,7 @@ async function analyzeBinaryFile(
 
   // Step 11: Parse code signature + entitlements
   progressCallback("Parsing code signature...", basePercent + 50);
+  await yieldToEventLoop();
   try {
     if (lcResult.codeSignatureInfo) {
       const csResult = parseCodeSignature(
@@ -788,6 +800,7 @@ async function analyzeBinaryFile(
 
   // Step 12: Run security scan
   progressCallback("Running security scan...", basePercent + 55);
+  await yieldToEventLoop();
   try {
     // Convert strings back to the format security.ts expects
     const securityStrings = strings.map((s) => ({
@@ -856,7 +869,7 @@ export async function analyzeIPA(
   // Step 1: Extract IPA
   progressCallback("Extracting IPA...", 0);
   const tempDir = path.join(os.tmpdir(), `appinspect-${Date.now()}`);
-  const extraction = extractIPA(ipaPath, tempDir);
+  const extraction = await extractIPA(ipaPath, tempDir);
 
   if (!extraction.success) {
     throw new Error((extraction as { success: false; error: string }).error);
@@ -868,6 +881,7 @@ export async function analyzeIPA(
 
   // Step 2: Discover app bundle and binaries
   progressCallback("Discovering binaries...", 15);
+  await yieldToEventLoop();
   const appBundlePath = discoverAppBundle(tempDir);
   if (!appBundlePath) {
     throw new Error("No .app bundle found in IPA Payload directory");
@@ -927,6 +941,7 @@ export async function analyzeIPA(
 
   // Step 13: Build file tree (start from the .app bundle directly)
   progressCallback("Building file tree...", 95);
+  await yieldToEventLoop();
   const files = buildFileTree(appBundlePath);
 
   // Assemble final result
@@ -1158,7 +1173,7 @@ export async function analyzeDEB(
 
   // Step 1: Extract DEB
   progressCallback("Extracting DEB package...", 0);
-  const extraction = extractDEB(debPath);
+  const extraction = await extractDEB(debPath);
 
   if (!extraction.success) {
     throw new Error(extraction.error);
