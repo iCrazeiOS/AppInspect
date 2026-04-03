@@ -92,6 +92,63 @@ body.platform-darwin .app-title-row {
   color: var(--text);
 }
 
+/* ── Settings button ── */
+.btn-settings {
+  -webkit-app-region: no-drag;
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 150ms ease, background-color 150ms ease;
+  line-height: 1;
+}
+
+.btn-settings:hover {
+  color: var(--text);
+  background-color: rgba(88, 166, 255, 0.08);
+}
+
+.btn-settings.btn-settings--active {
+  color: var(--accent);
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
+/* ── Settings panel ── */
+.settings-panel {
+  -webkit-app-region: no-drag;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  animation: tab-fade-in 150ms ease;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 100ms ease;
+}
+
+.settings-option:hover {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+.settings-option input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .btn-open-ipa {
   -webkit-app-region: no-drag;
   display: flex;
@@ -1200,6 +1257,28 @@ body.platform-darwin .app-title-row {
   user-select: text;
 }
 
+.sec-finding-evidence-text {
+  user-select: text;
+}
+
+.sec-evidence-toggle {
+  display: inline-block;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background-color 100ms ease;
+}
+
+.sec-evidence-toggle:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
 .sec-finding-location {
   font-size: 11px;
   color: var(--text-muted);
@@ -1227,6 +1306,23 @@ body.platform-darwin .app-title-row {
   padding: 1px 6px;
   border-radius: 3px;
   word-break: break-all;
+  user-select: text;
+}
+
+.sec-copyable {
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.sec-copyable:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
+.sec-finding-source {
+  font-size: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
 }
 
 .sec-no-findings {

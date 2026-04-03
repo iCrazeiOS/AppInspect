@@ -197,6 +197,15 @@ export interface SecurityFinding {
   evidence: string;
   location?: string;
   functionName?: string;
+  /** Source binary or file name (for multi-binary / bundle file scanning) */
+  source?: string;
+}
+
+// ── App Settings ──
+
+export interface AppSettings {
+  /** When true, security scan runs on all binaries (frameworks, extensions), not just the main binary */
+  scanAllBinaries: boolean;
 }
 
 export interface BinaryHardening {
@@ -270,6 +279,8 @@ export interface AnalysisResult {
     teamId?: string;
     infoPlist?: { [key: string]: PlistValue };
     debControl?: DEBControlInfo;
+    /** Detected app framework (React Native, Flutter, etc.) — undefined means native */
+    appFramework?: string;
   };
   hooks: HookInfo;
   strings: StringEntry[];

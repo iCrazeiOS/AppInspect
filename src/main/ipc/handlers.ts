@@ -15,6 +15,8 @@ import {
   getCachedResult,
 } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
+import { loadSettings, saveSettings } from "../settings";
+import type { AppSettings } from "../../shared/types";
 
 /**
  * Custom replacer for JSON.stringify that converts BigInt values to numbers.
@@ -175,6 +177,16 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       win.webContents.send("analysis-error", { message });
       throw err;
     }
+  });
+
+  // ── get-settings ──
+  ipcMain.handle("get-settings", () => {
+    return loadSettings();
+  });
+
+  // ── set-settings ──
+  ipcMain.handle("set-settings", (_event, settings: AppSettings) => {
+    saveSettings(settings);
   });
 
   // ── open-file-picker ──

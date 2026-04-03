@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("export-json", { tabs }),
   openFilePicker: () =>
     ipcRenderer.invoke("open-file-picker"),
+  getSettings: () =>
+    ipcRenderer.invoke("get-settings"),
+  setSettings: (settings: any) =>
+    ipcRenderer.invoke("set-settings", settings),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onProgress: (cb: (data: { phase: string; percent: number; message: string }) => void) => {
     ipcRenderer.on("update-progress", (_event, data) => cb(data));

@@ -14,6 +14,7 @@ interface SecurityFinding {
   evidence: string;
   location?: string;
   functionName?: string;
+  source?: string;
 }
 
 interface BinaryHardening {
@@ -47,7 +48,7 @@ const HARDENING_LABELS: { key: keyof BinaryHardening; label: string }[] = [
   { key: "stripped", label: "Stripped" },
 ];
 
-const MAX_EVIDENCE_LEN = 200;
+const EVIDENCE_COLLAPSED_LEN = 200;
 
 // ── Render ──
 
@@ -185,7 +186,8 @@ export function renderSecurity(container: HTMLElement, data: any): void {
               re.test(f.category) ||
               re.test(f.evidence) ||
               (f.location && re.test(f.location)) ||
-              (f.functionName && re.test(f.functionName))
+              (f.functionName && re.test(f.functionName)) ||
+              (f.source && re.test(f.source))
           );
         } catch {
           // Invalid regex, skip filtering
@@ -198,7 +200,8 @@ export function renderSecurity(container: HTMLElement, data: any): void {
             f.category.toLowerCase().includes(lower) ||
             f.evidence.toLowerCase().includes(lower) ||
             (f.location && f.location.toLowerCase().includes(lower)) ||
-            (f.functionName && f.functionName.toLowerCase().includes(lower))
+            (f.functionName && f.functionName.toLowerCase().includes(lower)) ||
+            (f.source && f.source.toLowerCase().includes(lower))
         );
       }
     }
@@ -250,18 +253,39 @@ export function renderSecurity(container: HTMLElement, data: any): void {
       msg.textContent = finding.message;
       card.appendChild(msg);
 
-      // Evidence
+      // Evidence (expandable if long, always copyable)
       if (finding.evidence) {
         const evi = document.createElement("div");
         evi.className = "sec-finding-evidence";
-        evi.textContent =
-          finding.evidence.length > MAX_EVIDENCE_LEN
-            ? finding.evidence.slice(0, MAX_EVIDENCE_LEN) + "\u2026"
-            : finding.evidence;
+
+        const isLong = finding.evidence.length > EVIDENCE_COLLAPSED_LEN;
+        let expanded = !isLong;
+
+        const eviText = document.createElement("span");
+        eviText.className = "sec-finding-evidence-text";
+        eviText.textContent = isLong
+          ? finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026"
+          : finding.evidence;
+        evi.appendChild(eviText);
+
+        if (isLong) {
+          const expandBtn = document.createElement("button");
+          expandBtn.className = "sec-evidence-toggle";
+          expandBtn.textContent = "Show more";
+          expandBtn.addEventListener("click", () => {
+            expanded = !expanded;
+            eviText.textContent = expanded
+              ? finding.evidence
+              : finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026";
+            expandBtn.textContent = expanded ? "Show less" : "Show more";
+          });
+          evi.appendChild(expandBtn);
+        }
+
         card.appendChild(evi);
       }
 
-      // Function name
+      // Function name (copyable)
       if (finding.functionName) {
         const fn = document.createElement("div");
         fn.className = "sec-finding-function";
@@ -269,11 +293,34 @@ export function renderSecurity(container: HTMLElement, data: any): void {
         label.className = "sec-finding-function-label";
         label.textContent = "Referenced in: ";
         const name = document.createElement("code");
-        name.className = "sec-finding-function-name";
+        name.className = "sec-finding-function-name sec-copyable";
         name.textContent = finding.functionName;
+        name.title = "Double-click to copy";
+        name.addEventListener("dblclick", () => {
+          navigator.clipboard.writeText(finding.functionName!);
+        });
         fn.appendChild(label);
         fn.appendChild(name);
         card.appendChild(fn);
+      }
+
+      // Source (copyable)
+      if (finding.source) {
+        const src = document.createElement("div");
+        src.className = "sec-finding-source";
+        const srcLabel = document.createElement("span");
+        srcLabel.className = "sec-finding-function-label";
+        srcLabel.textContent = "Source: ";
+        const srcName = document.createElement("code");
+        srcName.className = "sec-finding-function-name sec-copyable";
+        srcName.textContent = finding.source;
+        srcName.title = "Double-click to copy";
+        srcName.addEventListener("dblclick", () => {
+          navigator.clipboard.writeText(finding.source!);
+        });
+        src.appendChild(srcLabel);
+        src.appendChild(srcName);
+        card.appendChild(src);
       }
 
       // Location

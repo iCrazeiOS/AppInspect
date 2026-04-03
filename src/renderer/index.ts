@@ -15,6 +15,7 @@ import { renderPlist } from "./tabs/plist";
 import { renderHooks } from "./tabs/hooks";
 import { showToast } from "./components/toast";
 import { CPU_TYPE_NAMES } from "./utils/macho";
+import type { AppSettings } from "../shared/types";
 
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
@@ -39,6 +40,10 @@ const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-
 
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
+
+const btnSettings = $<HTMLButtonElement>("#btn-settings");
+const settingsPanel = $<HTMLDivElement>("#settings-panel");
+const optScanAllBinaries = $<HTMLInputElement>("#opt-scan-all-binaries");
 
 console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, window.api);
 
@@ -621,6 +626,33 @@ window.onunhandledrejection = (e: PromiseRejectionEvent) => {
   showToast(e.reason?.message || "Unexpected error", "error");
 };
 
+
+// ── Settings ──
+btnSettings.addEventListener("click", () => {
+  const isHidden = settingsPanel.classList.contains("hidden");
+  settingsPanel.classList.toggle("hidden", !isHidden);
+  btnSettings.classList.toggle("btn-settings--active", isHidden);
+});
+
+optScanAllBinaries.addEventListener("change", async () => {
+  try {
+    const current = await window.api.getSettings();
+    current.scanAllBinaries = optScanAllBinaries.checked;
+    await window.api.setSettings(current);
+  } catch (err) {
+    console.error("[AppInspect] Failed to save settings:", err);
+  }
+});
+
+// Load settings on startup
+(async () => {
+  try {
+    const settings = await window.api.getSettings();
+    optScanAllBinaries.checked = settings.scanAllBinaries;
+  } catch {
+    // Settings not available yet — use defaults
+  }
+})();
 
 // ── Init ──
 console.log("[AppInspect] Renderer loaded");

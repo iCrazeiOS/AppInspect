@@ -49,8 +49,12 @@ import type { Symbol as ParserSymbol } from "../parser/symbols";
 import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
 import { parseCodeSignature, extractEntitlements } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
-import { runSecurityScan, getBinaryHardening } from "./security";
+import { runSecurityScan, getBinaryHardening, scanBundleFileContents, isScannableExtension } from "./security";
+import type { BundleFileEntry } from "./security";
+import { loadSettings } from "../settings";
 import { parseFunctionStarts, buildStringXrefMap, formatFunctionName } from "../parser/xrefs";
+import bplist from "bplist-parser";
+import plist from "plist";
 import { extractDEB } from "../deb/extractor";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import {
@@ -908,6 +912,166 @@ async function analyseBinaryFile(
   };
 }
 
+// ── App framework detection ────────────────────────────────────────
+
+function detectAppFramework(appBundlePath: string): string | undefined {
+  const frameworksDir = path.join(appBundlePath, "Frameworks");
+
+  const hasFramework = (name: string): boolean => {
+    try {
+      return fs.existsSync(path.join(frameworksDir, name));
+    } catch {
+      return false;
+    }
+  };
+
+  const hasFile = (relPath: string): boolean => {
+    try {
+      return fs.existsSync(path.join(appBundlePath, relPath));
+    } catch {
+      return false;
+    }
+  };
+
+  // React Native: main.jsbundle or hermes framework
+  if (
+    hasFile("main.jsbundle") ||
+    hasFramework("hermes.framework") ||
+    hasFramework("React.framework") ||
+    hasFramework("ReactNative.framework")
+  ) {
+    return "React Native";
+  }
+
+  // Flutter
+  if (hasFramework("Flutter.framework")) {
+    return "Flutter";
+  }
+
+  // Cordova / Capacitor (www directory with index.html)
+  if (hasFile("www/index.html")) {
+    return "Cordova/Capacitor";
+  }
+
+  // Unity
+  if (hasFramework("UnityFramework.framework")) {
+    return "Unity";
+  }
+
+  // .NET MAUI / Xamarin
+  if (hasFramework("Xamarin.iOS.framework") || hasFramework("Mono.framework")) {
+    return "Xamarin/.NET MAUI";
+  }
+
+  // Electron (very rare on iOS, but included for completeness)
+  if (hasFramework("Electron Framework.framework")) {
+    return "Electron";
+  }
+
+  return undefined; // Native
+}
+
+// ── Bundle file reading for security scanning ─────────────────────
+
+const MAX_BUNDLE_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB total
+const MAX_SINGLE_FILE_SIZE = 10 * 1024 * 1024; // 10 MB per file
+
+/**
+ * Try to parse a binary plist or compiled .strings file into a JSON text
+ * representation so it can be scanned for secrets. Returns null if the
+ * file isn't a binary plist or can't be parsed.
+ */
+function tryParseBinaryPlist(buf: Buffer): string | null {
+  // Check for bplist magic
+  if (buf.length < 6 || buf.toString("ascii", 0, 6) !== "bplist") {
+    return null;
+  }
+  try {
+    const parsed = bplist.parseBuffer(buf);
+    if (parsed && parsed.length > 0) {
+      return JSON.stringify(parsed[0], null, 2);
+    }
+  } catch {
+    // Fall through
+  }
+  return null;
+}
+
+/**
+ * Check if a file appears to be binary (has null bytes in the first 512 bytes).
+ * Binary plists are handled separately via tryParseBinaryPlist.
+ */
+function hasBinaryContent(buf: Buffer): boolean {
+  const checkLen = Math.min(buf.length, 512);
+  for (let i = 0; i < checkLen; i++) {
+    if (buf[i] === 0) return true;
+  }
+  return false;
+}
+
+function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
+  const files: BundleFileEntry[] = [];
+  let totalSize = 0;
+
+  function walk(dir: string): void {
+    if (totalSize >= MAX_BUNDLE_TOTAL_SIZE) return;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (totalSize >= MAX_BUNDLE_TOTAL_SIZE) break;
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        // Skip known binary-only directories
+        if (entry.name === "Frameworks" || entry.name === "PlugIns" || entry.name === "_CodeSignature") {
+          continue;
+        }
+        walk(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+
+      const ext = path.extname(entry.name);
+      if (!isScannableExtension(ext)) continue;
+
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.size === 0 || stat.size > MAX_SINGLE_FILE_SIZE) continue;
+
+        const rawBuf = fs.readFileSync(fullPath);
+        let content: string;
+
+        // Try parsing binary plists (.plist, .strings can be binary plist format)
+        const plistText = tryParseBinaryPlist(rawBuf);
+        if (plistText !== null) {
+          content = plistText;
+        } else if (hasBinaryContent(rawBuf)) {
+          // Skip other binary files (compiled nibs embedded with wrong extension, etc.)
+          continue;
+        } else {
+          content = rawBuf.toString("utf-8");
+        }
+
+        const relativePath = path.relative(appBundlePath, fullPath).replace(/\\/g, "/");
+        files.push({ relativePath, content });
+        totalSize += stat.size;
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
+
+  walk(appBundlePath);
+  return files;
+}
+
 // ── Main orchestrator ───────────────────────────────────────────────
 
 export async function analyseIPA(
@@ -989,7 +1153,60 @@ export async function analyseIPA(
     }
   }
 
-  // Step 13: Build file tree (start from the .app bundle directly)
+  // Step 13: Detect app framework
+  const appFramework = detectAppFramework(appBundlePath);
+
+  // Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
+  progressCallback("Scanning bundle files...", 80);
+  await yieldToEventLoop();
+  let bundleFindings: SecurityFinding[] = [];
+  try {
+    const bundleFiles = readBundleFiles(appBundlePath);
+    if (bundleFiles.length > 0) {
+      bundleFindings = scanBundleFileContents(bundleFiles);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`Bundle file scan error: ${msg}`);
+  }
+
+  // Step 15: Scan additional binaries if setting enabled
+  let extraBinaryFindings: SecurityFinding[] = [];
+  const settings = loadSettings();
+  if (settings.scanAllBinaries && binaries.length > 1) {
+    progressCallback("Scanning additional binaries...", 85);
+    await yieldToEventLoop();
+    for (let i = 1; i < binaries.length; i++) {
+      try {
+        const extraResult = await analyseBinaryFile(
+          binaries[i]!.path,
+          () => {}, // silent progress
+          0,
+        );
+        // Tag findings with source binary name
+        for (const finding of extraResult.security.findings) {
+          extraBinaryFindings.push({
+            ...finding,
+            source: binaries[i]!.name,
+          });
+        }
+      } catch {
+        // Non-critical: skip binaries that fail
+      }
+    }
+  }
+
+  // Merge all security findings
+  const mergedSecurity = {
+    findings: [
+      ...binaryResult.security.findings,
+      ...bundleFindings,
+      ...extraBinaryFindings,
+    ],
+    hardening: binaryResult.security.hardening,
+  };
+
+  // Step 16: Build file tree (start from the .app bundle directly)
   progressCallback("Building file tree...", 95);
   await yieldToEventLoop();
   const files = buildFileTree(appBundlePath);
@@ -1020,6 +1237,7 @@ export async function analyseIPA(
       uuid: binaryResult.uuid ?? undefined,
       teamId: binaryResult.teamId ?? undefined,
       infoPlist: infoPlistData,
+      appFramework,
     },
     strings: binaryResult.strings,
     headers: {
@@ -1033,7 +1251,7 @@ export async function analyseIPA(
     protocols: binaryResult.protocols,
     entitlements: finalEntitlements,
     infoPlist: infoPlistData,
-    security: binaryResult.security,
+    security: mergedSecurity,
     hooks: binaryResult.hooks,
     files,
   };
@@ -1248,7 +1466,34 @@ export async function analyseDEB(
   const mainBinary = cachedBinaries[0]!;
   const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
 
-  // Step 3: Build file tree from extracted data
+  // Step 3: Scan additional binaries if setting enabled
+  let debExtraFindings: SecurityFinding[] = [];
+  const debSettings = loadSettings();
+  if (debSettings.scanAllBinaries && cachedBinaries.length > 1) {
+    progressCallback("Scanning additional binaries...", 80);
+    await yieldToEventLoop();
+    for (let i = 1; i < cachedBinaries.length; i++) {
+      try {
+        const extraResult = await analyseBinaryFile(
+          cachedBinaries[i]!.path,
+          () => {},
+          0,
+        );
+        for (const finding of extraResult.security.findings) {
+          debExtraFindings.push({ ...finding, source: cachedBinaries[i]!.name });
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+  }
+
+  const debMergedSecurity = {
+    findings: [...binaryResult.security.findings, ...debExtraFindings],
+    hardening: binaryResult.security.hardening,
+  };
+
+  // Step 4: Build file tree from extracted data
   progressCallback("Building file tree...", 90);
   const files = buildFileTree(extraction.dataDir);
 
@@ -1289,7 +1534,7 @@ export async function analyseDEB(
     protocols: binaryResult.protocols,
     entitlements: binaryResult.entitlements,
     infoPlist: {},
-    security: binaryResult.security,
+    security: debMergedSecurity,
     hooks: binaryResult.hooks,
     files,
   };

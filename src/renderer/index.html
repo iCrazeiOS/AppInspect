@@ -25,6 +25,14 @@
         <div class="sidebar-header">
           <div class="app-title-row">
             <span class="app-title">AppInspect</span>
+            <button id="btn-settings" class="btn-settings" title="Options">&#x2699;</button>
+          </div>
+          <!-- Settings panel -->
+          <div id="settings-panel" class="settings-panel hidden">
+            <label class="settings-option">
+              <input type="checkbox" id="opt-scan-all-binaries" />
+              <span>Scan all binaries in security analysis</span>
+            </label>
           </div>
           <button id="btn-open-ipa" class="btn-open-ipa">
             <span class="btn-icon">&#x1F4C2;</span>

@@ -129,6 +129,8 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
     const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
 
+    const appFramework = (data as any).appFramework as string | undefined;
+
     const summaryItems: HTMLElement[] = [
       buildKV("Bundle ID", String(bundleId)),
       buildKV("Display Name", String(displayName)),
@@ -139,6 +141,14 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
       buildKV("File Type", fileType),
       buildKV("UUID", String(uuid)),
     ];
+
+    // Show app framework if non-native
+    if (appFramework) {
+      const fwRow = el("div", "ov-kv");
+      fwRow.appendChild(el("span", "ov-kv-label", "Framework"));
+      fwRow.appendChild(buildBadge(appFramework, "yellow"));
+      summaryItems.push(fwRow);
+    }
 
     // Encryption row with badge
     const encRow = el("div", "ov-kv");

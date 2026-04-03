@@ -73,7 +73,7 @@ const SECRET_PATTERNS: Array<{
   },
   {
     name: 'URL with credentials',
-    pattern: /https?:\/\/[^:]+:[^@]+@[^\s'"]+/,
+    pattern: /https?:\/\/[^\s/:@'"]{1,64}:[^\s/@'"]{1,64}@[^\s'"]+/,
     message: 'URL with embedded credentials found',
   },
   {
@@ -142,6 +142,116 @@ const JAILBREAK_PATTERNS: RegExp[] = [
   /MobileSubstrate/,
 ];
 
+// ── Bundle file scanning (React Native, Flutter, configs) ──
+
+export interface BundleFileEntry {
+  /** Path relative to the app bundle root */
+  relativePath: string;
+  /** File content as text */
+  content: string;
+}
+
+/** File extensions to scan inside app bundles */
+const SCANNABLE_EXTENSIONS = new Set([
+  '.js', '.jsbundle', '.bundle',
+  '.json',
+  '.xml', '.yaml', '.yml',
+  '.env',
+  '.html', '.htm',
+  '.txt', '.strings',
+  '.config', '.cfg', '.ini', '.properties',
+]);
+
+/** Max file size to scan (10 MB) */
+const MAX_BUNDLE_FILE_SIZE = 10 * 1024 * 1024;
+
+/**
+ * Check if a file extension is scannable for secrets.
+ */
+export function isScannableExtension(ext: string): boolean {
+  return SCANNABLE_EXTENSIONS.has(ext.toLowerCase());
+}
+
+/**
+ * Quick heuristic to check if a JSON file is a Lottie animation or asset
+ * data that won't contain secrets. Avoids scanning large asset files.
+ */
+function isAssetJSON(content: string): boolean {
+  // Lottie animations start with {"v":"... or have common Lottie keys
+  const head = content.slice(0, 200);
+  if (/"v"\s*:\s*"[\d.]+"/.test(head) && (/"fr"\s*:/.test(head) || /"ip"\s*:/.test(head) || /"op"\s*:/.test(head))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Scan text file contents from the app bundle for credential leaks
+ * and jailbreak detection strings. Used for React Native JS bundles,
+ * config files, and other non-binary content.
+ *
+ * Scans line-by-line to prevent greedy patterns (e.g. URL-with-credentials)
+ * from spanning across unrelated content and producing false positives.
+ */
+export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFinding[] {
+  const findings: SecurityFinding[] = [];
+  const seen = new Set<string>(); // dedupe by category+evidence+source
+
+  for (const file of files) {
+    // Skip very large files
+    if (file.content.length > MAX_BUNDLE_FILE_SIZE) continue;
+
+    // Skip Lottie/animation JSON files (large, never contain secrets)
+    if (file.relativePath.endsWith('.json') && isAssetJSON(file.content)) continue;
+
+    // Skip package manager metadata (npm registry URLs trigger false positives)
+    const baseName = file.relativePath.split('/').pop() ?? '';
+    if (baseName === 'package-lock.json' || baseName === 'yarn.lock') continue;
+
+    const lines = file.content.split('\n');
+
+    for (const line of lines) {
+      // Check secret patterns
+      for (const { pattern, message } of SECRET_PATTERNS) {
+        const match = pattern.exec(line);
+        if (match) {
+          const key = `credential-leak|${truncate(match[0])}|${file.relativePath}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            findings.push({
+              severity: 'critical',
+              category: 'credential-leak',
+              message: `${message} (in bundle file)`,
+              evidence: truncate(match[0]),
+              source: file.relativePath,
+            });
+          }
+        }
+      }
+
+      // Check jailbreak detection patterns
+      for (const jbPattern of JAILBREAK_PATTERNS) {
+        const match = jbPattern.exec(line);
+        if (match) {
+          const key = `jailbreak-detection|${truncate(match[0])}|${file.relativePath}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            findings.push({
+              severity: 'info',
+              category: 'jailbreak-detection',
+              message: 'Jailbreak detection string found (in bundle file)',
+              evidence: truncate(match[0]),
+              source: file.relativePath,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return findings;
+}
+
 // ── Public API ──
 
 export interface SecurityScanParams {
@@ -203,7 +313,7 @@ function hasARC(symbolNames: Set<string>): boolean {
   );
 }
 
-function truncate(s: string, max = 100): string {
+function truncate(s: string, max = 500): string {
   return s.length > max ? s.slice(0, max) + '...' : s;
 }
 

@@ -15,6 +15,7 @@ import type {
   FileEntry,
   PlistValue,
   HookInfo,
+  AppSettings,
 } from './types';
 
 // ── Tab-specific return types ──
@@ -122,6 +123,14 @@ export type InvokeChannelMap = {
   'analyse-binary': {
     params: { binaryIndex: number };
     result: AnalysisResult;
+  };
+  'get-settings': {
+    params: void;
+    result: AppSettings;
+  };
+  'set-settings': {
+    params: AppSettings;
+    result: void;
   };
 };
 
