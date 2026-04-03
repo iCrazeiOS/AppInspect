@@ -1486,16 +1486,154 @@ html, body {
   background-color: rgba(88, 166, 255, 0.06);
 }
 
-.cls-method-copied {
-  background-color: rgba(63, 185, 80, 0.15) !important;
+.cls-method-active {
+  background-color: rgba(88, 166, 255, 0.15) !important;
+  color: var(--accent);
 }
 
-.cls-method-copied::after {
-  content: " \2713 Copied";
-  color: #3fb950;
-  font-size: 11px;
+/* ── Method Detail Sidebar (cls-sb-) ── */
+
+.cls-sidebar {
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--bg);
+  transition: width 200ms ease, min-width 200ms ease;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.cls-sidebar--open {
+  width: 340px;
+  min-width: 340px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.cls-sb-inner {
+  width: 340px;
+  min-width: 340px;
+  padding: 16px;
+  position: relative;
+}
+
+.cls-sb-close {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.cls-sb-close:hover {
+  background-color: rgba(88, 166, 255, 0.08);
+  color: var(--text);
+}
+
+.cls-sb-sig {
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 13px;
+  color: var(--text);
+  word-break: break-all;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  padding: 8px 10px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  user-select: text;
+}
+
+.cls-sb-class {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  word-break: break-all;
+  margin-bottom: 14px;
+}
+
+.cls-sb-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.cls-sb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
   font-family: var(--font-stack);
-  margin-left: 8px;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.cls-sb-btn:hover {
+  background-color: rgba(88, 166, 255, 0.08);
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.cls-sb-btn--accent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.cls-sb-btn--accent:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+  color: var(--accent-hover);
+}
+
+.cls-sb-btn--copied {
+  background-color: rgba(63, 185, 80, 0.15) !important;
+  color: #3fb950 !important;
+  border-color: rgba(63, 185, 80, 0.4) !important;
+}
+
+.cls-sb-hook-section {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.cls-sb-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
+}
+
+.cls-sb-code {
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+  margin-bottom: 8px;
+  user-select: text;
 }
 
 /* ══════════════════════════════════════════════

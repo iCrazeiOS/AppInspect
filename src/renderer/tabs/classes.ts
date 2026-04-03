@@ -1,5 +1,5 @@
 /**
- * Classes tab: two-panel layout with searchable class list and method details.
+ * Classes tab: three-panel layout — class list, method list, method detail sidebar.
  */
 
 import { SearchBar, EmptyState } from "../components";
@@ -23,6 +23,174 @@ interface ClassesData {
 const ROW_HEIGHT = 28;
 const BUFFER = 20;
 
+// ── Method signature parsing helpers ──
+
+interface ParsedMethod {
+  isInstance: boolean;
+  returnType: string;
+  selector: string;
+  parts: { label: string; type: string; argName: string }[];
+}
+
+function parseMethodSignature(sig: string): ParsedMethod | null {
+  const trimmed = sig.trim();
+  if (!trimmed.startsWith("-") && !trimmed.startsWith("+")) return null;
+
+  const isInstance = trimmed[0] === "-";
+  let rest = trimmed.slice(1).trim();
+
+  // Extract return type in parens
+  let returnType = "void";
+  if (rest.startsWith("(")) {
+    const closeIdx = rest.indexOf(")");
+    if (closeIdx > 0) {
+      returnType = rest.slice(1, closeIdx).trim();
+      rest = rest.slice(closeIdx + 1).trim();
+    }
+  }
+
+  // No-arg selector: e.g. "init" or "sharedInstance"
+  if (!rest.includes(":")) {
+    return { isInstance, returnType, selector: rest, parts: [] };
+  }
+
+  // Parse "label:(type)argName label2:(type2)argName2 ..."
+  const parts: ParsedMethod["parts"] = [];
+  const selectorParts: string[] = [];
+  const regex = /(\w*)\s*:\s*(?:\(([^)]*)\))?\s*(\w+)?/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(rest)) !== null) {
+    const label = match[1] || "";
+    const type = match[2]?.trim() || "id";
+    const argName = match[3] || `arg${parts.length}`;
+    selectorParts.push(label + ":");
+    parts.push({ label, type, argName });
+  }
+
+  return { isInstance, returnType, selector: selectorParts.join(""), parts };
+}
+
+function formatSpecForType(type: string): string {
+  const t = type.replace(/\s*\*\s*$/, "").trim();
+  if (t === "id" || t === "NSString" || t === "NSArray" || t === "NSDictionary" ||
+      t === "NSNumber" || t === "NSData" || t === "NSError" || t === "NSObject" ||
+      t === "NSURL" || t === "NSSet" || t === "NSDate" ||
+      t.endsWith("*")) return "%@";
+  if (t === "BOOL" || t === "bool") return "%@";
+  if (t === "int" || t === "NSInteger" || t === "NSUInteger" ||
+      t === "unsigned int" || t === "uint32_t" || t === "int32_t") return "%d";
+  if (t === "long" || t === "unsigned long") return "%ld";
+  if (t === "long long" || t === "unsigned long long" ||
+      t === "int64_t" || t === "uint64_t") return "%lld";
+  if (t === "float") return "%f";
+  if (t === "double" || t === "CGFloat") return "%f";
+  if (t === "char" || t === "unsigned char") return "%c";
+  if (t === "SEL") return "%@";
+  if (t === "Class") return "%@";
+  if (t === "CGRect") return "%@";
+  if (t === "CGSize") return "%@";
+  if (t === "CGPoint") return "%@";
+  if (t === "void") return "";
+  return "%p"; // pointer fallback
+}
+
+function argFormatExpr(argName: string, type: string): string {
+  const t = type.replace(/\s*\*\s*$/, "").trim();
+  if (t === "BOOL" || t === "bool") return `${argName} ? @"YES" : @"NO"`;
+  if (t === "SEL") return `NSStringFromSelector(${argName})`;
+  if (t === "Class") return `NSStringFromClass(${argName})`;
+  if (t === "CGRect") return `NSStringFromCGRect(${argName})`;
+  if (t === "CGSize") return `NSStringFromCGSize(${argName})`;
+  if (t === "CGPoint") return `NSStringFromCGPoint(${argName})`;
+  return argName;
+}
+
+function returnFormatExpr(type: string): { fmt: string; expr: string } {
+  const t = type.replace(/\s*\*\s*$/, "").trim();
+  if (t === "void") return { fmt: "", expr: "" };
+  const spec = formatSpecForType(type);
+  if (t === "BOOL" || t === "bool") return { fmt: "%@", expr: 'orig ? @"YES" : @"NO"' };
+  if (t === "SEL") return { fmt: "%@", expr: "NSStringFromSelector(orig)" };
+  if (t === "Class") return { fmt: "%@", expr: "NSStringFromClass(orig)" };
+  if (t === "CGRect") return { fmt: "%@", expr: "NSStringFromCGRect(orig)" };
+  if (t === "CGSize") return { fmt: "%@", expr: "NSStringFromCGSize(orig)" };
+  if (t === "CGPoint") return { fmt: "%@", expr: "NSStringFromCGPoint(orig)" };
+  return { fmt: spec, expr: "orig" };
+}
+
+function generateLogosHook(className: string, parsed: ParsedMethod): string {
+  const prefix = parsed.isInstance ? "-" : "+";
+  const retType = parsed.returnType;
+  const isVoid = retType === "void";
+
+  // Build method declaration
+  let decl: string;
+  if (parsed.parts.length === 0) {
+    decl = `(${retType})${parsed.selector}`;
+  } else {
+    const argParts = parsed.parts.map(
+      (p) => `${p.label}:(${p.type})${p.argName}`
+    );
+    decl = `(${retType})${argParts.join(" ")}`;
+  }
+
+  // Build NSLog format string — interleave labels with format specifiers
+  const argFmts = parsed.parts.map((p) => formatSpecForType(p.type));
+  const argExprs = parsed.parts.map((p) => argFormatExpr(p.argName, p.type));
+
+  // e.g. "-[Class initWithStyle:%lld reuseIdentifier:%@]"
+  let logSelector: string;
+  if (parsed.parts.length === 0) {
+    logSelector = parsed.selector;
+  } else {
+    logSelector = parsed.parts.map((p, i) => `${p.label}:${argFmts[i]}`).join(" ");
+  }
+  const logMethod = `${prefix}[${className} ${logSelector}]`;
+
+  let lines: string[] = [];
+  lines.push(`%hook ${className}`);
+  lines.push(`${prefix}${decl} {`);
+
+  if (isVoid) {
+    lines.push(`    %orig;`);
+    if (parsed.parts.length > 0) {
+      lines.push(`    NSLog(@"${logMethod}", ${argExprs.join(", ")});`);
+    } else {
+      lines.push(`    NSLog(@"${logMethod}");`);
+    }
+  } else {
+    lines.push(`    ${retType} orig = %orig;`);
+    const retFmt = returnFormatExpr(retType);
+    if (parsed.parts.length > 0) {
+      lines.push(`    NSLog(@"${logMethod} -> ${retFmt.fmt}", ${argExprs.join(", ")}, ${retFmt.expr});`);
+    } else {
+      lines.push(`    NSLog(@"${logMethod} -> ${retFmt.fmt}", ${retFmt.expr});`);
+    }
+    lines.push(`    return orig;`);
+  }
+
+  lines.push(`}`);
+  lines.push(`%end`);
+
+  return lines.join("\n");
+}
+
+// ── Copy-to-clipboard helper with feedback ──
+
+function copyWithFeedback(btn: HTMLButtonElement, text: string): void {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = "Copied!";
+    btn.classList.add("cls-sb-btn--copied");
+    setTimeout(() => {
+      btn.textContent = orig;
+      btn.classList.remove("cls-sb-btn--copied");
+    }, 1200);
+  });
+}
+
+// ── Main render ──
+
 export function renderClasses(container: HTMLElement, data: any): void {
   container.innerHTML = "";
 
@@ -43,6 +211,7 @@ export function renderClasses(container: HTMLElement, data: any): void {
   const allProtocols = classesData.protocols ?? [];
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
+  let selectedMethod: ObjCMethod | null = null;
 
   // Stats bar
   const stats = document.createElement("div");
@@ -51,7 +220,7 @@ export function renderClasses(container: HTMLElement, data: any): void {
   stats.textContent = `${allClasses.length.toLocaleString()} classes \u00B7 ${totalMethods.toLocaleString()} methods \u00B7 ${allProtocols.length.toLocaleString()} protocols`;
   container.appendChild(stats);
 
-  // Two-panel layout wrapper
+  // Three-panel layout wrapper
   const wrapper = document.createElement("div");
   wrapper.className = "cls-panels";
   container.appendChild(wrapper);
@@ -136,8 +305,10 @@ export function renderClasses(container: HTMLElement, data: any): void {
       row.title = cls.name;
       row.addEventListener("click", () => {
         selectedClass = cls;
+        selectedMethod = null;
         renderVisibleRows();
         renderDetail();
+        renderSidebar();
       });
       fragment.appendChild(row);
     }
@@ -190,10 +361,15 @@ export function renderClasses(container: HTMLElement, data: any): void {
     leftPanel.appendChild(protoSection);
   }
 
-  // ── Right panel ──
+  // ── Middle panel (method list) ──
   const rightPanel = document.createElement("div");
   rightPanel.className = "cls-right";
   wrapper.appendChild(rightPanel);
+
+  // ── Right sidebar (method detail) ──
+  const sidebar = document.createElement("div");
+  sidebar.className = "cls-sidebar";
+  wrapper.appendChild(sidebar);
 
   function renderDetail(): void {
     rightPanel.innerHTML = "";
@@ -225,25 +401,132 @@ export function renderClasses(container: HTMLElement, data: any): void {
 
     const methodList = document.createElement("ul");
     methodList.className = "cls-method-list";
-    for (const m of selectedClass.methods) {
+    const cls = selectedClass;
+    for (const m of cls.methods) {
       const sig = typeof m === "string" ? m : m.signature;
       const li = document.createElement("li");
       li.className = "cls-method-item";
+      if (selectedMethod && selectedMethod === m) {
+        li.classList.add("cls-method-active");
+      }
       li.textContent = sig;
-      li.title = "Click to copy";
-      li.style.cursor = "pointer";
+      li.title = "Click to inspect";
       li.addEventListener("click", () => {
-        navigator.clipboard.writeText(sig).then(() => {
-          li.classList.add("cls-method-copied");
-          setTimeout(() => li.classList.remove("cls-method-copied"), 800);
-        });
+        selectedMethod = m;
+        renderDetail();
+        renderSidebar();
       });
       methodList.appendChild(li);
     }
     rightPanel.appendChild(methodList);
   }
 
+  function renderSidebar(): void {
+    sidebar.innerHTML = "";
+
+    if (!selectedMethod || !selectedClass) {
+      sidebar.classList.remove("cls-sidebar--open");
+      return;
+    }
+
+    sidebar.classList.add("cls-sidebar--open");
+
+    const inner = document.createElement("div");
+    inner.className = "cls-sb-inner";
+    sidebar.appendChild(inner);
+
+    const sig = typeof selectedMethod === "string" ? selectedMethod : selectedMethod.signature;
+    const className = selectedClass.name;
+    const parsed = parseMethodSignature(sig);
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "cls-sb-close";
+    closeBtn.textContent = "\u00D7";
+    closeBtn.title = "Close";
+    closeBtn.addEventListener("click", () => {
+      selectedMethod = null;
+      sidebar.classList.remove("cls-sidebar--open");
+      sidebar.innerHTML = "";
+      renderDetail();
+    });
+    inner.appendChild(closeBtn);
+
+    // Full method signature (wrapping)
+    const sigBlock = document.createElement("div");
+    sigBlock.className = "cls-sb-sig";
+    sigBlock.textContent = sig;
+    inner.appendChild(sigBlock);
+
+    // Class name
+    const classLabel = document.createElement("div");
+    classLabel.className = "cls-sb-class";
+    classLabel.textContent = className;
+    inner.appendChild(classLabel);
+
+    // ── Copy buttons section ──
+    const actions = document.createElement("div");
+    actions.className = "cls-sb-actions";
+    inner.appendChild(actions);
+
+    // Copy class name
+    const copyClassBtn = document.createElement("button");
+    copyClassBtn.className = "cls-sb-btn";
+    copyClassBtn.textContent = "Copy Class Name";
+    copyClassBtn.addEventListener("click", () => copyWithFeedback(copyClassBtn, className));
+    actions.appendChild(copyClassBtn);
+
+    if (parsed) {
+      // Copy selector (e.g. "doA:withB:")
+      const copySelectorBtn = document.createElement("button");
+      copySelectorBtn.className = "cls-sb-btn";
+      copySelectorBtn.textContent = "Copy Selector";
+      copySelectorBtn.addEventListener("click", () =>
+        copyWithFeedback(copySelectorBtn, parsed.selector)
+      );
+      actions.appendChild(copySelectorBtn);
+
+      // Copy full signature
+      const copySigBtn = document.createElement("button");
+      copySigBtn.className = "cls-sb-btn";
+      copySigBtn.textContent = "Copy Signature";
+      copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
+      actions.appendChild(copySigBtn);
+
+      // ── Logos Hook section ──
+      const hookSection = document.createElement("div");
+      hookSection.className = "cls-sb-hook-section";
+      inner.appendChild(hookSection);
+
+      const hookLabel = document.createElement("div");
+      hookLabel.className = "cls-sb-section-title";
+      hookLabel.textContent = "Logos Hook";
+      hookSection.appendChild(hookLabel);
+
+      const hookCode = generateLogosHook(className, parsed);
+
+      const codeBlock = document.createElement("pre");
+      codeBlock.className = "cls-sb-code";
+      codeBlock.textContent = hookCode;
+      hookSection.appendChild(codeBlock);
+
+      const copyHookBtn = document.createElement("button");
+      copyHookBtn.className = "cls-sb-btn cls-sb-btn--accent";
+      copyHookBtn.textContent = "Copy Logos Hook";
+      copyHookBtn.addEventListener("click", () => copyWithFeedback(copyHookBtn, hookCode));
+      hookSection.appendChild(copyHookBtn);
+    } else {
+      // Fallback: just copy the raw signature
+      const copySigBtn = document.createElement("button");
+      copySigBtn.className = "cls-sb-btn";
+      copySigBtn.textContent = "Copy Signature";
+      copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
+      actions.appendChild(copySigBtn);
+    }
+  }
+
   // Initial render
   renderList();
   renderDetail();
+  renderSidebar();
 }
