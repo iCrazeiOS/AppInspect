@@ -6,6 +6,7 @@ import type { LinkedLibrary } from "../../shared/types";
 import { DataTable, SearchBar, EmptyState } from "../components";
 import type { Column } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
+import { el } from "../utils/dom";
 
 // ── Helpers ──
 
@@ -13,17 +14,6 @@ function classifyLibrary(name: string): "system" | "swift" | "embedded" {
   if (name.startsWith("/usr/lib/swift") || name.includes("libswift")) return "swift";
   if (name.startsWith("/") || name.startsWith("@rpath/libswift")) return "system";
   return "embedded";
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (className) e.className = className;
-  if (text !== undefined) e.textContent = text;
-  return e;
 }
 
 // ── Main render ──

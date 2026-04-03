@@ -14,6 +14,7 @@ import { renderEntitlements } from "./tabs/entitlements";
 import { renderPlist } from "./tabs/plist";
 import { renderHooks } from "./tabs/hooks";
 import { showToast } from "./components/toast";
+import { CPU_TYPE_NAMES } from "./utils/macho";
 
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
@@ -343,13 +344,6 @@ async function handleBinaryChange(): Promise<void> {
 binaryDropdown.addEventListener("change", handleBinaryChange);
 
 // ── Architecture selector ──
-
-const CPU_TYPE_NAMES: Record<number, string> = {
-  7: "x86",
-  12: "ARM",
-  0x01000007: "x86_64",
-  0x0100000c: "ARM64",
-};
 
 function cpuLabel(cputype: number, cpusubtype: number): string {
   const base = CPU_TYPE_NAMES[cputype] ?? `CPU(0x${cputype.toString(16)})`;

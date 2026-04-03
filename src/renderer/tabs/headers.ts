@@ -5,29 +5,10 @@
 import type { MachOHeader, LoadCommand, Segment, Section } from "../../shared/types";
 import type { AnalysisResult } from "../../shared/types";
 import { EmptyState } from "../components";
+import { el } from "../utils/dom";
+import { decodeCpuType, decodeFileType, hexStr } from "../utils/macho";
 
 type HeadersData = AnalysisResult["headers"];
-
-// ── Decode helpers ──
-
-const CPU_TYPE_NAMES: Record<number, string> = {
-  7: "x86",
-  12: "ARM",
-  16777223: "x86_64",
-  16777228: "ARM64",
-};
-
-const FILE_TYPE_NAMES: Record<number, string> = {
-  1: "MH_OBJECT",
-  2: "MH_EXECUTE",
-  5: "MH_CORE",
-  6: "MH_DYLIB",
-  7: "MH_DYLINKER",
-  8: "MH_BUNDLE",
-  9: "MH_DYLIB_STUB",
-  10: "MH_DSYM",
-  11: "MH_KEXT_BUNDLE",
-};
 
 const MH_FLAGS: Record<number, string> = {
   0x1: "MH_NOUNDEFS",
@@ -88,10 +69,6 @@ const LC_NAMES: Record<number, string> = {
   0x80000034: "LC_DYLD_CHAINED_FIXUPS",
 };
 
-function decodeCpuType(cputype: number): string {
-  return CPU_TYPE_NAMES[cputype] ?? `Unknown (${cputype})`;
-}
-
 function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
   // Mask off CPU_SUBTYPE_LIB64 (bit 31)
   const sub = cpusubtype & 0x00ffffff;
@@ -108,10 +85,6 @@ function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
   return String(sub);
 }
 
-function decodeFileType(filetype: number): string {
-  return FILE_TYPE_NAMES[filetype] ?? `Unknown (${filetype})`;
-}
-
 function decodeFlags(flags: number): string[] {
   const result: string[] = [];
   for (const [bit, name] of Object.entries(MH_FLAGS)) {
@@ -122,10 +95,6 @@ function decodeFlags(flags: number): string[] {
 
 function decodeLCName(cmd: number): string {
   return LC_NAMES[cmd] ?? `LC_UNKNOWN(0x${cmd.toString(16)})`;
-}
-
-function hexStr(n: number): string {
-  return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
 }
 
 function humanSize(bytes: number | bigint | string): string {
@@ -140,17 +109,6 @@ function permStr(prot: number): string {
   const w = prot & 2 ? "w" : "-";
   const x = prot & 4 ? "x" : "-";
   return r + w + x;
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (className) e.className = className;
-  if (text !== undefined) e.textContent = text;
-  return e;
 }
 
 // ── Render helpers ──

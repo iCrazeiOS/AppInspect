@@ -4,47 +4,10 @@
 
 import type { AnalysisResult } from "../../shared/types";
 import { EmptyState } from "../components";
+import { el } from "../utils/dom";
+import { decodeCpuType, decodeFileType } from "../utils/macho";
 
 type OverviewData = AnalysisResult["overview"];
-
-// ── Helpers ──
-
-const CPU_TYPE_NAMES: Record<number, string> = {
-  7: "x86",
-  12: "ARM",
-  16777223: "x86_64",
-  16777228: "ARM64",
-};
-
-const FILE_TYPE_NAMES: Record<number, string> = {
-  1: "MH_OBJECT",
-  2: "MH_EXECUTE",
-  6: "MH_DYLIB",
-  8: "MH_BUNDLE",
-};
-
-function decodeCpuType(cputype: number): string {
-  return CPU_TYPE_NAMES[cputype] ?? `Unknown (${cputype})`;
-}
-
-function decodeFileType(filetype: number): string {
-  return FILE_TYPE_NAMES[filetype] ?? `Unknown (${filetype})`;
-}
-
-function hexStr(n: number): string {
-  return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (className) e.className = className;
-  if (text !== undefined) e.textContent = text;
-  return e;
-}
 
 // ── Card builders ──
 
