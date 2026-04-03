@@ -92,6 +92,22 @@ function decodeCpuType(cputype: number): string {
   return CPU_TYPE_NAMES[cputype] ?? `Unknown (${cputype})`;
 }
 
+function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
+  // Mask off CPU_SUBTYPE_LIB64 (bit 31)
+  const sub = cpusubtype & 0x00ffffff;
+  if (cputype === 0x0100000c) { // ARM64
+    if (sub === 0) return "ALL";
+    if (sub === 1) return "ARM64v8";
+    if (sub === 2) return "ARM64E";
+  }
+  if (cputype === 0x01000007) { // x86_64
+    if (sub === 3) return "ALL";
+    if (sub === 8) return "Haswell";
+  }
+  if (sub === 0) return "ALL";
+  return String(sub);
+}
+
 function decodeFileType(filetype: number): string {
   return FILE_TYPE_NAMES[filetype] ?? `Unknown (${filetype})`;
 }
@@ -252,7 +268,7 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
   const hdr = data.machO;
   summaryBody.appendChild(buildSummaryRow("Magic", hexStr(hdr.magic)));
   summaryBody.appendChild(buildSummaryRow("CPU Type", decodeCpuType(hdr.cputype)));
-  summaryBody.appendChild(buildSummaryRow("CPU Subtype", String(hdr.cpusubtype)));
+  summaryBody.appendChild(buildSummaryRow("CPU Subtype", decodeCpuSubtype(hdr.cputype, hdr.cpusubtype)));
   summaryBody.appendChild(buildSummaryRow("File Type", decodeFileType(hdr.filetype)));
   summaryBody.appendChild(buildSummaryRow("Load Commands", String(hdr.ncmds)));
   summaryBody.appendChild(buildSummaryRow("Size of Commands", `${hdr.sizeofcmds} bytes`));
