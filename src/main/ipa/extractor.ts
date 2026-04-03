@@ -31,15 +31,9 @@ export function extractIPA(
     // Ensure destDir exists
     fs.mkdirSync(destDir, { recursive: true });
 
-    const stat = fs.statSync(ipaPath);
-
-    // For files > 50MB, use system extraction to avoid memory issues
-    if (stat.size > 50 * 1024 * 1024) {
-      return extractWithSystem(ipaPath, destDir);
-    }
-
-    // For smaller files, use fflate (fast, in-process)
-    return extractWithFflate(ipaPath, destDir);
+    // Always use system tar/unzip — fflate's unzipSync can blow V8 memory
+    // on real-world IPAs even under 50MB (decompressed size can be much larger)
+    return extractWithSystem(ipaPath, destDir);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { success: false, error: `Failed to extract IPA: ${message}` };
@@ -82,10 +76,12 @@ function extractWithSystem(
 ): ExtractionResult | ExtractionError {
   try {
     if (process.platform === "win32") {
-      // Use tar on Windows (available since Windows 10 1803, handles ZIP)
-      execFileSync("tar", ["-xf", ipaPath, "-C", destDir], {
-        timeout: 120000,
-      });
+      // Use PowerShell's .NET ZipFile class — handles any extension unlike Expand-Archive
+      execFileSync("powershell.exe", [
+        "-NoProfile",
+        "-Command",
+        `Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${ipaPath.replace(/'/g, "''")}', '${destDir.replace(/'/g, "''")}')`,
+      ], { timeout: 120000 });
     } else {
       // Use unzip on macOS/Linux
       execFileSync("unzip", ["-o", "-q", ipaPath, "-d", destDir], {
