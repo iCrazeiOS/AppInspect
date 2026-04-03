@@ -36,7 +36,7 @@ const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 
-console.log("[Disect] Renderer loaded. window.api =", typeof window.api, window.api);
+console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, window.api);
 
 // ── Search state (imported from dedicated module to avoid circular deps) ──
 import { clearSearchStates, getSearchBar } from "./search-state";
@@ -198,11 +198,11 @@ async function loadTabData(tabId: string): Promise<void> {
       }
     }
 
-    console.log(`[Disect] Tab data loaded for: ${tabId}`, tabData);
+    console.log(`[AppInspect] Tab data loaded for: ${tabId}`, tabData);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`Failed to load ${tabId} tab: ${message}`, "error");
-    console.error(`[Disect] Failed to load tab data for ${tabId}:`, err);
+    console.error(`[AppInspect] Failed to load tab data for ${tabId}:`, err);
   }
 }
 
@@ -314,11 +314,11 @@ async function handleBinaryChange(): Promise<void> {
     // Check encryption for the new binary
     checkEncryptionBanner(result);
 
-    console.log(`[Disect] Switched to binary index ${selectedIndex}:`, result);
+    console.log(`[AppInspect] Switched to binary index ${selectedIndex}:`, result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`Binary switch failed: ${message}`, "error");
-    console.error("[Disect] Binary switch failed:", err);
+    console.error("[AppInspect] Binary switch failed:", err);
   } finally {
     isSwitchingBinary = false;
     binaryDropdown.disabled = false;
@@ -454,27 +454,27 @@ async function startAnalysis(filePath: string): Promise<void> {
     updateExportVisibility(true);
 
     switchTab("overview");
-    console.log("[Disect] Analysis complete:", result);
+    console.log("[AppInspect] Analysis complete:", result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showError(message);
-    console.error("[Disect] Analysis failed:", err);
+    console.error("[AppInspect] Analysis failed:", err);
   }
 }
 
 // ── Open IPA button ──
 async function handleOpenIPA(): Promise<void> {
-  console.log("[Disect] handleOpenIPA called, window.api =", window.api);
+  console.log("[AppInspect] handleOpenIPA called, window.api =", window.api);
   try {
     const filePath = await window.api.openFilePicker();
-    console.log("[Disect] openFilePicker returned:", filePath);
+    console.log("[AppInspect] openFilePicker returned:", filePath);
     if (filePath) {
       await startAnalysis(filePath);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`File picker error: ${message}`, "error");
-    console.error("[Disect] File picker error:", err);
+    console.error("[AppInspect] File picker error:", err);
   }
 }
 
@@ -515,13 +515,13 @@ document.addEventListener("drop", (e: DragEvent) => {
   dropOverlay.classList.add("hidden");
 
   const files = e.dataTransfer?.files;
-  console.log("[Disect] Drop event, files:", files?.length, "file[0]:", files?.[0]);
+  console.log("[AppInspect] Drop event, files:", files?.length, "file[0]:", files?.[0]);
   if (!files || files.length === 0) return;
 
   const file = files[0];
   // Electron provides .path on File objects
   const filePath = (file as File & { path?: string }).path;
-  console.log("[Disect] Dropped file path:", filePath);
+  console.log("[AppInspect] Dropped file path:", filePath);
 
   if (!filePath) {
     showToast("No file path available from drop", "warning");
@@ -533,7 +533,7 @@ document.addEventListener("drop", (e: DragEvent) => {
     return;
   }
 
-  console.log("[Disect] Dropped IPA:", filePath);
+  console.log("[AppInspect] Dropped IPA:", filePath);
   startAnalysis(filePath);
 });
 
@@ -543,7 +543,7 @@ window.api.onProgress((data) => {
 });
 
 window.api.onComplete(() => {
-  console.log("[Disect] Analysis complete signal received");
+  console.log("[AppInspect] Analysis complete signal received");
 });
 
 window.api.onError((data) => {
@@ -566,7 +566,7 @@ async function handleExportAll(): Promise<void> {
       showToast(`Exported to ${result.path}`, "success");
     }
   } catch (err) {
-    console.error("[Disect] Export failed:", err);
+    console.error("[AppInspect] Export failed:", err);
     showToast("Export failed", "error");
   }
 }
@@ -579,7 +579,7 @@ async function handleExportTab(tabName: string): Promise<void> {
       showToast(`Exported ${tabName} to ${result.path}`, "success");
     }
   } catch (err) {
-    console.error(`[Disect] Export of ${tabName} failed:`, err);
+    console.error(`[AppInspect] Export of ${tabName} failed:`, err);
     showToast("Export failed", "error");
   }
 }
@@ -607,6 +607,6 @@ window.onunhandledrejection = (e: PromiseRejectionEvent) => {
 
 
 // ── Init ──
-console.log("[Disect] Renderer loaded");
+console.log("[AppInspect] Renderer loaded");
 setState("empty");
 switchTab("overview");

@@ -1,4 +1,4 @@
-// ── IPC channel definitions and payload types for Disect ──
+// ── IPC channel definitions and payload types for AppInspect ──
 
 import type {
   AnalysisResult,

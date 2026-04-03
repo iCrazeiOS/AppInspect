@@ -1,4 +1,4 @@
-// ── Shared analysis data types for Disect ──
+// ── Shared analysis data types for AppInspect ──
 
 /** Top-level info extracted from the IPA container */
 export interface IPAInfo {

@@ -1,7 +1,7 @@
 import type { AnalysisResult } from "../shared/types";
 import type { TabData, TabName, ProgressPayload, AnalysisErrorPayload } from "../shared/ipc-types";
 
-export interface DisectAPI {
+export interface AppInspectAPI {
   analyzeIPA(filePath: string): Promise<AnalysisResult>;
   analyzeBinary(binaryIndex: number, cpuType?: number, cpuSubtype?: number): Promise<AnalysisResult>;
   getTabData(tab: TabName, binaryIndex?: number): Promise<TabData>;
@@ -14,6 +14,6 @@ export interface DisectAPI {
 
 declare global {
   interface Window {
-    api: DisectAPI;
+    api: AppInspectAPI;
   }
 }

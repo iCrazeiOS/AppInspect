@@ -136,7 +136,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       const jsonString = exportAnalysis(cached, args.tabs);
 
       const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        defaultPath: "disect-export.json",
+        defaultPath: "appinspect-export.json",
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
 

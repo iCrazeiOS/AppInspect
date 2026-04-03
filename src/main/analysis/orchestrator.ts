@@ -607,7 +607,7 @@ export async function analyzeIPA(
 
   // Step 1: Extract IPA
   progressCallback("Extracting IPA...", 0);
-  const tempDir = path.join(os.tmpdir(), `disect-${Date.now()}`);
+  const tempDir = path.join(os.tmpdir(), `appinspect-${Date.now()}`);
   const extraction = extractIPA(ipaPath, tempDir);
 
   if (!extraction.success) {

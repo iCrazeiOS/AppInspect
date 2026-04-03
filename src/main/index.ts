@@ -6,7 +6,7 @@ const APP_ROOT = path.join(app.getAppPath());
 
 function createWindow(): void {
   const win = new BrowserWindow({
-    title: "Disect",
+    title: "AppInspect",
     width: 1200,
     height: 800,
     minWidth: 800,

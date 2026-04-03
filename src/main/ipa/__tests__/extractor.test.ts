@@ -12,7 +12,7 @@ import {
 
 /** Create a unique temp directory for each test */
 function makeTempDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `disect-test-${prefix}-`));
+  return fs.mkdtempSync(path.join(os.tmpdir(), `appinspect-test-${prefix}-`));
 }
 
 /** Build a minimal IPA-like ZIP with the standard Payload/App.app structure */

@@ -1,5 +1,5 @@
 {
-  "name": "disect",
+  "name": "appinspect",
   "version": "0.1.0",
   "description": "IPA reverse engineering desktop app",
   "main": "dist/main/index.js",
