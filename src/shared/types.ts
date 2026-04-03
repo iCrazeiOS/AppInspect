@@ -145,10 +145,15 @@ export interface Symbol {
 
 // ── Objective-C Classes ──
 
+export interface ObjCMethod {
+  selector: string;
+  signature: string;
+}
+
 export interface ObjCClass {
   name: string;
   superclass?: string;
-  methods: string[];
+  methods: ObjCMethod[];
 }
 
 // ── Entitlements ──

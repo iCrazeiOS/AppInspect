@@ -19,9 +19,14 @@ import { readCString } from "./load-commands";
 
 // ── Types ────────────────────────────────────────────────────────────
 
+export interface ObjCMethod {
+  selector: string;
+  signature: string;
+}
+
 export interface ObjCClass {
   name: string;
-  methods: string[];
+  methods: ObjCMethod[];
 }
 
 export interface ObjCMetadata {
@@ -82,6 +87,143 @@ function readString(view: DataView, offset: number): string {
   return readCString(view, offset, maxLen);
 }
 
+// ── ObjC Type Encoding Decoder ───────────────────────────────────────
+
+const TYPE_MAP: Record<string, string> = {
+  v: "void", "@": "id", "#": "Class", ":": "SEL",
+  c: "char", C: "unsigned char", s: "short", S: "unsigned short",
+  i: "int", I: "unsigned int", l: "long", L: "unsigned long",
+  q: "long long", Q: "unsigned long long",
+  f: "float", d: "double", B: "BOOL",
+  "*": "char *", "?": "unknown",
+};
+
+/**
+ * Decode a single ObjC type encoding token starting at `pos`.
+ * Returns the decoded type string and the new position after the token.
+ */
+function decodeType(enc: string, pos: number): { type: string; next: number } {
+  if (pos >= enc.length) return { type: "?", next: pos };
+
+  let ch = enc[pos];
+
+  // Skip qualifiers: r(const) n(in) N(inout) o(out) O(bycopy) R(byref) V(oneway)
+  while (pos < enc.length && "rnNoORV".includes(enc[pos])) {
+    pos++;
+    ch = enc[pos];
+  }
+
+  if (ch === "^") {
+    const inner = decodeType(enc, pos + 1);
+    return { type: inner.type + " *", next: inner.next };
+  }
+
+  if (ch === "@") {
+    // Check for @"ClassName"
+    if (pos + 1 < enc.length && enc[pos + 1] === '"') {
+      const end = enc.indexOf('"', pos + 2);
+      if (end !== -1) {
+        return { type: enc.slice(pos + 2, end) + " *", next: end + 1 };
+      }
+    }
+    return { type: "id", next: pos + 1 };
+  }
+
+  if (ch === "{") {
+    // Struct: {Name=...} — extract just the name
+    const eq = enc.indexOf("=", pos);
+    const close = enc.indexOf("}", pos);
+    if (eq !== -1 && eq < close) {
+      return { type: enc.slice(pos + 1, eq), next: close + 1 };
+    }
+    if (close !== -1) {
+      return { type: enc.slice(pos + 1, close), next: close + 1 };
+    }
+    return { type: "struct", next: pos + 1 };
+  }
+
+  if (ch === "(") {
+    const close = enc.indexOf(")", pos);
+    return { type: "union", next: close !== -1 ? close + 1 : pos + 1 };
+  }
+
+  if (ch === "[") {
+    const close = enc.indexOf("]", pos);
+    return { type: "array", next: close !== -1 ? close + 1 : pos + 1 };
+  }
+
+  if (ch === "b") {
+    // Bitfield: bN
+    let next = pos + 1;
+    while (next < enc.length && enc[next] >= "0" && enc[next] <= "9") next++;
+    return { type: "bitfield", next };
+  }
+
+  const mapped = TYPE_MAP[ch];
+  if (mapped) return { type: mapped, next: pos + 1 };
+
+  return { type: String(ch), next: pos + 1 };
+}
+
+/**
+ * Skip a stack offset number in the encoding string.
+ */
+function skipOffset(enc: string, pos: number): number {
+  while (pos < enc.length && ((enc[pos] >= "0" && enc[pos] <= "9") || enc[pos] === "-")) pos++;
+  return pos;
+}
+
+/**
+ * Parse a full ObjC method type encoding string into [returnType, ...argTypes].
+ * The encoding format is: returnType offset argType1 offset argType2 offset ...
+ */
+function parseTypeEncoding(enc: string): string[] {
+  if (!enc) return [];
+  const types: string[] = [];
+  let pos = 0;
+  while (pos < enc.length) {
+    const { type, next } = decodeType(enc, pos);
+    types.push(type);
+    pos = skipOffset(enc, next);
+  }
+  return types;
+}
+
+/**
+ * Build a full ObjC method signature string from selector and type encoding.
+ * e.g. "-(void)initWithFrame:(CGRect)frame style:(NSInteger)style"
+ */
+function buildMethodSignature(selector: string, typeEncoding: string, isInstance = true): string {
+  const types = parseTypeEncoding(typeEncoding);
+  const prefix = isInstance ? "-" : "+";
+
+  if (types.length === 0) {
+    return `${prefix}${selector}`;
+  }
+
+  const returnType = types[0];
+  // types[1] = self (id), types[2] = _cmd (SEL), types[3..] = actual args
+  const argTypes = types.slice(3);
+
+  const parts = selector.split(":");
+
+  if (argTypes.length === 0 || !selector.includes(":")) {
+    return `${prefix}(${returnType})${selector}`;
+  }
+
+  let sig = `${prefix}(${returnType})`;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === "" && i === parts.length - 1) break; // trailing colon
+    if (i > 0) sig += " ";
+    sig += parts[i];
+    if (i < argTypes.length) {
+      sig += `:(${argTypes[i]})arg${i}`;
+    }
+  }
+
+  return sig;
+}
+
 // ── Section Finders ──────────────────────────────────────────────────
 
 /**
@@ -118,7 +260,7 @@ function findObjCSection(
 const METHOD_LIST_FLAG_RELATIVE = 0x80000000;
 
 /**
- * Parse a method_list_t and return an array of method name strings.
+ * Parse a method_list_t and return an array of ObjCMethod with selector and signature.
  */
 function parseMethodList(
   view: DataView,
@@ -126,7 +268,7 @@ function parseMethodList(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   le: boolean,
-): string[] {
+): ObjCMethod[] {
   if (
     methodListFileOffset < 0 ||
     methodListFileOffset + 8 > view.byteLength
@@ -140,7 +282,7 @@ function parseMethodList(
   if (count === 0 || count > 100_000) return [];
 
   const isRelative = (entsizeAndFlags & METHOD_LIST_FLAG_RELATIVE) !== 0;
-  const methods: string[] = [];
+  const methods: ObjCMethod[] = [];
 
   const entriesStart = methodListFileOffset + 8;
 
@@ -155,7 +297,6 @@ function parseMethodList(
 
       // name_offset is a signed 32-bit relative offset from its own position
       const nameRelOffset = view.getInt32(entryOffset, le);
-      // This points to a selector reference (pointer to the actual string)
       const selectorRefFileOffset = entryOffset + nameRelOffset;
 
       if (
@@ -165,12 +306,8 @@ function parseMethodList(
         continue;
       }
 
-      // Read the selector reference pointer (may be in rebaseMap)
       const selectorVmaddr = resolvePointer(
-        view,
-        selectorRefFileOffset,
-        rebaseMap,
-        le,
+        view, selectorRefFileOffset, rebaseMap, le,
       );
       if (selectorVmaddr === 0n) continue;
 
@@ -178,7 +315,18 @@ function parseMethodList(
       if (selectorFileOffset === null) continue;
 
       const name = readString(view, selectorFileOffset);
-      if (name.length > 0) methods.push(name);
+      if (name.length === 0) continue;
+
+      // types_offset is a signed 32-bit relative offset from its own position
+      const typesRelOffset = view.getInt32(entryOffset + 4, le);
+      const typesFileOffset = entryOffset + 4 + typesRelOffset;
+      const typeEncoding = (typesFileOffset >= 0 && typesFileOffset < view.byteLength)
+        ? readString(view, typesFileOffset) : "";
+
+      methods.push({
+        selector: name,
+        signature: buildMethodSignature(name, typeEncoding),
+      });
     }
   } else {
     // Absolute method entries: 24 bytes each
@@ -187,7 +335,7 @@ function parseMethodList(
 
     for (let i = 0; i < count; i++) {
       const entryOffset = entriesStart + i * entrySize;
-      if (entryOffset + 8 > view.byteLength) break;
+      if (entryOffset + 16 > view.byteLength) break;
 
       const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le);
       if (nameVmaddr === 0n) continue;
@@ -196,7 +344,22 @@ function parseMethodList(
       if (nameFileOffset === null) continue;
 
       const name = readString(view, nameFileOffset);
-      if (name.length > 0) methods.push(name);
+      if (name.length === 0) continue;
+
+      // types pointer at offset 8 within the entry
+      const typesVmaddr = resolvePointer(view, entryOffset + 8, rebaseMap, le);
+      let typeEncoding = "";
+      if (typesVmaddr !== 0n) {
+        const typesFileOffset = vmaddrToFileOffset(typesVmaddr, segments);
+        if (typesFileOffset !== null) {
+          typeEncoding = readString(view, typesFileOffset);
+        }
+      }
+
+      methods.push({
+        selector: name,
+        signature: buildMethodSignature(name, typeEncoding),
+      });
     }
   }
 
@@ -259,7 +422,7 @@ function parseClass(
     le,
   );
 
-  let methods: string[] = [];
+  let methods: ObjCMethod[] = [];
   if (baseMethodsVmaddr !== 0n) {
     const methodsFileOffset = vmaddrToFileOffset(baseMethodsVmaddr, segments);
     if (methodsFileOffset !== null) {

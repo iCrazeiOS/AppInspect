@@ -5,9 +5,14 @@
 import { SearchBar, EmptyState } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
+interface ObjCMethod {
+  selector: string;
+  signature: string;
+}
+
 interface ObjCClass {
   name: string;
-  methods: string[];
+  methods: ObjCMethod[];
 }
 
 interface ClassesData {
@@ -221,10 +226,18 @@ export function renderClasses(container: HTMLElement, data: any): void {
     const methodList = document.createElement("ul");
     methodList.className = "cls-method-list";
     for (const m of selectedClass.methods) {
+      const sig = typeof m === "string" ? m : m.signature;
       const li = document.createElement("li");
       li.className = "cls-method-item";
-      li.textContent = m;
-      li.title = m;
+      li.textContent = sig;
+      li.title = "Click to copy";
+      li.style.cursor = "pointer";
+      li.addEventListener("click", () => {
+        navigator.clipboard.writeText(sig).then(() => {
+          li.classList.add("cls-method-copied");
+          setTimeout(() => li.classList.remove("cls-method-copied"), 800);
+        });
+      });
       methodList.appendChild(li);
     }
     rightPanel.appendChild(methodList);

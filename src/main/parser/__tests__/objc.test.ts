@@ -295,7 +295,7 @@ describe("objc", () => {
 
       expect(result.classes.length).toBe(1);
       expect(result.classes[0].name).toBe("AppDelegate");
-      expect(result.classes[0].methods).toEqual([
+      expect(result.classes[0].methods.map((m: any) => m.selector)).toEqual([
         "viewDidLoad",
         "applicationDidFinishLaunching:",
       ]);
@@ -559,7 +559,7 @@ describe("objc", () => {
 
       expect(result.classes.length).toBe(1);
       expect(result.classes[0].name).toBe("RelativeClass");
-      expect(result.classes[0].methods).toEqual(["initWithFrame:"]);
+      expect(result.classes[0].methods.map((m: any) => m.selector)).toEqual(["initWithFrame:"]);
     });
   });
 });
