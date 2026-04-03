@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, Menu } from "electron";
 import path from "path";
 
 function createWindow(): void {
@@ -6,7 +6,10 @@ function createWindow(): void {
     title: "Disect",
     width: 1200,
     height: 800,
+    minWidth: 800,
+    minHeight: 500,
     backgroundColor: "#0d1117",
+    titleBarStyle: "hidden",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -17,7 +20,42 @@ function createWindow(): void {
   win.loadFile(path.join(__dirname, "../../src/renderer/index.html"));
 }
 
+// ── Application menu with Edit shortcuts ──
+const menuTemplate: Electron.MenuItemConstructorOptions[] = [
+  {
+    label: "Edit",
+    submenu: [
+      { role: "undo" },
+      { role: "redo" },
+      { type: "separator" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "selectAll" },
+    ],
+  },
+];
+
+// macOS needs the app name as first menu item
+if (process.platform === "darwin") {
+  menuTemplate.unshift({
+    label: app.getName(),
+    submenu: [
+      { role: "about" },
+      { type: "separator" },
+      { role: "hide" },
+      { role: "hideOthers" },
+      { role: "unhide" },
+      { type: "separator" },
+      { role: "quit" },
+    ],
+  });
+}
+
 app.whenReady().then(() => {
+  const menu = Menu.buildFromTemplate(menuTemplate);
+  Menu.setApplicationMenu(menu);
+
   createWindow();
 
   app.on("activate", () => {
