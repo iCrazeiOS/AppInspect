@@ -5,6 +5,7 @@
 
 import { SearchBar } from "../components";
 import type { FileEntry } from "../../shared/types";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 // ── Helpers ──
 
@@ -227,6 +228,8 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   let totalFileCount = count;
 
   const searchBar = new SearchBar((term: string, isRegex: boolean) => {
+    saveSearchState("files", term, isRegex);
+
     if (!term) {
       activeFilter = null;
       matchSet = null;
@@ -266,6 +269,13 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   });
 
   searchBar.mount(searchWrap);
+  registerSearchBar("files", searchBar);
   renderTree();
   searchBar.updateCount(totalFileCount, totalFileCount);
+
+  // Restore saved search state
+  const savedState = getSearchState("files");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 }

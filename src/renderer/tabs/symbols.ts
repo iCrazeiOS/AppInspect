@@ -5,6 +5,7 @@
 
 import { DataTable, SearchBar } from "../components";
 import type { Column } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 interface SymbolEntry {
   name: string;
@@ -52,9 +53,17 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   const searchBar = new SearchBar((term, isRegex) => {
     searchTerm = term;
     searchRegex = isRegex;
+    saveSearchState("symbols", term, isRegex);
     applyFilters();
   });
   searchBar.mount(wrapper);
+  registerSearchBar("symbols", searchBar);
+
+  // Restore saved search state
+  const savedState = getSearchState("symbols");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 
   // ── Type filter buttons ──
   let activeType: TypeFilter = "all";

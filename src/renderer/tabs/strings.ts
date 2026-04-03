@@ -5,6 +5,7 @@
 
 import { DataTable, SearchBar } from "../components";
 import type { Column } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 interface StringEntry {
   value: string;
@@ -53,9 +54,17 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   const searchBar = new SearchBar((term, isRegex) => {
     searchTerm = term;
     searchRegex = isRegex;
+    saveSearchState("strings", term, isRegex);
     applyFilters();
   });
   searchBar.mount(wrapper);
+  registerSearchBar("strings", searchBar);
+
+  // Restore saved search state
+  const savedState = getSearchState("strings");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 
   // ── Section filter chips ──
   const chipBar = document.createElement("div");

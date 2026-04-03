@@ -5,6 +5,7 @@
 import type { LinkedLibrary } from "../../shared/types";
 import { DataTable, SearchBar, EmptyState } from "../components";
 import type { Column } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 // ── Helpers ──
 
@@ -101,10 +102,18 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
       const lc = term.toLowerCase();
       table.setFilter((row) => String(row["name"] ?? "").toLowerCase().includes(lc));
     }
+    saveSearchState("libraries", term, isRegex);
     searchBar.updateCount(table.filteredCount, table.totalCount);
   });
   searchBar.mount(searchContainer);
+  registerSearchBar("libraries", searchBar);
   searchBar.updateCount(table.filteredCount, table.totalCount);
+
+  // Restore saved search state
+  const savedState = getSearchState("libraries");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 }
 
 function buildCountBadge(label: string, count: number): HTMLElement {

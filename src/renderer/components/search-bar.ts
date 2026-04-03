@@ -1,5 +1,6 @@
 /**
- * Search bar component with regex toggle and debounced input.
+ * Search bar component with regex toggle, debounced input,
+ * inline regex error feedback, and result count display.
  */
 
 export class SearchBar {
@@ -9,6 +10,7 @@ export class SearchBar {
   private input: HTMLInputElement | null = null;
   private regexBtn: HTMLButtonElement | null = null;
   private countEl: HTMLElement | null = null;
+  private errorEl: HTMLElement | null = null;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private regexMode = false;
 
@@ -56,6 +58,12 @@ export class SearchBar {
 
     root.appendChild(inputWrap);
 
+    // Inline regex error message
+    const errorEl = document.createElement("span");
+    errorEl.className = "sb-error";
+    this.errorEl = errorEl;
+    root.appendChild(errorEl);
+
     // Count display
     const count = document.createElement("span");
     count.className = "sb-count";
@@ -89,20 +97,36 @@ export class SearchBar {
       try {
         new RegExp(term);
         this.input?.classList.remove("sb-invalid");
+        this.setError(null);
       } catch {
         this.input?.classList.add("sb-invalid");
+        this.setError("Invalid regex");
         return; // Don't filter with invalid regex
       }
     } else {
       this.input?.classList.remove("sb-invalid");
+      this.setError(null);
     }
 
     this.onFilter(term, this.regexMode);
   }
 
+  private setError(msg: string | null): void {
+    if (this.errorEl) {
+      this.errorEl.textContent = msg ?? "";
+      this.errorEl.classList.toggle("sb-error-visible", msg !== null);
+    }
+  }
+
   updateCount(shown: number, total: number): void {
     if (this.countEl) {
-      this.countEl.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`;
+      if (shown === 0 && total > 0) {
+        this.countEl.textContent = "No matches";
+        this.countEl.classList.add("sb-count-empty");
+      } else {
+        this.countEl.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`;
+        this.countEl.classList.remove("sb-count-empty");
+      }
     }
   }
 
@@ -112,6 +136,22 @@ export class SearchBar {
 
   isRegexMode(): boolean {
     return this.regexMode;
+  }
+
+  /** Set the search term and regex mode programmatically (e.g. for state restore). */
+  setValue(term: string, isRegex: boolean): void {
+    if (this.input) this.input.value = term;
+    this.regexMode = isRegex;
+    if (this.regexBtn) {
+      this.regexBtn.classList.toggle("sb-regex-active", isRegex);
+    }
+    // Emit filter immediately so the tab re-filters
+    this.emitFilter();
+  }
+
+  /** Focus the search input element. */
+  focus(): void {
+    this.input?.focus();
   }
 
   destroy(): void {
@@ -124,5 +164,6 @@ export class SearchBar {
     this.input = null;
     this.regexBtn = null;
     this.countEl = null;
+    this.errorEl = null;
   }
 }

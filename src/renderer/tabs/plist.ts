@@ -3,6 +3,7 @@
  */
 
 import { SearchBar, JsonTree, EmptyState } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 /** Extract quick-info fields from a raw plist object. */
 function extractQuickInfo(plist: Record<string, unknown>): {
@@ -140,8 +141,20 @@ export function renderPlist(container: HTMLElement, data: any): void {
   tree.mount(treeContainer);
   tree.setData(plist);
 
-  const searchBar = new SearchBar((term, _isRegex) => {
+  const totalKeys = Object.keys(plist).length;
+  const searchBar = new SearchBar((term, isRegex) => {
+    saveSearchState("plist", term, isRegex);
     tree.filter(term);
+    // Update count based on visible nodes
+    const visibleCount = treeContainer.querySelectorAll(".jt-node:not(.jt-hidden)").length;
+    searchBar.updateCount(term ? visibleCount : totalKeys, totalKeys);
   });
   searchBar.mount(searchWrap);
+  registerSearchBar("plist", searchBar);
+
+  // Restore saved search state
+  const savedState = getSearchState("plist");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 }

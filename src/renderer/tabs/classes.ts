@@ -3,6 +3,7 @@
  */
 
 import { SearchBar, EmptyState } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 interface ObjCClass {
   name: string;
@@ -70,11 +71,19 @@ export function renderClasses(container: HTMLElement, data: any): void {
         return;
       }
     }
+    saveSearchState("classes", term, isRegex);
     searchBar.updateCount(filteredClasses.length, allClasses.length);
     renderList();
   });
   searchBar.mount(leftPanel);
+  registerSearchBar("classes", searchBar);
   searchBar.updateCount(filteredClasses.length, allClasses.length);
+
+  // Restore saved search state
+  const savedState = getSearchState("classes");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 
   // Virtual scroll container for class list
   const scrollContainer = document.createElement("div");

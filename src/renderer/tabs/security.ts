@@ -3,6 +3,7 @@
  */
 
 import { SearchBar } from "../components";
+import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 
 // ── Types ──
 
@@ -147,6 +148,7 @@ export function renderSecurity(container: HTMLElement, data: any): void {
   const searchBar = new SearchBar((term, isRegex) => {
     searchTerm = term;
     searchRegex = isRegex;
+    saveSearchState("security", term, isRegex);
     renderFindings();
   });
   root.appendChild(searchWrap);
@@ -160,6 +162,13 @@ export function renderSecurity(container: HTMLElement, data: any): void {
 
   // Mount search bar after root is in the DOM
   searchBar.mount(searchWrap);
+  registerSearchBar("security", searchBar);
+
+  // Restore saved search state
+  const savedState = getSearchState("security");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 
   // ── Filtering + rendering logic ──
   function getFilteredFindings(): SecurityFinding[] {

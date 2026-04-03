@@ -9,6 +9,9 @@ import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
 import { renderSecurity } from "./tabs/security";
 import { renderFiles } from "./tabs/files";
+import { renderClasses } from "./tabs/classes";
+import { renderEntitlements } from "./tabs/entitlements";
+import { renderPlist } from "./tabs/plist";
 import { showToast } from "./components/toast";
 
 // ── Types ──
@@ -31,37 +34,14 @@ const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 
-// ── Search state per tab ──
-interface TabSearchState {
-  term: string;
-  isRegex: boolean;
-}
-
-const tabSearchStates = new Map<string, TabSearchState>();
-
-/** Save search state for a tab. Called by tab renderers on input change. */
-export function saveSearchState(tabId: string, term: string, isRegex: boolean): void {
-  tabSearchStates.set(tabId, { term, isRegex });
-}
-
-/** Get saved search state for a tab. */
-export function getSearchState(tabId: string): TabSearchState | null {
-  return tabSearchStates.get(tabId) ?? null;
-}
-
-// ── Active search bar registry (for Ctrl/Cmd+F focus) ──
-const activeSearchBars = new Map<string, { focus: () => void }>();
-
-/** Register a tab's SearchBar instance so Ctrl/Cmd+F can focus it. */
-export function registerSearchBar(tabId: string, bar: { focus: () => void }): void {
-  activeSearchBars.set(tabId, bar);
-}
+// ── Search state (imported from dedicated module to avoid circular deps) ──
+import { clearSearchStates, getSearchBar } from "./search-state";
 
 // ── Keyboard shortcut: Ctrl/Cmd+F to focus active tab's search bar ──
 document.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "f") {
     e.preventDefault();
-    const bar = activeSearchBars.get(currentTab);
+    const bar = getSearchBar(currentTab);
     if (bar) {
       bar.focus();
     }
@@ -190,6 +170,15 @@ async function loadTabData(tabId: string): Promise<void> {
           break;
         case "files":
           renderFiles(panel, (tabData as any)?.data ?? tabData);
+          break;
+        case "classes":
+          renderClasses(panel, (tabData as any)?.data ?? tabData);
+          break;
+        case "entitlements":
+          renderEntitlements(panel, (tabData as any)?.data ?? tabData);
+          break;
+        case "infoplist":
+          renderPlist(panel, (tabData as any)?.data ?? tabData);
           break;
         default:
           break;
@@ -323,7 +312,7 @@ async function startAnalysis(filePath: string): Promise<void> {
   setState("loading");
   setLoadingPhase("Starting analysis...", 0);
   loadedTabs.clear();
-  tabSearchStates.clear();
+  clearSearchStates();
   analysisResult = null;
   currentBinaryIndex = 0;
 
