@@ -1155,3 +1155,291 @@ html, body {
   max-height: 100000px;
   opacity: 1;
 }
+
+/* ══════════════════════════════════════════════
+   Classes Tab (cls-)
+   ══════════════════════════════════════════════ */
+
+.cls-stats {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.cls-panels {
+  display: flex;
+  gap: 1px;
+  height: calc(100vh - 160px);
+  background-color: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cls-left {
+  width: 340px;
+  min-width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  padding: 8px 10px;
+  overflow: hidden;
+}
+
+.cls-right {
+  flex: 1;
+  background-color: var(--bg);
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.cls-scroll {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  min-height: 0;
+}
+
+.cls-spacer {
+  width: 100%;
+  pointer-events: none;
+}
+
+.cls-rows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.cls-row {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 13px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 100ms ease;
+}
+
+.cls-row:hover {
+  background-color: rgba(88, 166, 255, 0.08);
+}
+
+.cls-row-active {
+  background-color: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+}
+
+.cls-proto-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+  padding-top: 4px;
+}
+
+.cls-proto-header {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  padding: 6px 4px;
+  width: 100%;
+  text-align: left;
+  transition: color 150ms ease;
+}
+
+.cls-proto-header:hover {
+  color: var(--text);
+}
+
+.cls-proto-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding-left: 4px;
+}
+
+.cls-proto-item {
+  font-size: 12px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cls-detail-hint {
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding-top: 48px;
+}
+
+.cls-detail-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.cls-detail-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.cls-method-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.cls-method-item {
+  font-size: 13px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  padding: 4px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  transition: background-color 100ms ease;
+  cursor: default;
+  user-select: text;
+}
+
+.cls-method-item:hover {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+/* ══════════════════════════════════════════════
+   Entitlements Tab (ent-)
+   ══════════════════════════════════════════════ */
+
+.ent-danger-section {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  background-color: rgba(248, 81, 73, 0.06);
+  border: 1px solid rgba(248, 81, 73, 0.2);
+  border-radius: 6px;
+}
+
+.ent-danger-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f85149;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.ent-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ent-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ent-badge-red {
+  background-color: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.ent-badge-orange {
+  background-color: rgba(255, 166, 87, 0.15);
+  color: #ffa657;
+  border: 1px solid rgba(255, 166, 87, 0.3);
+}
+
+.ent-source-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 16px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ent-tree {
+  margin-bottom: 12px;
+}
+
+/* ══════════════════════════════════════════════
+   Info.plist Tab (plist-)
+   ══════════════════════════════════════════════ */
+
+.plist-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.plist-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.plist-chip-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-right: 2px;
+}
+
+.plist-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background-color: rgba(88, 166, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  border-radius: 10px;
+  font-size: 12px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plist-search {
+  margin-bottom: 8px;
+}
+
+.plist-tree {
+  /* container for JsonTree */
+}
