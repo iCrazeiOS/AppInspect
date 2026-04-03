@@ -28,6 +28,8 @@ const loadingText = $<HTMLDivElement>("#loading-text");
 const tabContent = $<HTMLDivElement>("#tab-content");
 const binarySelector = $<HTMLDivElement>("#binary-selector");
 const binaryDropdown = $<HTMLSelectElement>("#binary-dropdown");
+const archSelector = $<HTMLDivElement>("#arch-selector");
+const archDropdown = $<HTMLSelectElement>("#arch-dropdown");
 const sidebarFooter = $<HTMLDivElement>("#sidebar-footer");
 const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-btn");
 
@@ -301,6 +303,14 @@ async function handleBinaryChange(): Promise<void> {
     loadedTabs.add(currentTab);
     await loadTabData(currentTab);
 
+    // Repopulate arch selector for the new binary
+    currentArchIndex = 0;
+    if (result.overview?.fatArchs) {
+      populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
+    } else {
+      archSelector.classList.add("hidden");
+    }
+
     // Check encryption for the new binary
     checkEncryptionBanner(result);
 
@@ -318,6 +328,88 @@ async function handleBinaryChange(): Promise<void> {
 
 binaryDropdown.addEventListener("change", handleBinaryChange);
 
+// ── Architecture selector ──
+
+const CPU_TYPE_NAMES: Record<number, string> = {
+  7: "x86",
+  12: "ARM",
+  0x01000007: "x86_64",
+  0x0100000c: "ARM64",
+};
+
+function cpuLabel(cputype: number, cpusubtype: number): string {
+  const base = CPU_TYPE_NAMES[cputype] ?? `CPU(0x${cputype.toString(16)})`;
+  // Mask off CPU_SUBTYPE_LIB64 (bit 31) to get the real subtype
+  const sub = cpusubtype & 0x00ffffff;
+  if (cputype === 0x0100000c && sub === 2) return "ARM64e";
+  if (sub !== 0) return `${base} (sub ${sub})`;
+  return base;
+}
+
+interface FatArchInfo {
+  cputype: number;
+  cpusubtype: number;
+  offset: number;
+  size: number;
+  align: number;
+}
+
+let currentArchIndex = 0;
+
+function populateArchSelector(fatArchs: FatArchInfo[]): void {
+  archDropdown.innerHTML = "";
+
+  if (!fatArchs || fatArchs.length <= 1) {
+    archSelector.classList.add("hidden");
+    return;
+  }
+
+  for (let i = 0; i < fatArchs.length; i++) {
+    const arch = fatArchs[i];
+    const opt = document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = `${cpuLabel(arch.cputype, arch.cpusubtype)}  (${(arch.size / 1024).toFixed(0)} KB)`;
+    archDropdown.appendChild(opt);
+  }
+
+  archDropdown.value = String(currentArchIndex);
+  archSelector.classList.remove("hidden");
+}
+
+async function handleArchChange(): Promise<void> {
+  const idx = parseInt(archDropdown.value, 10);
+  if (isNaN(idx) || idx === currentArchIndex || isSwitchingBinary) return;
+  const fatArchs = analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
+  if (!fatArchs || !fatArchs[idx]) return;
+
+  isSwitchingBinary = true;
+  currentArchIndex = idx;
+  const cpuType = fatArchs[idx].cputype;
+  const cpuSubtype = fatArchs[idx].cpusubtype;
+  archDropdown.disabled = true;
+  binaryDropdown.disabled = true;
+  setBinarySwitchLoading(true);
+
+  try {
+    const result = await window.api.analyzeBinary(currentBinaryIndex, cpuType, cpuSubtype);
+    analysisResult = result;
+    clearAllTabContent();
+    loadedTabs.add(currentTab);
+    await loadTabData(currentTab);
+    checkEncryptionBanner(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`Architecture switch failed: ${message}`, "error");
+  } finally {
+    isSwitchingBinary = false;
+    archDropdown.disabled = false;
+    binaryDropdown.disabled = false;
+    setBinarySwitchLoading(false);
+  }
+}
+
+archDropdown.addEventListener("change", handleArchChange);
+
 // ── IPA Analysis ──
 async function startAnalysis(filePath: string): Promise<void> {
   setState("loading");
@@ -327,8 +419,10 @@ async function startAnalysis(filePath: string): Promise<void> {
   analysisResult = null;
   currentBinaryIndex = 0;
 
-  // Hide binary selector during analysis
+  // Hide selectors during analysis
   binarySelector.classList.add("hidden");
+  archSelector.classList.add("hidden");
+  currentArchIndex = 0;
 
   try {
     const result = await window.api.analyzeIPA(filePath);
@@ -339,6 +433,12 @@ async function startAnalysis(filePath: string): Promise<void> {
     // Populate binary selector if multiple binaries discovered
     if (result.overview?.ipa?.binaries) {
       populateBinarySelector(result.overview.ipa.binaries);
+    }
+
+    // Populate arch selector if fat binary
+    if (result.overview?.fatArchs) {
+      currentArchCpuType = result.overview.header.cputype;
+      populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
     }
 
     // Render overview immediately from the full result

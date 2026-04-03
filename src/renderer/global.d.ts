@@ -3,7 +3,7 @@ import type { TabData, TabName, ProgressPayload, AnalysisErrorPayload } from "..
 
 export interface DisectAPI {
   analyzeIPA(filePath: string): Promise<AnalysisResult>;
-  analyzeBinary(binaryIndex: number): Promise<AnalysisResult>;
+  analyzeBinary(binaryIndex: number, cpuType?: number, cpuSubtype?: number): Promise<AnalysisResult>;
   getTabData(tab: TabName, binaryIndex?: number): Promise<TabData>;
   exportJSON(tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
   openFilePicker(): Promise<string | null>;

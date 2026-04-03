@@ -296,6 +296,8 @@ async function analyzeBinaryFile(
   binaryPath: string,
   progressCallback: (phase: string, percent: number) => void,
   basePercent: number,
+  preferredCpuType?: number,
+  preferredCpuSubtype?: number,
 ): Promise<BinaryAnalysisResult> {
   const errors: string[] = [];
 
@@ -349,9 +351,15 @@ async function analyzeBinaryFile(
     if (fatResult.ok) {
       fatArchs = fatResult.data;
 
-      // Prefer arm64 slice
+      // Select preferred arch, or default to arm64, or first available
+      const preferredArch = preferredCpuType != null
+        ? fatArchs.find((a) =>
+            a.cputype === preferredCpuType &&
+            (preferredCpuSubtype == null || a.cpusubtype === preferredCpuSubtype)
+          )
+        : undefined;
       const arm64Arch = fatArchs.find((a) => a.cputype === CPU_TYPE_ARM64);
-      const selectedArch = arm64Arch ?? fatArchs[0];
+      const selectedArch = preferredArch ?? arm64Arch ?? fatArchs[0];
 
       if (selectedArch) {
         // Slice the buffer to the selected architecture so all internal
@@ -722,6 +730,8 @@ export async function analyzeIPA(
 export async function analyzeBinary(
   binaryIndex: number,
   progressCallback: (phase: string, percent: number) => void,
+  cpuType?: number,
+  cpuSubtype?: number,
 ): Promise<AnalysisResult> {
   if (!cachedResult || !cachedAppBundlePath) {
     throw new Error("No previous analysis. Run analyzeIPA first.");
@@ -732,7 +742,7 @@ export async function analyzeBinary(
   }
 
   const binary = cachedBinaries[binaryIndex]!;
-  const binaryResult = await analyzeBinaryFile(binary.path, progressCallback, 0);
+  const binaryResult = await analyzeBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
 
   // Rebuild the result with the new binary data but keep IPA-level info
   const result: AnalysisResult = {

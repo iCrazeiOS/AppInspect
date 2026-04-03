@@ -3,8 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("api", {
   analyzeIPA: (filePath: string) =>
     ipcRenderer.invoke("analyze-ipa", { path: filePath }),
-  analyzeBinary: (binaryIndex: number) =>
-    ipcRenderer.invoke("analyze-binary", { binaryIndex }),
+  analyzeBinary: (binaryIndex: number, cpuType?: number, cpuSubtype?: number) =>
+    ipcRenderer.invoke("analyze-binary", { binaryIndex, cpuType, cpuSubtype }),
   getTabData: (tab: string, binaryIndex?: number) =>
     ipcRenderer.invoke("get-tab-data", { tab, binaryIndex }),
   exportJSON: (tabs?: string[]) =>

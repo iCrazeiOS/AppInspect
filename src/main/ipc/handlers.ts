@@ -61,15 +61,11 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   });
 
   // ── analyze-binary ──
-  ipcMain.handle("analyze-binary", async (_event, args: { binaryIndex: number }) => {
+  ipcMain.handle("analyze-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
     try {
       const result = await analyzeBinary(args.binaryIndex, (phase, percent) => {
-        win.webContents.send("update-progress", {
-          phase,
-          percent,
-          message: phase,
-        });
-      });
+        win.webContents.send("update-progress", { phase, percent, message: phase });
+      }, args.cpuType, args.cpuSubtype);
 
       const sanitized = sanitizeBigInts(result);
       win.webContents.send("analysis-complete");
