@@ -219,7 +219,6 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     frameworks?: string[];
     targetBundles?: string[];
     hookedClasses?: string[];
-    methods?: unknown[];
   } | undefined;
 
   if (hooks && (hooks.frameworks?.length || hooks.hookedClasses?.length || hooks.targetBundles?.length)) {
@@ -235,10 +234,6 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 
     if (hooks.hookedClasses?.length) {
       hookItems.push(buildKV("Hooked Classes", String(hooks.hookedClasses.length)));
-    }
-
-    if (hooks.methods?.length) {
-      hookItems.push(buildKV("Hooked Methods", String(hooks.methods.length)));
     }
 
     wrapper.appendChild(buildCard("Hooks", ...hookItems));

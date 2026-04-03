@@ -242,14 +242,8 @@ export interface FileEntry {
 
 // ── Hooks (jailbreak tweaks) ──
 
-export interface HookMethod {
-  className: string;
-  selector: string;
-  source: "logos" | "inferred";
-}
-
 export interface HookInfo {
-  /** Hook framework detected (e.g. "Substrate", "Libhooker", "Logos", "fishhook") */
+  /** Hook framework detected (e.g. "Substrate", "Libhooker", "fishhook") */
   frameworks: string[];
   /** Target bundle filters from the tweak plist */
   targetBundles: string[];
@@ -257,8 +251,6 @@ export interface HookInfo {
   hookedClasses: string[];
   /** Hook registration symbols found (e.g. _MSHookMessageEx) */
   hookSymbols: string[];
-  /** Hooked methods with class+selector pairs */
-  methods: HookMethod[];
 }
 
 // ── Top-level Analysis Result ──

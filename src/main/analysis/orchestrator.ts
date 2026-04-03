@@ -29,7 +29,6 @@ import type {
   Segment,
   SourceType,
   HookInfo,
-  HookMethod,
 } from "../../shared/types";
 
 import {
@@ -333,71 +332,23 @@ function detectHooks(
   const frameworks = new Set<string>();
   const hookSymbols: string[] = [];
   const hookedClasses = new Set<string>();
-  const methods: HookMethod[] = [];
-  const seenMethods = new Set<string>(); // "ClassName.selector" dedup key
 
   // 1. Check imported symbols for hook framework functions
   for (const sym of symbols) {
-    if (sym.type === "imported") {
-      const framework = HOOK_SYMBOLS[sym.name];
-      if (framework) {
-        frameworks.add(framework);
-        hookSymbols.push(sym.name);
-      }
-    }
-
-    // Logos-generated symbols encode exact class+method pairs:
-    //   _logos_method$group$ClassName$selector$  (instance method)
-    //   _logos_meta_method$group$ClassName$selector$  (class method)
-    if (sym.name.startsWith("_logos_method$") || sym.name.startsWith("_logos_meta_method$")) {
-      frameworks.add("Logos");
+    if (sym.type !== "imported") continue;
+    const framework = HOOK_SYMBOLS[sym.name];
+    if (framework) {
+      frameworks.add(framework);
       hookSymbols.push(sym.name);
-
-      const parts = sym.name.split("$");
-      // parts: ["_logos_method", group, ClassName, selector_part1, selector_part2, ...]
-      if (parts.length >= 4) {
-        const className = parts[2]!;
-        // Logos encodes selector components separated by $, with : replaced
-        // e.g., _logos_method$_ungrouped$UIView$setFrame$  → setFrame:
-        // e.g., _logos_method$_ungrouped$UIView$hitTest$withEvent$  → hitTest:withEvent:
-        const selectorParts = parts.slice(3).filter((p) => p !== "");
-        const selector = selectorParts.length > 0
-          ? selectorParts.map((p) => p + ":").join("")
-          : "";
-
-        if (className && selector) {
-          hookedClasses.add(className);
-          const key = `${className}.${selector}`;
-          if (!seenMethods.has(key)) {
-            seenMethods.add(key);
-            methods.push({ className, selector, source: "logos" });
-          }
-        } else if (className) {
-          hookedClasses.add(className);
-        }
-      }
-    }
-
-    if (sym.name.startsWith("_logos_register")) {
-      frameworks.add("Logos");
-      hookSymbols.push(sym.name);
-    }
-
-    // _logos_orig$ patterns also encode class names
-    if (sym.name.startsWith("_logos_orig$")) {
-      const parts = sym.name.split("$");
-      if (parts.length >= 3) {
-        hookedClasses.add(parts[2]!);
-      }
     }
   }
 
-  // 2. Find system classes referenced by the binary
-  const tweakClassNames = new Set(classes.map((c) => c.name));
-
-  // Only look for hooked system classes when a hook framework is actually present.
-  // Regular apps also import objc_getClass and reference system classes — that's normal usage, not hooking.
+  // 2. Find system classes referenced by the binary.
+  //    Only when a hook framework is present — regular apps also reference
+  //    system classes via objc_getClass for normal usage.
   if (frameworks.size > 0) {
+    const tweakClassNames = new Set(classes.map((c) => c.name));
+
     for (const str of strings) {
       const val = str.value;
       if (val.length < 3 || val.length > 80 || !/^[A-Z]/.test(val)) continue;
@@ -413,24 +364,11 @@ function detectHooks(
     }
   }
 
-  // Note: For Substrate/Libhooker hooks (non-Logos), we cannot reliably determine
-  // which specific methods are hooked without ARM64 disassembly and backward register
-  // tracing (as TweakInspect does). The selectors in __objc_methname include both
-  // hooked methods AND regular API calls, so we only report exact matches from Logos
-  // symbols and list the hooked classes without guessing methods.
-
-  // Sort methods alphabetically
-  methods.sort((a, b) => {
-    const cmp = a.className.localeCompare(b.className);
-    return cmp !== 0 ? cmp : a.selector.localeCompare(b.selector);
-  });
-
   return {
     frameworks: [...frameworks],
     targetBundles: [],
     hookedClasses: [...hookedClasses].sort(),
     hookSymbols,
-    methods,
   };
 }
 
@@ -482,7 +420,7 @@ async function analyzeBinaryFile(
   let uuid: string | null = null;
   let teamId: string | null = null;
   let findings: SecurityFinding[] = [];
-  let hooks: HookInfo = { frameworks: [], targetBundles: [], hookedClasses: [], hookSymbols: [], methods: [] };
+  let hooks: HookInfo = { frameworks: [], targetBundles: [], hookedClasses: [], hookSymbols: [] };
   let hardening: BinaryHardening = {
     pie: false, arc: false, stackCanaries: false, encrypted: false, stripped: true,
   };
