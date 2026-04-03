@@ -25,9 +25,48 @@ const loadingText = $<HTMLDivElement>("#loading-text");
 const tabContent = $<HTMLDivElement>("#tab-content");
 const binarySelector = $<HTMLDivElement>("#binary-selector");
 const binaryDropdown = $<HTMLSelectElement>("#binary-dropdown");
+const sidebarFooter = $<HTMLDivElement>("#sidebar-footer");
+const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-btn");
 
 const tabButtons = document.querySelectorAll<HTMLButtonElement>(".tab-btn");
 const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
+
+// ── Search state per tab ──
+interface TabSearchState {
+  term: string;
+  isRegex: boolean;
+}
+
+const tabSearchStates = new Map<string, TabSearchState>();
+
+/** Save search state for a tab. Called by tab renderers on input change. */
+export function saveSearchState(tabId: string, term: string, isRegex: boolean): void {
+  tabSearchStates.set(tabId, { term, isRegex });
+}
+
+/** Get saved search state for a tab. */
+export function getSearchState(tabId: string): TabSearchState | null {
+  return tabSearchStates.get(tabId) ?? null;
+}
+
+// ── Active search bar registry (for Ctrl/Cmd+F focus) ──
+const activeSearchBars = new Map<string, { focus: () => void }>();
+
+/** Register a tab's SearchBar instance so Ctrl/Cmd+F can focus it. */
+export function registerSearchBar(tabId: string, bar: { focus: () => void }): void {
+  activeSearchBars.set(tabId, bar);
+}
+
+// ── Keyboard shortcut: Ctrl/Cmd+F to focus active tab's search bar ──
+document.addEventListener("keydown", (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+    e.preventDefault();
+    const bar = activeSearchBars.get(currentTab);
+    if (bar) {
+      bar.focus();
+    }
+  }
+});
 
 // ── State ──
 let currentTab = "overview";
@@ -111,6 +150,12 @@ function switchTab(tabId: string): void {
     panel.classList.toggle("hidden", !isTarget);
   });
 
+  // Re-show encryption banner on tab switch as a reminder
+  if (isEncrypted) {
+    encryptionBannerDismissed = false;
+    updateEncryptionBanner();
+  }
+
   // Lazy-load tab data if we have an analysis result and haven't loaded this tab yet
   if (analysisResult && !loadedTabs.has(tabId)) {
     loadTabData(tabId);
@@ -153,6 +198,8 @@ async function loadTabData(tabId: string): Promise<void> {
 
     console.log(`[Disect] Tab data loaded for: ${tabId}`, tabData);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`Failed to load ${tabId} tab: ${message}`, "error");
     console.error(`[Disect] Failed to load tab data for ${tabId}:`, err);
   }
 }
@@ -254,10 +301,13 @@ async function handleBinaryChange(): Promise<void> {
     loadedTabs.add(currentTab);
     await loadTabData(currentTab);
 
+    // Check encryption for the new binary
+    checkEncryptionBanner(result);
+
     console.log(`[Disect] Switched to binary index ${selectedIndex}:`, result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    showError(message);
+    showToast(`Binary switch failed: ${message}`, "error");
     console.error("[Disect] Binary switch failed:", err);
   } finally {
     isSwitchingBinary = false;
@@ -273,6 +323,7 @@ async function startAnalysis(filePath: string): Promise<void> {
   setState("loading");
   setLoadingPhase("Starting analysis...", 0);
   loadedTabs.clear();
+  tabSearchStates.clear();
   analysisResult = null;
   currentBinaryIndex = 0;
 
@@ -296,6 +347,12 @@ async function startAnalysis(filePath: string): Promise<void> {
       renderOverview(overviewPanel, result.overview);
     }
 
+    // Check for encryption and show banner
+    checkEncryptionBanner(result);
+
+    // Show export buttons now that analysis is loaded
+    updateExportVisibility(true);
+
     switchTab("overview");
     console.log("[Disect] Analysis complete:", result);
   } catch (err) {
@@ -313,6 +370,8 @@ async function handleOpenIPA(): Promise<void> {
       await startAnalysis(filePath);
     }
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`File picker error: ${message}`, "error");
     console.error("[Disect] File picker error:", err);
   }
 }
@@ -361,12 +420,12 @@ document.addEventListener("drop", (e: DragEvent) => {
   const filePath = (file as File & { path?: string }).path;
 
   if (!filePath) {
-    console.warn("[Disect] No file path available from drop");
+    showToast("No file path available from drop", "warning");
     return;
   }
 
   if (!filePath.toLowerCase().endsWith(".ipa")) {
-    console.warn("[Disect] Dropped file is not an IPA:", filePath);
+    showToast("Not a valid IPA file", "warning");
     return;
   }
 
@@ -384,8 +443,63 @@ window.api.onComplete(() => {
 });
 
 window.api.onError((data) => {
-  showError(data.message);
+  showToast(data.message, "error");
 });
+
+// ── JSON Export ──
+
+/** Show or hide export buttons based on whether analysis is loaded */
+function updateExportVisibility(visible: boolean): void {
+  sidebarFooter.classList.toggle("hidden", !visible);
+  exportTabBtns.forEach((btn) => btn.classList.toggle("hidden", !visible));
+}
+
+/** Export all analysis data */
+async function handleExportAll(): Promise<void> {
+  try {
+    const result = await window.api.exportJSON();
+    if (result.success) {
+      showToast(`Exported to ${result.path}`, "success");
+    }
+  } catch (err) {
+    console.error("[Disect] Export failed:", err);
+    showToast("Export failed", "error");
+  }
+}
+
+/** Export a single tab's data */
+async function handleExportTab(tabName: string): Promise<void> {
+  try {
+    const result = await window.api.exportJSON([tabName as any]);
+    if (result.success) {
+      showToast(`Exported ${tabName} to ${result.path}`, "success");
+    }
+  } catch (err) {
+    console.error(`[Disect] Export of ${tabName} failed:`, err);
+    showToast("Export failed", "error");
+  }
+}
+
+$<HTMLButtonElement>("#btn-export-all").addEventListener("click", handleExportAll);
+
+exportTabBtns.forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation(); // Prevent tab switch
+    const tabName = btn.dataset["exportTab"];
+    if (tabName) {
+      handleExportTab(tabName);
+    }
+  });
+});
+
+// ── Global error handlers ──
+window.onerror = (msg) => {
+  showToast(String(msg), "error");
+};
+
+window.onunhandledrejection = (e: PromiseRejectionEvent) => {
+  showToast(e.reason?.message || "Unexpected error", "error");
+};
 
 // ── Exports for future use ──
 export { setState, setLoadingPhase, switchTab };

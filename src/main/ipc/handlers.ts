@@ -6,12 +6,14 @@
  */
 
 import { ipcMain, dialog, BrowserWindow } from "electron";
+import { writeFileSync } from "fs";
 import type { TabName } from "../../shared/ipc-types";
 import {
   analyzeIPA,
   analyzeBinary,
   getCachedResult,
 } from "../analysis/orchestrator";
+import { exportAnalysis } from "../export/json";
 
 /**
  * Custom replacer for JSON.stringify that converts BigInt values to numbers.
@@ -81,89 +83,71 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
   // ── get-tab-data ──
   ipcMain.handle("get-tab-data", async (_event, args: { tab: TabName; binaryIndex?: number }) => {
-    const cached = getCachedResult();
-    if (!cached) {
-      throw new Error("No analysis result available");
-    }
+    try {
+      const cached = getCachedResult();
+      if (!cached) {
+        throw new Error("No analysis result available");
+      }
 
-    const { tab } = args;
+      const { tab } = args;
 
-    switch (tab) {
-      case "overview":
-        return sanitizeBigInts({ tab: "overview", data: cached.overview });
-      case "strings":
-        return sanitizeBigInts({ tab: "strings", data: cached.strings });
-      case "headers":
-        return sanitizeBigInts({ tab: "headers", data: cached.headers });
-      case "libraries":
-        return sanitizeBigInts({ tab: "libraries", data: cached.libraries });
-      case "symbols":
-        return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
-      case "classes":
-        return sanitizeBigInts({ tab: "classes", data: cached.classes });
-      case "entitlements":
-        return sanitizeBigInts({ tab: "entitlements", data: cached.entitlements });
-      case "infoPlist":
-        return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
-      case "security":
-        return sanitizeBigInts({ tab: "security", data: cached.security });
-      case "files":
-        return sanitizeBigInts({ tab: "files", data: cached.files });
-      default:
-        throw new Error(`Unknown tab: ${tab}`);
+      switch (tab) {
+        case "overview":
+          return sanitizeBigInts({ tab: "overview", data: cached.overview });
+        case "strings":
+          return sanitizeBigInts({ tab: "strings", data: cached.strings });
+        case "headers":
+          return sanitizeBigInts({ tab: "headers", data: cached.headers });
+        case "libraries":
+          return sanitizeBigInts({ tab: "libraries", data: cached.libraries });
+        case "symbols":
+          return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
+        case "classes":
+          return sanitizeBigInts({ tab: "classes", data: cached.classes });
+        case "entitlements":
+          return sanitizeBigInts({ tab: "entitlements", data: cached.entitlements });
+        case "infoPlist":
+          return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
+        case "security":
+          return sanitizeBigInts({ tab: "security", data: cached.security });
+        case "files":
+          return sanitizeBigInts({ tab: "files", data: cached.files });
+        default:
+          throw new Error(`Unknown tab: ${tab}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { message });
+      throw err;
     }
   });
 
   // ── export-json ──
   ipcMain.handle("export-json", async (_event, args: { tabs?: TabName[] }) => {
-    const cached = getCachedResult();
-    if (!cached) {
-      throw new Error("No analysis result available");
-    }
-
-    if (!args.tabs || args.tabs.length === 0) {
-      // Export everything
-      return JSON.stringify(cached, bigintReplacer, 2);
-    }
-
-    // Export only requested tabs
-    const partial: Record<string, unknown> = {};
-    for (const tab of args.tabs) {
-      switch (tab) {
-        case "overview":
-          partial.overview = cached.overview;
-          break;
-        case "strings":
-          partial.strings = cached.strings;
-          break;
-        case "headers":
-          partial.headers = cached.headers;
-          break;
-        case "libraries":
-          partial.libraries = cached.libraries;
-          break;
-        case "symbols":
-          partial.symbols = cached.symbols;
-          break;
-        case "classes":
-          partial.classes = cached.classes;
-          break;
-        case "entitlements":
-          partial.entitlements = cached.entitlements;
-          break;
-        case "infoPlist":
-          partial.infoPlist = cached.infoPlist;
-          break;
-        case "security":
-          partial.security = cached.security;
-          break;
-        case "files":
-          partial.files = cached.files;
-          break;
+    try {
+      const cached = getCachedResult();
+      if (!cached) {
+        throw new Error("No analysis result available");
       }
-    }
 
-    return JSON.stringify(partial, bigintReplacer, 2);
+      const jsonString = exportAnalysis(cached, args.tabs);
+
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        defaultPath: "disect-export.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+
+      if (canceled || !filePath) {
+        return { success: false };
+      }
+
+      writeFileSync(filePath, jsonString, "utf-8");
+      return { success: true, path: filePath };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { message });
+      throw err;
+    }
   });
 
   // ── open-file-picker ──
