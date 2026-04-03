@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 contextBridge.exposeInMainWorld("api", {
   analyzeFile: (filePath: string) =>
@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("export-json", { tabs }),
   openFilePicker: () =>
     ipcRenderer.invoke("open-file-picker"),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onProgress: (cb: (data: { phase: string; percent: number; message: string }) => void) => {
     ipcRenderer.on("update-progress", (_event, data) => cb(data));
   },

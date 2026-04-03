@@ -8,6 +8,7 @@ export interface AppInspectAPI {
   getTabData(tab: TabName, binaryIndex?: number): Promise<TabData>;
   exportJSON(tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
   openFilePicker(): Promise<string | null>;
+  getPathForFile(file: File): string;
   onProgress(cb: (data: ProgressPayload) => void): void;
   onComplete(cb: () => void): void;
   onError(cb: (data: AnalysisErrorPayload) => void): void;

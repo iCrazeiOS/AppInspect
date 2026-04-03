@@ -535,8 +535,7 @@ document.addEventListener("drop", (e: DragEvent) => {
   if (!files || files.length === 0) return;
 
   const file = files[0];
-  // Electron provides .path on File objects
-  const filePath = (file as File & { path?: string }).path;
+  const filePath = window.api.getPathForFile(file);
   console.log("[AppInspect] Dropped file path:", filePath);
 
   if (!filePath) {
