@@ -10,8 +10,7 @@
  * BigUint64 from the buffer. Low 3 bits are stripped from data pointers
  * (Apple stores runtime flags there).
  *
- * Does NOT parse ivar types, property attributes, category merging,
- * metaclass methods, or ObjC type encodings.
+ * Does NOT parse ivar types, property attributes, or category merging.
  */
 
 import type { Section64, Segment64 } from "./load-commands";
@@ -319,6 +318,7 @@ function parseMethodList(
   rebaseMap: Map<number, bigint>,
   le: boolean,
   methodListVmaddr: bigint | null = null,
+  isInstance = true,
 ): ObjCMethod[] {
   if (
     methodListFileOffset < 0 ||
@@ -397,7 +397,7 @@ function parseMethodList(
       // from symbol table data for shared cache binaries.
       methods.push({
         selector: name,
-        signature: name.length > 0 ? buildMethodSignature(name, typeEncoding) : typeEncoding,
+        signature: name.length > 0 ? buildMethodSignature(name, typeEncoding, isInstance) : typeEncoding,
       });
     }
   } else {
@@ -430,7 +430,7 @@ function parseMethodList(
 
       methods.push({
         selector: name,
-        signature: buildMethodSignature(name, typeEncoding),
+        signature: buildMethodSignature(name, typeEncoding, isInstance),
       });
     }
   }
@@ -500,6 +500,32 @@ function parseClass(
     const methodsFileOffset = vmaddrToFileOffset(baseMethodsVmaddr, segments);
     if (methodsFileOffset !== null) {
       methods = parseMethodList(view, methodsFileOffset, segments, rebaseMap, le, baseMethodsVmaddr);
+    }
+  }
+
+  // Class methods from metaclass (isa pointer at offset 0)
+  let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments);
+  isaVmaddr = isaVmaddr & POINTER_MASK;
+  if (isaVmaddr !== 0n) {
+    const metaclassOff = vmaddrToFileOffset(isaVmaddr, segments);
+    if (metaclassOff !== null && metaclassOff + 40 <= view.byteLength) {
+      let metaDataVmaddr = resolvePointer(view, metaclassOff + 32, rebaseMap, le, segments);
+      metaDataVmaddr = metaDataVmaddr & POINTER_MASK;
+      if (metaDataVmaddr !== 0n) {
+        const metaRoOff = vmaddrToFileOffset(metaDataVmaddr, segments);
+        if (metaRoOff !== null && metaRoOff + 40 <= view.byteLength) {
+          const metaMethodsVmaddr = resolvePointer(view, metaRoOff + 32, rebaseMap, le, segments);
+          if (metaMethodsVmaddr !== 0n) {
+            const metaMethodsOff = vmaddrToFileOffset(metaMethodsVmaddr, segments);
+            if (metaMethodsOff !== null) {
+              const classMethods = parseMethodList(
+                view, metaMethodsOff, segments, rebaseMap, le, metaMethodsVmaddr, false,
+              );
+              methods.push(...classMethods);
+            }
+          }
+        }
+      }
     }
   }
 

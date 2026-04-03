@@ -208,13 +208,13 @@ function findBinariesRecursive(
           type: "executable",
         });
       }
-    } else if (relPath.includes("PreferenceBundles/") && !entry.name.includes(".")) {
-      // Preference bundle binaries typically have no extension
+    } else if (relPath.includes(".bundle/") && !entry.name.includes(".")) {
+      // Bundle binaries (PreferenceBundles, ControlCenter modules, etc.)
       if (isMachO(fullPath)) {
         results.push({
           name: entry.name,
           path: fullPath,
-          type: "prefbundle",
+          type: relPath.includes("PreferenceBundles/") ? "prefbundle" : "library",
         });
       }
     }
