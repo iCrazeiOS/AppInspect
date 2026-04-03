@@ -29,6 +29,11 @@ export class DataTable {
   private rafId = 0;
   private boundOnScroll: () => void;
 
+  /** Optional initial row cap — when set and no filter is active, only show this many rows */
+  private initialCap: number | null = null;
+  private isCapped = false;
+  private showMoreEl: HTMLElement | null = null;
+
   onRowClick?: (row: Record<string, string | number>, index: number) => void;
 
   private static BUFFER = 20;
@@ -37,6 +42,11 @@ export class DataTable {
     this.columns = columns;
     this.rowHeight = rowHeight;
     this.boundOnScroll = this.onScroll.bind(this);
+  }
+
+  /** Set an initial row limit. When no filter is active, only this many rows are shown with a "Show all" button. */
+  setInitialCap(cap: number): void {
+    this.initialCap = cap;
   }
 
   mount(container: HTMLElement): void {
@@ -161,11 +171,58 @@ export class DataTable {
     return this.allData.length;
   }
 
+  /** Listen for when the user clicks "Show all" to uncap results */
+  onCapChange(cb: () => void): void {
+    this.root?.addEventListener("dt-cap-change", () => cb());
+  }
+
   private applyFilter(): void {
     if (this.filterFn) {
       this.filteredData = this.allData.filter(this.filterFn);
+      // When a filter is active, always show all matching results (uncap)
+      this.isCapped = false;
+    } else if (this.initialCap !== null && this.allData.length > this.initialCap) {
+      // No filter active and data exceeds cap — apply cap
+      this.isCapped = true;
+      this.filteredData = this.allData.slice(0, this.initialCap);
     } else {
+      this.isCapped = false;
       this.filteredData = this.allData.slice();
+    }
+    this.updateShowMore();
+  }
+
+  private updateShowMore(): void {
+    if (!this.root) return;
+
+    if (this.isCapped && this.initialCap !== null) {
+      if (!this.showMoreEl) {
+        const btn = document.createElement("button");
+        btn.className = "dt-show-more";
+        btn.addEventListener("click", () => {
+          this.isCapped = false;
+          this.filteredData = this.filterFn
+            ? this.allData.filter(this.filterFn)
+            : this.allData.slice();
+          this.applySort();
+          this.updateSpacer();
+          this.renderVisibleRows();
+          this.updateShowMore();
+          // Notify external count listeners via a custom event
+          this.root?.dispatchEvent(new CustomEvent("dt-cap-change"));
+        });
+        this.showMoreEl = btn;
+        // Insert before the scroll container
+        if (this.scrollContainer) {
+          this.root.insertBefore(btn, this.scrollContainer);
+        } else {
+          this.root.appendChild(btn);
+        }
+      }
+      this.showMoreEl.textContent = `Showing first ${this.initialCap!.toLocaleString()} rows — click to show all ${this.allData.length.toLocaleString()}`;
+      this.showMoreEl.style.display = "";
+    } else if (this.showMoreEl) {
+      this.showMoreEl.style.display = "none";
     }
   }
 

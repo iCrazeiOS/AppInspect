@@ -59,12 +59,6 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   searchBar.mount(wrapper);
   registerSearchBar("symbols", searchBar);
 
-  // Restore saved search state
-  const savedState = getSearchState("symbols");
-  if (savedState && savedState.term) {
-    searchBar.setValue(savedState.term, savedState.isRegex);
-  }
-
   // ── Type filter buttons ──
   let activeType: TypeFilter = "all";
 
@@ -118,7 +112,9 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   wrapper.appendChild(tableWrap);
 
   const table = new DataTable(COLUMNS, 28);
+  table.setInitialCap(200);
   table.mount(tableWrap);
+  table.onCapChange(() => updateCount());
 
   function updateCount(): void {
     const shown = table.filteredCount;
@@ -150,5 +146,12 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   // Append to DOM first so the table has real dimensions for virtual scrolling
   container.appendChild(wrapper);
   table.setData(rows);
+
+  // Restore saved search state (must happen after table is created)
+  const savedState = getSearchState("symbols");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
+
   updateCount();
 }

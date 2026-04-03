@@ -27,6 +27,7 @@ export function getSearchState(tabId: string): TabSearchState | null {
 /** Clear all saved search states (e.g. on new analysis). */
 export function clearSearchStates(): void {
   tabSearchStates.clear();
+  activeSearchBars.clear();
 }
 
 // ── Active search bar registry (for Ctrl/Cmd+F focus) ──

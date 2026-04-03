@@ -577,6 +577,25 @@ html, body {
   margin-left: 2px;
 }
 
+.dt-show-more {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: var(--surface-2, #1e1e2e);
+  border: 1px dashed var(--border, #3b3b4f);
+  border-radius: 4px;
+  color: var(--accent, #7aa2f7);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.dt-show-more:hover {
+  background: var(--surface-3, #2a2a3e);
+  border-color: var(--accent, #7aa2f7);
+}
+
 .dt-scroll {
   flex: 1;
   overflow-y: auto;
