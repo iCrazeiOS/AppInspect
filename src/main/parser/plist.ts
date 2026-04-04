@@ -58,6 +58,30 @@ export interface MobileprovisionData {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 /**
+ * Suppress xmldom's console warnings/errors during a callback.
+ * The `plist` package uses xmldom which dumps parse warnings to the console
+ * for malformed XML — this silences them.
+ */
+export function silenceXmldom<T>(fn: () => T): T {
+  const origWarn = console.warn;
+  const origError = console.error;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].includes("[xmldom")) return;
+    origWarn.apply(console, args);
+  };
+  console.error = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && args[0].includes("[xmldom")) return;
+    origError.apply(console, args);
+  };
+  try {
+    return fn();
+  } finally {
+    console.warn = origWarn;
+    console.error = origError;
+  }
+}
+
+/**
  * Parse a plist buffer, trying binary format first, then XML.
  */
 export function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
@@ -73,7 +97,7 @@ export function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
 
   // Try XML plist
   const xmlString = buf.toString("utf-8");
-  const parsed = plist.parse(xmlString);
+  const parsed = silenceXmldom(() => plist.parse(xmlString));
   if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
     return parsed as Record<string, unknown>;
   }
@@ -179,7 +203,7 @@ export function parseMobileprovision(
     }
 
     const xmlString = raw.substring(xmlStart, xmlEnd + "</plist>".length);
-    const parsed = plist.parse(xmlString) as Record<string, unknown>;
+    const parsed = silenceXmldom(() => plist.parse(xmlString)) as Record<string, unknown>;
 
     const data: MobileprovisionData = {
       TeamIdentifier: parsed.TeamIdentifier as string[] | undefined,

@@ -13,6 +13,7 @@
 
 import plist from "plist";
 import { readCString } from "./load-commands";
+import { silenceXmldom } from "./plist";
 
 // ── Magic Constants ──────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ function parseEntitlementsBlob(
   const xmlString = String.fromCharCode(...xmlBytes);
 
   try {
-    const parsed = plist.parse(xmlString);
+    const parsed = silenceXmldom(() => plist.parse(xmlString));
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return { entitlements: parsed as Record<string, unknown>, raw: xmlString };
     }
