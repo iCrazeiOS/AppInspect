@@ -94,9 +94,14 @@ let cachedBinaries: BinaryInfo[] = [];
 let cachedInfoPlist: Record<string, unknown> = {};
 let cachedSourceType: SourceType = "ipa";
 let cachedFilePath: string = "";
+let cachedActiveBinaryName: string = "";
 
 export function getCachedResult(): AnalysisResult | null {
   return cachedResult;
+}
+
+export function getActiveBinaryName(): string {
+  return cachedActiveBinaryName;
 }
 
 // ── File tree builder ───────────────────────────────────────────────
@@ -1218,6 +1223,7 @@ export async function analyseIPA(
   // Steps 4-12: Analyse main binary (index 0)
   progressCallback("Reading binary...", 25);
   const mainBinary = binaries[0]!;
+  cachedActiveBinaryName = mainBinary.name;
   const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
 
   // If code-signature entitlements were empty, try mobileprovision
@@ -1359,6 +1365,7 @@ export async function analyseBinary(
   }
 
   const binary = cachedBinaries[binaryIndex]!;
+  cachedActiveBinaryName = binary.name;
   const binaryResult = await analyseBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
 
   // Rebuild the result with the new binary data but keep IPA-level info
@@ -1462,6 +1469,7 @@ export async function analyseMachO(
     path: filePath,
     type: "main",
   }];
+  cachedActiveBinaryName = fileName;
 
   progressCallback("Analysing binary...", 10);
   const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
@@ -1545,6 +1553,7 @@ export async function analyseDEB(
   // Step 2: Analyse main binary
   progressCallback("Analysing binary...", 20);
   const mainBinary = cachedBinaries[0]!;
+  cachedActiveBinaryName = mainBinary.name;
   const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
 
   // Step 3: Scan additional binaries if setting enabled

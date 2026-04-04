@@ -14,6 +14,7 @@ import {
   analyseFile,
   analyseBinary,
   getCachedResult,
+  getActiveBinaryName,
 } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
 import { loadSettings, saveSettings } from "../settings";
@@ -162,13 +163,17 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
       const jsonString = exportAnalysis(cached, args.tabs);
 
-      // Build filename from app name or input file
+      // Build filename from app/input name + active binary
       const appName = cached.overview?.ipa?.appName;
       const inputFile = cached.overview?.filePath;
-      const baseName = appName
+      const inputName = appName
         ?? (inputFile ? path.basename(inputFile, path.extname(inputFile)) : null)
         ?? "appinspect";
-      const defaultPath = `${baseName}-export.json`;
+      const binaryName = getActiveBinaryName();
+      const needsBinarySuffix = binaryName && binaryName !== appName && binaryName !== inputName;
+      const defaultPath = needsBinarySuffix
+        ? `${inputName}-${binaryName}-export.json`
+        : `${inputName}-export.json`;
 
       const { canceled, filePath } = await dialog.showSaveDialog(win, {
         defaultPath,

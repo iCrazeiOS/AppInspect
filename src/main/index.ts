@@ -34,13 +34,22 @@ function createWindow(): void {
     });
   }
 
-  // Open DevTools in development
-  win.webContents.openDevTools();
-
   registerIPCHandlers(win);
 }
 
+const isDev = !app.isPackaged;
+
 // ── Application menu with Edit shortcuts ──
+const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
+  { role: "reload" },
+  { role: "forceReload" },
+  ...(isDev ? [{ role: "toggleDevTools" as const }] : []),
+  { type: "separator" as const },
+  { role: "zoomIn" as const },
+  { role: "zoomOut" as const },
+  { role: "resetZoom" as const },
+];
+
 const menuTemplate: Electron.MenuItemConstructorOptions[] = [
   {
     label: "Edit",
@@ -56,15 +65,7 @@ const menuTemplate: Electron.MenuItemConstructorOptions[] = [
   },
   {
     label: "View",
-    submenu: [
-      { role: "reload" },
-      { role: "forceReload" },
-      { role: "toggleDevTools" },
-      { type: "separator" },
-      { role: "zoomIn" },
-      { role: "zoomOut" },
-      { role: "resetZoom" },
-    ],
+    submenu: viewSubmenu,
   },
 ];
 
