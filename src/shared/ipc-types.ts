@@ -10,7 +10,6 @@ import type {
   LinkedLibrary,
   Symbol,
   ObjCClass,
-  Entitlement,
   SecurityFinding,
   BinaryHardening,
   FileEntry,
@@ -23,7 +22,7 @@ import type {
 
 export interface OverviewTabData {
   tab: 'overview';
-  data: AnalysisResult['overview'];
+  data: AnalysisResult['overview'] & { hooks: HookInfo };
 }
 
 export interface StringsTabData {
@@ -55,12 +54,12 @@ export interface SymbolsTabData {
 
 export interface ClassesTabData {
   tab: 'classes';
-  data: ObjCClass[];
+  data: { classes: ObjCClass[]; protocols: string[] };
 }
 
 export interface EntitlementsTabData {
   tab: 'entitlements';
-  data: Entitlement[];
+  data: Record<string, unknown>;
 }
 
 export interface InfoPlistTabData {
