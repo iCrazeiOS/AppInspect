@@ -84,10 +84,82 @@ function collectMatches(
   return result;
 }
 
+// ── Context menu ──
+
+let activeMenu: HTMLElement | null = null;
+
+function removeActiveMenu(): void {
+  if (activeMenu) {
+    activeMenu.remove();
+    activeMenu = null;
+  }
+}
+
+let platformName: string | null = null;
+
+function getFolderLabel(): string {
+  if (platformName === "darwin") return "Show in Finder";
+  if (platformName === "linux") return "Show in File Manager";
+  return "Show in Explorer";
+}
+
+function showContextMenu(x: number, y: number, entry: FileEntry): void {
+  removeActiveMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "ft-ctx-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const items: { label: string; action: () => void }[] = [
+    { label: "Copy Path", action: () => navigator.clipboard.writeText(entry.path) },
+    { label: "Copy Name", action: () => navigator.clipboard.writeText(entry.name) },
+    { label: getFolderLabel(), action: () => window.api.showItemInFolder(entry.path) },
+  ];
+
+  if (!entry.isDirectory) {
+    items.push({ label: "Open File", action: () => window.api.openFile(entry.path) });
+  }
+
+  for (const item of items) {
+    const el = document.createElement("div");
+    el.className = "ft-ctx-item";
+    el.textContent = item.label;
+    el.addEventListener("click", () => {
+      item.action();
+      removeActiveMenu();
+    });
+    menu.appendChild(el);
+  }
+
+  document.body.appendChild(menu);
+  activeMenu = menu;
+
+  // Clamp to viewport
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) menu.style.left = `${window.innerWidth - rect.width - 4}px`;
+    if (rect.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - rect.height - 4}px`;
+  });
+
+  const dismiss = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) {
+      removeActiveMenu();
+      document.removeEventListener("mousedown", dismiss);
+    }
+  };
+  setTimeout(() => document.addEventListener("mousedown", dismiss), 0);
+}
+
 // ── Rendering ──
 
 export function renderFiles(container: HTMLElement, data: unknown): void {
   container.innerHTML = "";
+
+  // Cache platform for context menu labels
+  if (platformName === null) {
+    window.api.getPlatform().then((p) => { platformName = p; });
+  }
 
   const entries = (Array.isArray(data) ? data : []) as FileEntry[];
   const { count, totalSize } = countFiles(entries);
@@ -107,13 +179,8 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   treeEl.className = "ft-tree";
   container.appendChild(treeEl);
 
-  // Track expanded state by path — auto-expand root entries (the .app folder)
+  // Track expanded state by path — all collapsed by default
   const expandedSet = new Set<string>();
-  for (const entry of entries) {
-    if (entry.isDirectory) {
-      expandedSet.add(entry.path);
-    }
-  }
 
   // Track node elements by path for search
   const nodeMap = new Map<string, HTMLElement>();
@@ -159,14 +226,6 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
     }
     row.appendChild(toggle);
 
-    // File type badge
-    const fileType = classifyFile(entry);
-    if (fileType !== "default") {
-      const badge = document.createElement("span");
-      badge.className = `ft-badge ${BADGE_CLASS[fileType]}`;
-      row.appendChild(badge);
-    }
-
     // Icon
     const icon = document.createElement("span");
     icon.className = "ft-icon";
@@ -182,6 +241,14 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
     nameEl.textContent = entry.name;
     row.appendChild(nameEl);
 
+    // File type badge (after name)
+    const fileType = classifyFile(entry);
+    if (fileType !== "default") {
+      const badge = document.createElement("span");
+      badge.className = `ft-badge ${BADGE_CLASS[fileType]}`;
+      row.appendChild(badge);
+    }
+
     // Size (for files only)
     if (!entry.isDirectory) {
       const sizeEl = document.createElement("span");
@@ -191,6 +258,20 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
     }
 
     wrap.appendChild(row);
+
+    // Context menu
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, entry);
+    });
+
+    // Double-click to open file
+    if (!entry.isDirectory) {
+      row.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        window.api.openFile(entry.path);
+      });
+    }
 
     // Children container
     if (entry.isDirectory && entry.children && entry.children.length > 0) {

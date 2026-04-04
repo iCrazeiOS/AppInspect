@@ -10,6 +10,9 @@ export interface AppInspectAPI {
   openFilePicker(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<void>;
+  showItemInFolder(filePath: string): Promise<void>;
+  openFile(filePath: string): Promise<void>;
+  getPlatform(): Promise<string>;
   getPathForFile(file: File): string;
   onProgress(cb: (data: ProgressPayload) => void): void;
   onComplete(cb: () => void): void;

@@ -5,7 +5,7 @@
  * Bridges renderer requests to the analysis orchestrator.
  */
 
-import { ipcMain, dialog, BrowserWindow } from "electron";
+import { ipcMain, dialog, BrowserWindow, shell } from "electron";
 import { writeFileSync } from "fs";
 import type { TabName } from "../../shared/ipc-types";
 import {
@@ -188,6 +188,19 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   ipcMain.handle("set-settings", (_event, settings: AppSettings) => {
     saveSettings(settings);
   });
+
+  // ── show-item-in-folder ──
+  ipcMain.handle("show-item-in-folder", (_event, args: { path: string }) => {
+    shell.showItemInFolder(args.path);
+  });
+
+  // ── open-file ──
+  ipcMain.handle("open-file", async (_event, args: { path: string }) => {
+    await shell.openPath(args.path);
+  });
+
+  // ── get-platform ──
+  ipcMain.handle("get-platform", () => process.platform);
 
   // ── open-file-picker ──
   ipcMain.handle("open-file-picker", async () => {

@@ -17,6 +17,12 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("get-settings"),
   setSettings: (settings: any) =>
     ipcRenderer.invoke("set-settings", settings),
+  showItemInFolder: (filePath: string) =>
+    ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
+  openFile: (filePath: string) =>
+    ipcRenderer.invoke("open-file", { path: filePath }),
+  getPlatform: () =>
+    ipcRenderer.invoke("get-platform"),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onProgress: (cb: (data: { phase: string; percent: number; message: string }) => void) => {
     ipcRenderer.on("update-progress", (_event, data) => cb(data));

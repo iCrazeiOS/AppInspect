@@ -1425,6 +1425,7 @@ body.platform-darwin .app-title-row {
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-left: 6px;
 }
 
 .ft-badge-binary {
@@ -1454,6 +1455,31 @@ body.platform-darwin .app-title-row {
 .ft-children-open {
   max-height: 100000px;
   opacity: 1;
+}
+
+/* ── File tree context menu ── */
+
+.ft-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.ft-ctx-item {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ft-ctx-item:hover {
+  background: rgba(88, 166, 255, 0.12);
 }
 
 /* ══════════════════════════════════════════════
