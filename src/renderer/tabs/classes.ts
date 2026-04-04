@@ -245,6 +245,11 @@ export function renderClasses(container: HTMLElement, data: any): void {
   leftPanel.className = "cls-left";
   wrapper.appendChild(leftPanel);
 
+  // ── Resize handle: left ↔ middle ──
+  const leftHandle = document.createElement("div");
+  leftHandle.className = "cls-resize-handle";
+  wrapper.appendChild(leftHandle);
+
   // Search bar
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (!term) {
@@ -428,10 +433,66 @@ export function renderClasses(container: HTMLElement, data: any): void {
   methodListContainer.className = "cls-method-scroll";
   rightPanel.appendChild(methodListContainer);
 
+  // ── Resize handle: middle ↔ sidebar ──
+  const rightHandle = document.createElement("div");
+  rightHandle.className = "cls-resize-handle cls-resize-handle-right";
+  rightHandle.style.display = "none"; // hidden until sidebar opens
+  wrapper.appendChild(rightHandle);
+
   // ── Right sidebar (method detail) ──
   const sidebar = document.createElement("div");
   sidebar.className = "cls-sidebar";
   wrapper.appendChild(sidebar);
+
+  // ── Panel resize drag logic ──
+  function initPanelResize(
+    handle: HTMLElement,
+    getLeftEl: () => HTMLElement,
+    getRightEl: () => HTMLElement,
+    options: { resizeLeft: boolean; minLeft?: number; minRight?: number },
+  ): void {
+    const minL = options.minLeft ?? 180;
+    const minR = options.minRight ?? 180;
+
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const leftEl = getLeftEl();
+      const rightEl = getRightEl();
+      const startX = e.clientX;
+      const startLeftW = leftEl.getBoundingClientRect().width;
+      const startRightW = rightEl.getBoundingClientRect().width;
+      const prevSelect = document.body.style.userSelect;
+      document.body.style.userSelect = "none";
+      handle.classList.add("cls-resize-handle--active");
+
+      const onMove = (ev: MouseEvent): void => {
+        const delta = ev.clientX - startX;
+        if (options.resizeLeft) {
+          // Dragging left handle: grow/shrink leftEl, rightEl flexes
+          const newW = Math.max(minL, startLeftW + delta);
+          leftEl.style.width = `${newW}px`;
+        } else {
+          // Dragging right handle: shrink/grow rightEl from its left edge
+          const newRight = Math.max(minR, startRightW - delta);
+          rightEl.style.width = `${newRight}px`;
+          rightEl.style.minWidth = `${newRight}px`;
+        }
+      };
+
+      const onUp = (): void => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.userSelect = prevSelect;
+        handle.classList.remove("cls-resize-handle--active");
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  initPanelResize(leftHandle, () => leftPanel, () => rightPanel, { resizeLeft: true });
+  initPanelResize(rightHandle, () => rightPanel, () => sidebar, { resizeLeft: false });
 
   /** Get filtered methods for the current view */
   function getFilteredMethods(): { className: string; method: ObjCMethod }[] {
@@ -603,10 +664,12 @@ export function renderClasses(container: HTMLElement, data: any): void {
 
     if (!selectedMethod || !selectedClass) {
       sidebar.classList.remove("cls-sidebar--open");
+      rightHandle.style.display = "none";
       return;
     }
 
     sidebar.classList.add("cls-sidebar--open");
+    rightHandle.style.display = "";
 
     const inner = document.createElement("div");
     inner.className = "cls-sb-inner";

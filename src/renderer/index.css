@@ -1585,17 +1585,44 @@ body.platform-darwin .app-title-row {
 
 .cls-panels {
   display: flex;
-  gap: 1px;
+  gap: 0;
   height: calc(100vh - 160px);
-  background-color: var(--border);
+  background-color: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
 
+.cls-resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 3;
+  /* overlap adjacent panels slightly so the grab area feels natural */
+  margin: 0 -2px;
+}
+
+.cls-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  transition: background 150ms;
+}
+
+.cls-resize-handle:hover::after,
+.cls-resize-handle--active::after {
+  background: var(--accent, #7aa2f7);
+}
+
 .cls-left {
   width: 340px;
-  min-width: 240px;
+  min-width: 180px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1825,7 +1852,6 @@ body.platform-darwin .app-title-row {
   min-width: 0;
   overflow: hidden;
   background-color: var(--bg);
-  transition: width 200ms ease, min-width 200ms ease;
   flex-shrink: 0;
   position: relative;
 }
@@ -1833,15 +1859,15 @@ body.platform-darwin .app-title-row {
 .cls-sidebar--open {
   width: 340px;
   min-width: 340px;
-  border-left: 1px solid var(--border);
   overflow-y: auto;
 }
 
 .cls-sb-inner {
-  width: 340px;
-  min-width: 340px;
+  width: 100%;
+  min-width: 0;
   padding: 16px;
   position: relative;
+  box-sizing: border-box;
 }
 
 .cls-sb-close {
