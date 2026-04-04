@@ -112,6 +112,7 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   wrapper.appendChild(tableWrap);
 
   const table = new DataTable(COLUMNS, 28);
+  table.setStorageKey("cols:symbols");
   table.setInitialCap(200);
   table.mount(tableWrap);
   table.onCapChange(() => updateCount());

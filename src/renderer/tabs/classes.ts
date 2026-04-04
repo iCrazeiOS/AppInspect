@@ -4,6 +4,7 @@
 
 import { SearchBar, EmptyState } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
+import { saveWidths, loadWidths } from "../utils/layout-store";
 
 interface ObjCMethod {
   selector: string;
@@ -447,43 +448,43 @@ export function renderClasses(container: HTMLElement, data: any): void {
   // ── Panel resize drag logic ──
   function initPanelResize(
     handle: HTMLElement,
-    getLeftEl: () => HTMLElement,
-    getRightEl: () => HTMLElement,
-    options: { resizeLeft: boolean; minLeft?: number; minRight?: number },
+    getTargetEl: () => HTMLElement,
+    options: { side: "left" | "right"; min?: number; storageKey: string },
   ): void {
-    const minL = options.minLeft ?? 180;
-    const minR = options.minRight ?? 180;
+    const min = options.min ?? 180;
+
+    // Restore saved width
+    const saved = loadWidths(options.storageKey);
+    if (saved?.width) {
+      const el = getTargetEl();
+      el.style.width = saved.width;
+      if (options.side === "right") el.style.minWidth = saved.width;
+    }
 
     handle.addEventListener("mousedown", (e) => {
       e.preventDefault();
-      const leftEl = getLeftEl();
-      const rightEl = getRightEl();
+      const el = getTargetEl();
       const startX = e.clientX;
-      const startLeftW = leftEl.getBoundingClientRect().width;
-      const startRightW = rightEl.getBoundingClientRect().width;
+      const startW = el.getBoundingClientRect().width;
       const prevSelect = document.body.style.userSelect;
       document.body.style.userSelect = "none";
       handle.classList.add("cls-resize-handle--active");
 
       const onMove = (ev: MouseEvent): void => {
         const delta = ev.clientX - startX;
-        if (options.resizeLeft) {
-          // Dragging left handle: grow/shrink leftEl, rightEl flexes
-          const newW = Math.max(minL, startLeftW + delta);
-          leftEl.style.width = `${newW}px`;
-        } else {
-          // Dragging right handle: shrink/grow rightEl from its left edge
-          const newRight = Math.max(minR, startRightW - delta);
-          rightEl.style.width = `${newRight}px`;
-          rightEl.style.minWidth = `${newRight}px`;
-        }
+        const newW = options.side === "left"
+          ? Math.max(min, startW + delta)
+          : Math.max(min, startW - delta);
+        el.style.width = `${newW}px`;
+        if (options.side === "right") el.style.minWidth = `${newW}px`;
       };
 
-      const onUp = (): void => {
+      const onUp = (ev: MouseEvent): void => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
         document.body.style.userSelect = prevSelect;
         handle.classList.remove("cls-resize-handle--active");
+        saveWidths(options.storageKey, { width: el.style.width });
       };
 
       document.addEventListener("mousemove", onMove);
@@ -491,8 +492,8 @@ export function renderClasses(container: HTMLElement, data: any): void {
     });
   }
 
-  initPanelResize(leftHandle, () => leftPanel, () => rightPanel, { resizeLeft: true });
-  initPanelResize(rightHandle, () => rightPanel, () => sidebar, { resizeLeft: false });
+  initPanelResize(leftHandle, () => leftPanel, { side: "left", storageKey: "panels:classes:left" });
+  initPanelResize(rightHandle, () => sidebar, { side: "right", storageKey: "panels:classes:sidebar" });
 
   /** Get filtered methods for the current view */
   function getFilteredMethods(): { className: string; method: ObjCMethod }[] {

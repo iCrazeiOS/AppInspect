@@ -149,6 +149,7 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   wrapper.appendChild(tableWrap);
 
   const table = new DataTable(BINARY_COLUMNS, 28);
+  table.setStorageKey("cols:strings:binary");
   table.setInitialCap(200);
   table.mount(tableWrap);
   table.onCapChange(() => updateCount());
@@ -247,6 +248,7 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
     // Swap columns and data
     table.unmount();
     table.setColumns(mode === "binary" ? BINARY_COLUMNS : LOCALISATION_COLUMNS);
+    table.setStorageKey(mode === "binary" ? "cols:strings:binary" : "cols:strings:localisation");
     table.mount(tableWrap);
 
     buildChips();

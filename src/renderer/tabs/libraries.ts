@@ -65,6 +65,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   ];
 
   const table = new DataTable(columns);
+  table.setStorageKey("cols:libraries");
   table.mount(tableContainer);
 
   // Convert to table rows

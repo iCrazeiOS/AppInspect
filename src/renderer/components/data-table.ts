@@ -4,6 +4,7 @@
  */
 
 import { showToast } from "./toast";
+import { saveWidths, loadWidths } from "../utils/layout-store";
 
 export interface Column {
   key: string;
@@ -14,6 +15,7 @@ export interface Column {
 export class DataTable {
   private columns: Column[];
   private rowHeight: number;
+  private storageKey: string | null = null;
   private container: HTMLElement | null = null;
   private root: HTMLElement | null = null;
   private headerRow: HTMLElement | null = null;
@@ -45,6 +47,27 @@ export class DataTable {
     this.columns = columns;
     this.rowHeight = rowHeight;
     this.boundOnScroll = this.onScroll.bind(this);
+  }
+
+  /** Enable localStorage persistence of column widths under the given key. Restores any saved widths. */
+  setStorageKey(key: string): void {
+    this.storageKey = key;
+    const saved = loadWidths(key);
+    if (saved) {
+      for (const col of this.columns) {
+        if (saved[col.key] != null) col.width = saved[col.key];
+      }
+    }
+  }
+
+  /** Persist current column widths to localStorage. */
+  private persistWidths(): void {
+    if (!this.storageKey) return;
+    const widths: Record<string, string> = {};
+    for (const col of this.columns) {
+      if (col.width) widths[col.key] = col.width;
+    }
+    saveWidths(this.storageKey, widths);
   }
 
   /** Set an initial row limit. When no filter is active, only this many rows are shown with a "Show all" button. */
@@ -204,6 +227,7 @@ export class DataTable {
 
       const newWidth = clampWidth(ev.clientX - startX);
       this.columns[colIndex].width = `${Math.round(newWidth)}px`;
+      this.persistWidths();
       this.renderVisibleRows();
 
       // Suppress the click event that fires after mouseup on the header cell
