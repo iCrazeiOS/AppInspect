@@ -163,7 +163,7 @@ describe('Security Scan Engine', () => {
     );
     const unsafe = findings.filter((f) => f.category === 'unsafe-api');
     expect(unsafe.length).toBe(2);
-    expect(unsafe[0].severity).toBe('warning');
+    expect(unsafe[0]!.severity).toBe('warning');
   });
 
   it('warns on weak crypto functions like _CC_MD5', () => {
@@ -174,8 +174,8 @@ describe('Security Scan Engine', () => {
     );
     const weak = findings.filter((f) => f.category === 'weak-crypto');
     expect(weak.length).toBe(1);
-    expect(weak[0].severity).toBe('warning');
-    expect(weak[0].evidence).toBe('_CC_MD5');
+    expect(weak[0]!.severity).toBe('warning');
+    expect(weak[0]!.evidence).toBe('_CC_MD5');
   });
 
   it('reports dynamic loading as info', () => {
@@ -184,7 +184,7 @@ describe('Security Scan Engine', () => {
     );
     const dl = findings.filter((f) => f.category === 'dynamic-loading');
     expect(dl.length).toBe(1);
-    expect(dl[0].severity).toBe('info');
+    expect(dl[0]!.severity).toBe('info');
   });
 
   // ── Jailbreak detection ──

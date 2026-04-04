@@ -57,7 +57,7 @@ function buildSymtabBuffer(
   // Write nlist_64 entries
   for (let i = 0; i < nsyms; i++) {
     const base = i * 16;
-    const e = entries[i];
+    const e = entries[i]!;
     view.setUint32(base, e.n_strx, true);
     view.setUint8(base + 4, e.n_type);
     view.setUint8(base + 5, e.n_sect);
@@ -68,7 +68,7 @@ function buildSymtabBuffer(
   // Write string table
   const u8 = new Uint8Array(buf);
   for (let i = 0; i < strBytes.length; i++) {
-    u8[stroff + i] = strBytes[i];
+    u8[stroff + i] = strBytes[i]!;
   }
 
   return { buffer: buf, symtabInfo: { symoff, nsyms, stroff, strsize } };
@@ -130,10 +130,10 @@ describe("parseSymbolTable", () => {
     );
     const symbols = parseSymbolTable(buffer, symtabInfo, true);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].name).toBe("_main");
-    expect(symbols[0].type).toBe("exported");
-    expect(symbols[0].address).toBe(0x1000n);
-    expect(symbols[0].sectionIndex).toBe(1);
+    expect(symbols[0]!.name).toBe("_main");
+    expect(symbols[0]!.type).toBe("exported");
+    expect(symbols[0]!.address).toBe(0x1000n);
+    expect(symbols[0]!.sectionIndex).toBe(1);
   });
 
   it("classifies imported symbol (N_EXT + N_UNDF)", () => {
@@ -144,8 +144,8 @@ describe("parseSymbolTable", () => {
     );
     const symbols = parseSymbolTable(buffer, symtabInfo, true);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].name).toBe("_objc_msgSend");
-    expect(symbols[0].type).toBe("imported");
+    expect(symbols[0]!.name).toBe("_objc_msgSend");
+    expect(symbols[0]!.type).toBe("imported");
   });
 
   it("classifies local symbol", () => {
@@ -156,8 +156,8 @@ describe("parseSymbolTable", () => {
     );
     const symbols = parseSymbolTable(buffer, symtabInfo, true);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].name).toBe("_helper");
-    expect(symbols[0].type).toBe("local");
+    expect(symbols[0]!.name).toBe("_helper");
+    expect(symbols[0]!.type).toBe("local");
   });
 
   it("skips STABS debug symbols", () => {
@@ -172,8 +172,8 @@ describe("parseSymbolTable", () => {
     );
     const symbols = parseSymbolTable(buffer, symtabInfo, true);
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].address).toBe(0x2000n);
-    expect(symbols[0].type).toBe("exported");
+    expect(symbols[0]!.address).toBe(0x2000n);
+    expect(symbols[0]!.type).toBe("exported");
   });
 
   it("parses multiple symbols of different types", () => {
@@ -188,9 +188,9 @@ describe("parseSymbolTable", () => {
     );
     const symbols = parseSymbolTable(buffer, symtabInfo, true);
     expect(symbols).toHaveLength(3);
-    expect(symbols[0].type).toBe("exported");
-    expect(symbols[1].type).toBe("imported");
-    expect(symbols[2].type).toBe("local");
+    expect(symbols[0]!.type).toBe("exported");
+    expect(symbols[1]!.type).toBe("imported");
+    expect(symbols[2]!.type).toBe("local");
   });
 });
 
@@ -241,8 +241,8 @@ describe("parseExportTrie", () => {
     // Root node with empty prefix is terminal — but name would be ""
     // This is valid, though unusual. The name is the accumulated prefix.
     expect(symbols).toHaveLength(1);
-    expect(symbols[0].address).toBe(5n);
-    expect(symbols[0].type).toBe("exported");
+    expect(symbols[0]!.address).toBe(5n);
+    expect(symbols[0]!.type).toBe("exported");
   });
 
   it("reconstructs symbol names from edge labels", () => {

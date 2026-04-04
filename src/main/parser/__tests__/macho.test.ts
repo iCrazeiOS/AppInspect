@@ -31,17 +31,17 @@ describe("parseFatHeader", () => {
 
     expect(result.data).toHaveLength(2);
 
-    expect(result.data[0].cputype).toBe(CPU_TYPE_ARM64);
-    expect(result.data[0].cpusubtype).toBe(0);
-    expect(result.data[0].offset).toBe(16384);
-    expect(result.data[0].size).toBe(50000);
-    expect(result.data[0].align).toBe(14);
+    expect(result.data[0]!.cputype).toBe(CPU_TYPE_ARM64);
+    expect(result.data[0]!.cpusubtype).toBe(0);
+    expect(result.data[0]!.offset).toBe(16384);
+    expect(result.data[0]!.size).toBe(50000);
+    expect(result.data[0]!.align).toBe(14);
 
-    expect(result.data[1].cputype).toBe(CPU_TYPE_X86_64);
-    expect(result.data[1].cpusubtype).toBe(3);
-    expect(result.data[1].offset).toBe(70000);
-    expect(result.data[1].size).toBe(45000);
-    expect(result.data[1].align).toBe(14);
+    expect(result.data[1]!.cputype).toBe(CPU_TYPE_X86_64);
+    expect(result.data[1]!.cpusubtype).toBe(3);
+    expect(result.data[1]!.offset).toBe(70000);
+    expect(result.data[1]!.size).toBe(45000);
+    expect(result.data[1]!.align).toBe(14);
   });
 
   it("should return single slice for non-fat Mach-O", () => {
@@ -50,9 +50,9 @@ describe("parseFatHeader", () => {
     if (!result.ok) return;
 
     expect(result.data).toHaveLength(1);
-    expect(result.data[0].offset).toBe(0);
-    expect(result.data[0].size).toBe(32);
-    expect(result.data[0].cputype).toBe(0);
+    expect(result.data[0]!.offset).toBe(0);
+    expect(result.data[0]!.size).toBe(32);
+    expect(result.data[0]!.cputype).toBe(0);
   });
 
   it("should handle fat header with single arch", () => {
@@ -64,8 +64,8 @@ describe("parseFatHeader", () => {
     if (!result.ok) return;
 
     expect(result.data).toHaveLength(1);
-    expect(result.data[0].cputype).toBe(CPU_TYPE_ARM64);
-    expect(result.data[0].offset).toBe(4096);
+    expect(result.data[0]!.cputype).toBe(CPU_TYPE_ARM64);
+    expect(result.data[0]!.offset).toBe(4096);
   });
 
   it("should error on buffer too small for magic", () => {

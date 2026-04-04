@@ -225,8 +225,8 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("MyClass");
-      expect(result.classes[0].methods).toEqual([]);
+      expect(result.classes[0]!.name).toBe("MyClass");
+      expect(result.classes[0]!.methods).toEqual([]);
     });
 
     it("extracts a class with absolute method list", () => {
@@ -294,8 +294,8 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("AppDelegate");
-      expect(result.classes[0].methods.map((m: any) => m.selector)).toEqual([
+      expect(result.classes[0]!.name).toBe("AppDelegate");
+      expect(result.classes[0]!.methods.map((m: any) => m.selector)).toEqual([
         "viewDidLoad",
         "applicationDidFinishLaunching:",
       ]);
@@ -350,7 +350,7 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("RebasedClass");
+      expect(result.classes[0]!.name).toBe("RebasedClass");
     });
 
     it("finds __objc_classlist in __DATA_CONST segment", () => {
@@ -397,7 +397,7 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("ConstClass");
+      expect(result.classes[0]!.name).toBe("ConstClass");
     });
 
     it("extracts protocol names from __objc_protolist", () => {
@@ -488,7 +488,7 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("FlaggedClass");
+      expect(result.classes[0]!.name).toBe("FlaggedClass");
     });
 
     it("handles relative method lists", () => {
@@ -558,8 +558,8 @@ describe("objc", () => {
       );
 
       expect(result.classes.length).toBe(1);
-      expect(result.classes[0].name).toBe("RelativeClass");
-      expect(result.classes[0].methods.map((m: any) => m.selector)).toEqual(["initWithFrame:"]);
+      expect(result.classes[0]!.name).toBe("RelativeClass");
+      expect(result.classes[0]!.methods.map((m: any) => m.selector)).toEqual(["initWithFrame:"]);
     });
   });
 });

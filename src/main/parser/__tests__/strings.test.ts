@@ -134,7 +134,7 @@ describe("strings", () => {
 
       const result = extractStrings(buf, [sect], [seg], new Map(), true);
       expect(result).toHaveLength(1);
-      expect(result[0].value).toBe("abcd");
+      expect(result[0]!.value).toBe("abcd");
     });
   });
 
@@ -177,8 +177,8 @@ describe("strings", () => {
       const result = extractStrings(buf, [cfstringSection], [textSeg, dataSeg], rebaseMap, true);
 
       expect(result).toHaveLength(1);
-      expect(result[0].value).toBe("CFStringTest");
-      expect(result[0].sources).toContain("__cfstring");
+      expect(result[0]!.value).toBe("CFStringTest");
+      expect(result[0]!.sources).toContain("__cfstring");
     });
   });
 
@@ -200,8 +200,8 @@ describe("strings", () => {
       const result = extractStrings(buf, [sect], [seg], new Map(), true);
 
       expect(result).toHaveLength(1);
-      expect(result[0].value).toBe("Unicode\u00AE");
-      expect(result[0].sources).toContain("__ustring");
+      expect(result[0]!.value).toBe("Unicode\u00AE");
+      expect(result[0]!.sources).toContain("__ustring");
     });
 
     it("filters out short UTF-16 strings", () => {
@@ -221,7 +221,7 @@ describe("strings", () => {
       const result = extractStrings(buf, [sect], [seg], new Map(), true);
 
       expect(result).toHaveLength(1);
-      expect(result[0].value).toBe("longstring");
+      expect(result[0]!.value).toBe("longstring");
     });
   });
 
@@ -275,8 +275,8 @@ describe("strings", () => {
       // Should have only one entry for "SharedString"
       const matches = result.filter((e) => e.value === "SharedString");
       expect(matches).toHaveLength(1);
-      expect(matches[0].sources).toContain("__cstring");
-      expect(matches[0].sources).toContain("__cfstring");
+      expect(matches[0]!.sources).toContain("__cstring");
+      expect(matches[0]!.sources).toContain("__cfstring");
     });
   });
 
@@ -300,7 +300,7 @@ describe("strings", () => {
       const values = result.map((e) => e.value);
       expect(values).toContain("viewDidLoad");
       expect(values).toContain("initWithFrame:");
-      expect(result[0].sources).toContain("__objc_methname");
+      expect(result[0]!.sources).toContain("__objc_methname");
     });
   });
 });

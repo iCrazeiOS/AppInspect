@@ -153,7 +153,7 @@ function buildUUID(uuidBytes: number[]): ArrayBuffer {
   view.setUint32(0, LC_UUID, le);
   view.setUint32(4, cmdsize, le);
   for (let i = 0; i < 16; i++) {
-    view.setUint8(8 + i, uuidBytes[i]);
+    view.setUint8(8 + i, uuidBytes[i]!);
   }
 
   return buf;
@@ -296,7 +296,7 @@ describe("parseLoadCommands", () => {
     const result = parse([seg]);
 
     expect(result.segments).toHaveLength(1);
-    const s = result.segments[0];
+    const s = result.segments[0]!;
     expect(s.segname).toBe("__TEXT");
     expect(s.vmaddr).toBe(0x100000000n);
     expect(s.vmsize).toBe(0x4000n);
@@ -308,18 +308,18 @@ describe("parseLoadCommands", () => {
     expect(s.sections).toHaveLength(2);
 
     // First section
-    expect(s.sections[0].sectname).toBe("__text");
-    expect(s.sections[0].segname).toBe("__TEXT");
-    expect(s.sections[0].addr).toBe(0x100001000n);
-    expect(s.sections[0].size).toBe(0x1000n);
-    expect(s.sections[0].offset).toBe(0x1000);
-    expect(s.sections[0].flags).toBe(0x80000400);
+    expect(s.sections[0]!.sectname).toBe("__text");
+    expect(s.sections[0]!.segname).toBe("__TEXT");
+    expect(s.sections[0]!.addr).toBe(0x100001000n);
+    expect(s.sections[0]!.size).toBe(0x1000n);
+    expect(s.sections[0]!.offset).toBe(0x1000);
+    expect(s.sections[0]!.flags).toBe(0x80000400);
 
     // Second section
-    expect(s.sections[1].sectname).toBe("__stubs");
-    expect(s.sections[1].addr).toBe(0x100002000n);
-    expect(s.sections[1].size).toBe(0x60n);
-    expect(s.sections[1].reserved2).toBe(6);
+    expect(s.sections[1]!.sectname).toBe("__stubs");
+    expect(s.sections[1]!.addr).toBe(0x100002000n);
+    expect(s.sections[1]!.size).toBe(0x60n);
+    expect(s.sections[1]!.reserved2).toBe(6);
   });
 
   it("parses LC_SEGMENT_64 with 3 sections", () => {
@@ -379,9 +379,9 @@ describe("parseLoadCommands", () => {
     });
 
     const result = parse([seg]);
-    expect(result.segments[0].sections).toHaveLength(3);
-    expect(result.segments[0].sections[2].sectname).toBe("__objc_classlist");
-    expect(result.segments[0].sections[2].flags).toBe(0x10000000);
+    expect(result.segments[0]!.sections).toHaveLength(3);
+    expect(result.segments[0]!.sections[2]!.sectname).toBe("__objc_classlist");
+    expect(result.segments[0]!.sections[2]!.flags).toBe(0x10000000);
   });
 
   it("parses LC_LOAD_DYLIB with name string extraction", () => {
@@ -394,7 +394,7 @@ describe("parseLoadCommands", () => {
     const result = parse([dylib]);
 
     expect(result.libraries).toHaveLength(1);
-    const lib = result.libraries[0];
+    const lib = result.libraries[0]!;
     expect(lib.name).toBe("/usr/lib/libSystem.B.dylib");
     expect(lib.currentVersion).toBe("1.44.0"); // 300 = 0x12C → (0x12C >> 8)=1, remainder
     expect(lib.weak).toBe(false);
@@ -411,10 +411,10 @@ describe("parseLoadCommands", () => {
     const result = parse([dylib]);
 
     expect(result.libraries).toHaveLength(1);
-    expect(result.libraries[0].name).toBe("/usr/lib/swift/libswiftCore.dylib");
-    expect(result.libraries[0].weak).toBe(true);
-    expect(result.libraries[0].currentVersion).toBe("5.9.0");
-    expect(result.libraries[0].compatVersion).toBe("1.0.0");
+    expect(result.libraries[0]!.name).toBe("/usr/lib/swift/libswiftCore.dylib");
+    expect(result.libraries[0]!.weak).toBe(true);
+    expect(result.libraries[0]!.currentVersion).toBe("5.9.0");
+    expect(result.libraries[0]!.compatVersion).toBe("1.0.0");
   });
 
   it("parses LC_ENCRYPTION_INFO_64", () => {
@@ -472,8 +472,8 @@ describe("parseLoadCommands", () => {
     const result = parse([unknown]);
 
     expect(result.loadCommands).toHaveLength(1);
-    expect(result.loadCommands[0].cmd).toBe(0xdeadbeef);
-    expect(result.loadCommands[0].cmdsize).toBe(16);
+    expect(result.loadCommands[0]!.cmd).toBe(0xdeadbeef);
+    expect(result.loadCommands[0]!.cmdsize).toBe(16);
   });
 
   it("always advances by cmdsize, finding next command correctly", () => {

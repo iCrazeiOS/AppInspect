@@ -171,15 +171,15 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
   }
   // Fill in non-zero entries
   for (let i = 0; i < segmentFixups.length; i++) {
-    const slot = segSlots[i];
-    const relOff = startsInSegAbsOffsets[i] - startsInImageAbs;
+    const slot = segSlots[i]!;
+    const relOff = startsInSegAbsOffsets[i]! - startsInImageAbs;
     view.setUint32(startsInImageAbs + 4 + slot * 4, relOff, le);
   }
 
   // ── Write starts_in_segment blocks ──
   for (let i = 0; i < segmentFixups.length; i++) {
-    const sf = segmentFixups[i];
-    const abs = startsInSegAbsOffsets[i];
+    const sf = segmentFixups[i]!;
+    const abs = startsInSegAbsOffsets[i]!;
     const startsInSegSize = 22 + sf.pages.length * 2;
 
     view.setUint32(abs, startsInSegSize, le); // size
@@ -190,14 +190,14 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
     view.setUint16(abs + 20, sf.pages.length, le); // page_count
 
     for (let p = 0; p < sf.pages.length; p++) {
-      view.setUint16(abs + 22 + p * 2, sf.pages[p].startOffset, le);
+      view.setUint16(abs + 22 + p * 2, sf.pages[p]!.startOffset, le);
     }
   }
 
   // ── Write page data (fixup chains) ──
   for (const sf of segmentFixups) {
     for (let p = 0; p < sf.pages.length; p++) {
-      const page = sf.pages[p];
+      const page = sf.pages[p]!;
       if (page.startOffset === DYLD_CHAINED_PTR_START_NONE || !page.entries) {
         continue;
       }
@@ -205,9 +205,9 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
       // First entry at segment_offset + page_index * page_size + page_start
       let entryOffset = sf.segmentOffset + p * sf.pageSize + page.startOffset;
       for (let e = 0; e < page.entries.length; e++) {
-        view.setBigUint64(entryOffset, page.entries[e], le);
+        view.setBigUint64(entryOffset, page.entries[e]!, le);
         // Calculate next delta from the entry itself to advance
-        const raw = page.entries[e];
+        const raw = page.entries[e]!;
         const next = Number((raw >> 51n) & 0xFFFn);
         if (next === 0) break;
         entryOffset += next * 4;
@@ -217,17 +217,17 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
 
   // ── Write imports table ──
   for (let i = 0; i < imports.length; i++) {
-    const imp = imports[i];
+    const imp = imports[i]!;
     const raw =
       (imp.lib_ordinal & 0xff) |
       ((imp.weak ? 1 : 0) << 8) |
-      ((symbolNameOffsets[i] & 0x7fffff) << 9);
+      ((symbolNameOffsets[i]! & 0x7fffff) << 9);
     view.setUint32(importsAbsOffset + i * 4, raw, le);
   }
 
   // ── Write symbols table ──
   for (let i = 0; i < imports.length; i++) {
-    writeCString(view, symbolsAbsOffset + symbolNameOffsets[i], imports[i].symbolName);
+    writeCString(view, symbolsAbsOffset + symbolNameOffsets[i]!, imports[i]!.symbolName);
   }
 
   return buf;

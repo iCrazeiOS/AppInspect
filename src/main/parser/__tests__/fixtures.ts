@@ -93,7 +93,7 @@ export function buildFatHeader(arches: FatArchEntry[]): ArrayBuffer {
 
   for (let i = 0; i < arches.length; i++) {
     const base = 8 + i * 20;
-    const arch = arches[i];
+    const arch = arches[i]!;
     view.setUint32(base, arch.cputype, false);
     view.setUint32(base + 4, arch.cpusubtype, false);
     view.setUint32(base + 8, arch.offset, false);

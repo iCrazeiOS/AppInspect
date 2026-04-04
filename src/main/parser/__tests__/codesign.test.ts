@@ -82,16 +82,16 @@ function buildSuperBlob(
   // Write BlobIndex entries
   for (let i = 0; i < subBlobs.length; i++) {
     const entryOffset = sbStart + 12 + i * 8;
-    writeU32BE(view, entryOffset, subBlobs[i].type);
-    writeU32BE(view, entryOffset + 4, blobOffsets[i]);
+    writeU32BE(view, entryOffset, subBlobs[i]!.type);
+    writeU32BE(view, entryOffset + 4, blobOffsets[i]!);
   }
 
   // Write sub-blob data
   for (let i = 0; i < subBlobs.length; i++) {
-    const dest = sbStart + blobOffsets[i];
-    const src = subBlobs[i].data;
+    const dest = sbStart + blobOffsets[i]!;
+    const src = subBlobs[i]!.data;
     for (let j = 0; j < src.byteLength; j++) {
-      view.setUint8(dest + j, src[j]);
+      view.setUint8(dest + j, src[j]!);
     }
   }
 
@@ -110,7 +110,7 @@ function buildEntitlementsBlob(xmlString: string): Uint8Array {
   writeU32BE(view, 0, CS_MAGIC_ENTITLEMENTS);
   writeU32BE(view, 4, blobSize);
   for (let i = 0; i < xmlBytes.byteLength; i++) {
-    view.setUint8(8 + i, xmlBytes[i]);
+    view.setUint8(8 + i, xmlBytes[i]!);
   }
 
   return new Uint8Array(buf);
@@ -167,7 +167,7 @@ function buildCodeDirectoryBlob(opts: {
   // Write teamID string after header
   if (teamBytes) {
     for (let i = 0; i < teamBytes.byteLength; i++) {
-      view.setUint8(headerSize + i, teamBytes[i]);
+      view.setUint8(headerSize + i, teamBytes[i]!);
     }
     view.setUint8(headerSize + teamBytes.byteLength, 0); // null terminator
   }
