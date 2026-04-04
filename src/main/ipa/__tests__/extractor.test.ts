@@ -7,6 +7,7 @@ import {
   extractIPA,
   discoverAppBundle,
   discoverBinaries,
+  discoverMacOSBinaries,
   cleanupExtracted,
 } from "../extractor";
 
@@ -214,6 +215,69 @@ describe("discoverBinaries", () => {
 
     const binaries = discoverBinaries(appDir);
     expect(binaries.length).toBe(0);
+  });
+});
+
+describe("discoverBinaries – symlink dedup", () => {
+  it("should not return duplicate binaries when a symlink points to an already-discovered binary", () => {
+    const tmpDir = makeTempDir("symlink-dedup");
+    tempDirs.push(tmpDir);
+
+    // Build a minimal .app with a main binary and a symlink to it
+    const appDir = path.join(tmpDir, "TestApp.app");
+    const fwDir = path.join(appDir, "Frameworks", "Dup.framework");
+    fs.mkdirSync(fwDir, { recursive: true });
+
+    // Write a stub Mach-O (just magic bytes)
+    const machO = Buffer.from([0xfe, 0xed, 0xfa, 0xce, 0x00, 0x00, 0x00, 0x00]);
+    const mainPath = path.join(appDir, "TestApp");
+    fs.writeFileSync(mainPath, machO);
+
+    // Symlink the framework binary to the main binary
+    fs.symlinkSync(mainPath, path.join(fwDir, "Dup"));
+
+    const binaries = discoverBinaries(appDir);
+
+    // Should find only the main binary, not the symlinked framework
+    expect(binaries.length).toBe(1);
+    expect(binaries[0]!.type).toBe("main");
+  });
+});
+
+describe("discoverMacOSBinaries – symlink dedup", () => {
+  it("should not return duplicate binaries for versioned framework symlinks", () => {
+    const tmpDir = makeTempDir("macos-symlink");
+    tempDirs.push(tmpDir);
+
+    const appDir = path.join(tmpDir, "TestApp.app");
+    const macosDir = path.join(appDir, "Contents", "MacOS");
+    const fwDir = path.join(appDir, "Contents", "Frameworks", "Lib.framework");
+    const versionsA = path.join(fwDir, "Versions", "A");
+    fs.mkdirSync(macosDir, { recursive: true });
+    fs.mkdirSync(versionsA, { recursive: true });
+
+    // Write Info.plist
+    const plistContent =
+      '<?xml version="1.0"?><plist version="1.0"><dict>' +
+      "<key>CFBundleExecutable</key><string>TestApp</string>" +
+      "</dict></plist>";
+    fs.writeFileSync(path.join(appDir, "Contents", "Info.plist"), plistContent);
+
+    // Write stub Mach-O binaries
+    const machO = Buffer.from([0xfe, 0xed, 0xfa, 0xce, 0x00, 0x00, 0x00, 0x00]);
+    fs.writeFileSync(path.join(macosDir, "TestApp"), machO);
+
+    // Real framework binary in Versions/A/
+    fs.writeFileSync(path.join(versionsA, "Lib"), machO);
+
+    // Current -> A symlink
+    fs.symlinkSync("A", path.join(fwDir, "Versions", "Current"));
+
+    const binaries = discoverMacOSBinaries(appDir);
+
+    // Should find main + one framework (not two copies of the framework)
+    const frameworks = binaries.filter((b) => b.name === "Lib");
+    expect(frameworks.length).toBe(1);
   });
 });
 
