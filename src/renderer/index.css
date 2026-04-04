@@ -895,10 +895,6 @@ body.platform-darwin .app-title-row {
   user-select: text;
 }
 
-.jt-node {
-  /* padding-left is set inline per depth */
-}
-
 .jt-line {
   display: flex;
   align-items: baseline;
@@ -972,10 +968,6 @@ body.platform-darwin .app-title-row {
   background-color: rgba(210, 153, 34, 0.3);
   border-radius: 2px;
   padding: 0 2px;
-}
-
-.jt-children {
-  /* display toggled via JS */
 }
 
 /* ── Loading (ld-) ── */
@@ -2207,10 +2199,6 @@ body.platform-darwin .app-title-row {
 
 .plist-search {
   margin-bottom: 8px;
-}
-
-.plist-tree {
-  /* container for JsonTree */
 }
 
 /* ══════════════════════════════════════════════
