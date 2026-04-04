@@ -22,6 +22,7 @@ import type {
   ObjCClass,
   Entitlement,
   StringEntry,
+  LocalisationString,
   SecurityFinding,
   LoadCommand as SharedLoadCommand,
   PlistValue,
@@ -1165,6 +1166,135 @@ function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
   return files;
 }
 
+// ── Localisation string extraction ──────────────────────────────────
+
+/**
+ * Parse a .strings file content (Apple old-style plist or XML plist format)
+ * into key-value pairs. Handles both text and binary plist .strings files.
+ */
+function parseStringsFile(buf: Buffer): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  // Try binary plist first
+  if (buf.length >= 6 && buf.toString("ascii", 0, 6) === "bplist") {
+    try {
+      const parsed = bplist.parseBuffer(buf);
+      if (parsed && parsed.length > 0 && typeof parsed[0] === "object") {
+        for (const [k, v] of Object.entries(parsed[0] as Record<string, unknown>)) {
+          if (typeof v === "string") result[k] = v;
+        }
+      }
+      return result;
+    } catch {
+      return result;
+    }
+  }
+
+  // Try XML plist
+  const text = buf.toString("utf-8");
+  if (text.trimStart().startsWith("<?xml") || text.trimStart().startsWith("<!DOCTYPE")) {
+    try {
+      const parsed = plist.parse(text) as Record<string, unknown>;
+      if (typeof parsed === "object" && parsed !== null) {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "string") result[k] = v;
+        }
+      }
+      return result;
+    } catch {
+      // Fall through to old-style format
+    }
+  }
+
+  // Old-style .strings format: "key" = "value";
+  const regex = /"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const key = match[1]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
+    const value = match[2]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
+    result[key] = value;
+  }
+
+  return result;
+}
+
+/**
+ * Walk the app bundle for .lproj directories and extract localisation strings
+ * from all .strings files within them.
+ */
+function extractLocalisationStrings(rootPath: string): LocalisationString[] {
+  const results: LocalisationString[] = [];
+  const { maxTotal, maxSingle } = getBundleSizeLimits();
+  let totalSize = 0;
+
+  function readStringsFile(fullPath: string, language: string): void {
+    try {
+      const stat = fs.statSync(fullPath);
+      if (stat.size === 0 || stat.size > maxSingle) return;
+
+      const buf = fs.readFileSync(fullPath);
+      totalSize += stat.size;
+
+      const pairs = parseStringsFile(buf);
+      const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, "/");
+
+      for (const [key, value] of Object.entries(pairs)) {
+        results.push({ key, value, file: relativePath, language });
+      }
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  function walk(dir: string): void {
+    if (totalSize >= maxTotal) return;
+
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (totalSize >= maxTotal) break;
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        // Skip heavy binary-only dirs
+        if (entry.name === "_CodeSignature") continue;
+
+        if (entry.name.endsWith(".lproj")) {
+          // Process all .strings files in this lproj
+          const language = entry.name.replace(/\.lproj$/, "");
+          let files: fs.Dirent[];
+          try {
+            files = fs.readdirSync(fullPath, { withFileTypes: true });
+          } catch {
+            continue;
+          }
+          for (const file of files) {
+            if (file.isFile() && file.name.endsWith(".strings")) {
+              readStringsFile(path.join(fullPath, file.name), language);
+            }
+          }
+        } else {
+          walk(fullPath);
+        }
+        continue;
+      }
+
+      // Standalone .strings files outside .lproj (no language)
+      if (entry.isFile() && entry.name.endsWith(".strings")) {
+        readStringsFile(fullPath, "");
+      }
+    }
+  }
+
+  walk(rootPath);
+  return results;
+}
+
 // ── Main orchestrator ───────────────────────────────────────────────
 
 export async function analyseIPA(
@@ -1265,6 +1395,15 @@ export async function analyseIPA(
     errors.push(`Bundle file scan error: ${msg}`);
   }
 
+  // Step 14b: Extract localisation strings from .lproj directories
+  let localisationStrings: LocalisationString[] = [];
+  try {
+    localisationStrings = extractLocalisationStrings(appBundlePath);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`Localisation extraction error: ${msg}`);
+  }
+
   // Step 15: Scan additional binaries if setting enabled
   let extraBinaryFindings: SecurityFinding[] = [];
   const settings = loadSettings();
@@ -1335,6 +1474,7 @@ export async function analyseIPA(
       appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
     },
     strings: binaryResult.strings,
+    localisationStrings,
     headers: {
       machO: binaryResult.header,
       fatArchs: binaryResult.fatArchs,
@@ -1390,6 +1530,7 @@ export async function analyseBinary(
       teamId: binaryResult.teamId ?? cachedResult.overview.teamId,
     },
     strings: binaryResult.strings,
+    // localisationStrings kept from cachedResult via spread
     headers: {
       machO: binaryResult.header,
       fatArchs: binaryResult.fatArchs,
@@ -1505,6 +1646,7 @@ export async function analyseMachO(
       teamId: binaryResult.teamId ?? undefined,
     },
     strings: binaryResult.strings,
+    localisationStrings: [],
     headers: {
       machO: binaryResult.header,
       fatArchs: binaryResult.fatArchs,
@@ -1591,6 +1733,14 @@ export async function analyseDEB(
     hardening: binaryResult.security.hardening,
   };
 
+  // Step 3b: Extract localisation strings
+  let localisationStrings: LocalisationString[] = [];
+  try {
+    localisationStrings = extractLocalisationStrings(extraction.dataDir);
+  } catch {
+    // Non-critical
+  }
+
   // Step 4: Build file tree from extracted data
   progressCallback("Building file tree...", 90);
   const files = buildFileTree(extraction.dataDir);
@@ -1621,6 +1771,7 @@ export async function analyseDEB(
       teamId: binaryResult.teamId ?? undefined,
     },
     strings: binaryResult.strings,
+    localisationStrings,
     headers: {
       machO: binaryResult.header,
       fatArchs: binaryResult.fatArchs,
@@ -1739,6 +1890,14 @@ export async function analyseApp(
     // Non-critical
   }
 
+  // Extract localisation strings from .lproj directories
+  let localisationStrings: LocalisationString[] = [];
+  try {
+    localisationStrings = extractLocalisationStrings(bundleRoot);
+  } catch {
+    // Non-critical
+  }
+
   // Scan additional binaries if enabled
   let extraBinaryFindings: SecurityFinding[] = [];
   const settings = loadSettings();
@@ -1805,6 +1964,7 @@ export async function analyseApp(
       appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
     },
     strings: binaryResult.strings,
+    localisationStrings,
     headers: {
       machO: binaryResult.header,
       fatArchs: binaryResult.fatArchs,

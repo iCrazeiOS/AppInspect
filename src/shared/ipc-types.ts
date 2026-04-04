@@ -3,6 +3,7 @@
 import type {
   AnalysisResult,
   StringEntry,
+  LocalisationString,
   MachOHeader,
   FatArch,
   LoadCommand,
@@ -27,7 +28,10 @@ export interface OverviewTabData {
 
 export interface StringsTabData {
   tab: 'strings';
-  data: StringEntry[];
+  data: {
+    binary: StringEntry[];
+    localisation: LocalisationString[];
+  };
 }
 
 export interface HeadersTabData {

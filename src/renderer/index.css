@@ -1047,6 +1047,48 @@ body.platform-darwin .app-title-row {
   border-color: var(--accent);
 }
 
+/* ── Strings mode toggle ── */
+.strings-mode-toggle {
+  display: flex;
+  gap: 0;
+  padding: 6px 0 2px;
+  flex-shrink: 0;
+}
+
+.strings-mode-btn {
+  position: relative;
+  padding: 4px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.strings-mode-btn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.strings-mode-btn:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+
+.strings-mode-btn:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  z-index: 1;
+}
+
+.strings-mode-btn--active {
+  background-color: rgba(88, 166, 255, 0.12);
+  color: var(--accent);
+  border-color: var(--accent);
+  z-index: 2;
+}
+
 /* ── Tab row count ── */
 .tab-row-count {
   font-size: 12px;

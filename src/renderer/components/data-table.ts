@@ -296,6 +296,32 @@ export class DataTable {
     this.rowContainer.appendChild(fragment);
   }
 
+  /** Change the column definitions (re-renders header on next mount/setData). */
+  setColumns(columns: Column[]): void {
+    this.columns = columns;
+    this.sortKey = null;
+    this.sortAsc = true;
+    if (this.headerRow) this.renderHeader();
+  }
+
+  /** Remove the table from the DOM without fully destroying internal state. */
+  unmount(): void {
+    if (this.rafId) cancelAnimationFrame(this.rafId);
+    if (this.scrollContainer) {
+      this.scrollContainer.removeEventListener("scroll", this.boundOnScroll);
+    }
+    if (this.root && this.container) {
+      this.container.removeChild(this.root);
+    }
+    this.root = null;
+    this.container = null;
+    this.scrollContainer = null;
+    this.spacer = null;
+    this.rowContainer = null;
+    this.headerRow = null;
+    this.showMoreEl = null;
+  }
+
   destroy(): void {
     if (this.rafId) cancelAnimationFrame(this.rafId);
     if (this.scrollContainer) {

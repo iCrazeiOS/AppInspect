@@ -142,6 +142,13 @@ export interface StringEntry {
   offset: number;
 }
 
+export interface LocalisationString {
+  key: string;
+  value: string;
+  file: string;
+  language: string;
+}
+
 // ── Linked Libraries ──
 
 export interface LinkedLibrary {
@@ -288,6 +295,7 @@ export interface AnalysisResult {
   };
   hooks: HookInfo;
   strings: StringEntry[];
+  localisationStrings: LocalisationString[];
   headers: {
     machO: MachOHeader;
     fatArchs: FatArch[];

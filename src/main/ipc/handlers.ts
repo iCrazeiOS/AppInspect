@@ -117,7 +117,10 @@ export function registerIPCHandlers(win: BrowserWindow): void {
         case "overview":
           return sanitizeBigInts({ tab: "overview", data: { ...cached.overview, hooks: cached.hooks } });
         case "strings":
-          return sanitizeBigInts({ tab: "strings", data: cached.strings });
+          return sanitizeBigInts({ tab: "strings", data: {
+            binary: cached.strings,
+            localisation: cached.localisationStrings ?? [],
+          } });
         case "headers":
           return sanitizeBigInts({ tab: "headers", data: cached.headers });
         case "libraries":

@@ -1,6 +1,7 @@
 /**
  * Strings tab: displays extracted string entries with virtual scrolling,
  * search filtering (with regex toggle), and section filter chips.
+ * Supports toggling between binary strings and localisation strings.
  */
 
 import { DataTable, SearchBar } from "../components";
@@ -13,39 +14,111 @@ interface StringEntry {
   offset: number;
 }
 
-const COLUMNS: Column[] = [
+interface LocalisationString {
+  key: string;
+  value: string;
+  file: string;
+  language: string;
+}
+
+interface StringsData {
+  binary: StringEntry[];
+  localisation: LocalisationString[];
+}
+
+const BINARY_COLUMNS: Column[] = [
   { key: "value", label: "String Value" },
   { key: "source", label: "Source Section", width: "160px" },
   { key: "offsetHex", label: "Offset", width: "120px" },
 ];
 
+const LOCALISATION_COLUMNS: Column[] = [
+  { key: "key", label: "Key" },
+  { key: "value", label: "Value" },
+  { key: "language", label: "Language", width: "100px" },
+  { key: "file", label: "File", width: "200px" },
+];
+
 export function renderStrings(container: HTMLElement, data: unknown): void {
   container.innerHTML = "";
 
-  const entries = (Array.isArray(data) ? data : []) as StringEntry[];
+  // Handle both old format (array) and new format ({ binary, localisation })
+  let binaryEntries: StringEntry[] = [];
+  let localisationEntries: LocalisationString[] = [];
+
+  if (Array.isArray(data)) {
+    // Legacy format: plain array of StringEntry
+    binaryEntries = data as StringEntry[];
+  } else if (data && typeof data === "object") {
+    const d = data as StringsData;
+    binaryEntries = Array.isArray(d.binary) ? d.binary : [];
+    localisationEntries = Array.isArray(d.localisation) ? d.localisation : [];
+  }
 
   // Convert raw entries to table row format
-  const rows = entries.map((e) => ({
+  const binaryRows = binaryEntries.map((e) => ({
     value: e.value,
     source: e.source ?? "",
     offsetHex: "0x" + (e.offset >>> 0).toString(16).padStart(4, "0"),
     _offset: typeof e.offset === "number" ? e.offset : 0,
   }));
 
-  // Collect unique sections for filter chips
+  const localisationRows = localisationEntries.map((e) => ({
+    key: e.key,
+    value: e.value,
+    language: e.language,
+    file: e.file,
+  }));
+
+  // ── State ──
+  let mode: "binary" | "localisation" = "binary";
+
+  // Collect unique sections for binary filter chips
   const sectionSet = new Set<string>();
-  for (const r of rows) {
+  for (const r of binaryRows) {
     if (r.source) sectionSet.add(r.source);
   }
   const sections = [...sectionSet].sort();
-
-  // Track active section filters (all on by default)
   const activeSections = new Set<string>(sections);
+
+  // Collect unique languages for localisation filter chips
+  const langSet = new Set<string>();
+  for (const r of localisationRows) {
+    if (r.language) langSet.add(r.language);
+  }
+  const languages = [...langSet].sort();
+  // Default to English if available, otherwise show all
+  const englishLang = languages.find((l) => /^(en|en[-_]|english|base)$/i.test(l));
+  const activeLanguages = new Set<string>(englishLang ? [englishLang] : languages);
 
   // ── Wrapper ──
   const wrapper = document.createElement("div");
   wrapper.className = "strings-tab";
   wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;";
+
+  // ── Mode toggle (only show if there are localisation strings) ──
+  let toggleBar: HTMLElement | null = null;
+  let binaryBtn: HTMLButtonElement | null = null;
+  let localisationBtn: HTMLButtonElement | null = null;
+
+  if (localisationEntries.length > 0) {
+    toggleBar = document.createElement("div");
+    toggleBar.className = "strings-mode-toggle";
+
+    binaryBtn = document.createElement("button");
+    binaryBtn.className = "strings-mode-btn strings-mode-btn--active";
+    binaryBtn.textContent = "Binary";
+    binaryBtn.addEventListener("click", () => switchMode("binary"));
+
+    localisationBtn = document.createElement("button");
+    localisationBtn.className = "strings-mode-btn";
+    localisationBtn.textContent = "Localisations";
+    localisationBtn.addEventListener("click", () => switchMode("localisation"));
+
+    toggleBar.appendChild(binaryBtn);
+    toggleBar.appendChild(localisationBtn);
+    wrapper.appendChild(toggleBar);
+  }
 
   // ── Search bar ──
   let searchTerm = "";
@@ -60,33 +133,10 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   searchBar.mount(wrapper);
   registerSearchBar("strings", searchBar);
 
-  // ── Section filter chips ──
+  // ── Section/language filter chips ──
   const chipBar = document.createElement("div");
   chipBar.className = "filter-chip-bar";
-
-  const chipElements = new Map<string, HTMLButtonElement>();
-
-  for (const section of sections) {
-    const chip = document.createElement("button");
-    chip.className = "filter-chip filter-chip--active";
-    chip.textContent = section;
-    chip.addEventListener("click", () => {
-      if (activeSections.has(section)) {
-        activeSections.delete(section);
-        chip.classList.remove("filter-chip--active");
-      } else {
-        activeSections.add(section);
-        chip.classList.add("filter-chip--active");
-      }
-      applyFilters();
-    });
-    chipElements.set(section, chip);
-    chipBar.appendChild(chip);
-  }
-
-  if (sections.length > 0) {
-    wrapper.appendChild(chipBar);
-  }
+  wrapper.appendChild(chipBar);
 
   // ── Row count ──
   const rowCount = document.createElement("div");
@@ -98,7 +148,7 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   tableWrap.style.cssText = "flex:1;min-height:0;overflow:hidden;";
   wrapper.appendChild(tableWrap);
 
-  const table = new DataTable(COLUMNS, 28);
+  const table = new DataTable(BINARY_COLUMNS, 28);
   table.setInitialCap(200);
   table.mount(tableWrap);
   table.onCapChange(() => updateCount());
@@ -110,30 +160,104 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
     searchBar.updateCount(shown, total);
   }
 
-  function applyFilters(): void {
-    table.setFilter((row) => {
-      // Section filter
-      const src = String(row["source"] ?? "");
-      if (src && !activeSections.has(src)) return false;
+  function buildChips(): void {
+    chipBar.innerHTML = "";
 
-      // Text/regex filter
-      if (!searchTerm) return true;
-      const val = String(row["value"] ?? "");
-      if (searchRegex) {
-        try {
-          return new RegExp(searchTerm, "i").test(val);
-        } catch {
-          return true;
-        }
+    if (mode === "binary") {
+      for (const section of sections) {
+        const chip = document.createElement("button");
+        chip.className = "filter-chip" + (activeSections.has(section) ? " filter-chip--active" : "");
+        chip.textContent = section;
+        chip.addEventListener("click", () => {
+          if (activeSections.has(section)) {
+            activeSections.delete(section);
+            chip.classList.remove("filter-chip--active");
+          } else {
+            activeSections.add(section);
+            chip.classList.add("filter-chip--active");
+          }
+          applyFilters();
+        });
+        chipBar.appendChild(chip);
       }
-      return val.toLowerCase().includes(searchTerm.toLowerCase());
-    });
+    } else {
+      for (const lang of languages) {
+        const chip = document.createElement("button");
+        chip.className = "filter-chip" + (activeLanguages.has(lang) ? " filter-chip--active" : "");
+        chip.textContent = lang;
+        chip.addEventListener("click", () => {
+          if (activeLanguages.has(lang)) {
+            activeLanguages.delete(lang);
+            chip.classList.remove("filter-chip--active");
+          } else {
+            activeLanguages.add(lang);
+            chip.classList.add("filter-chip--active");
+          }
+          applyFilters();
+        });
+        chipBar.appendChild(chip);
+      }
+    }
+
+    chipBar.classList.toggle("hidden",
+      (mode === "binary" && sections.length === 0) ||
+      (mode === "localisation" && languages.length === 0));
+  }
+
+  function matchesSearch(text: string): boolean {
+    if (!searchTerm) return true;
+    if (searchRegex) {
+      try {
+        return new RegExp(searchTerm, "i").test(text);
+      } catch {
+        return true;
+      }
+    }
+    return text.toLowerCase().includes(searchTerm.toLowerCase());
+  }
+
+  function applyFilters(): void {
+    if (mode === "binary") {
+      table.setFilter((row) => {
+        const src = String(row["source"] ?? "");
+        if (src && !activeSections.has(src)) return false;
+        return matchesSearch(String(row["value"] ?? ""));
+      });
+    } else {
+      table.setFilter((row) => {
+        const lang = String(row["language"] ?? "");
+        if (lang && !activeLanguages.has(lang)) return false;
+        const key = String(row["key"] ?? "");
+        const val = String(row["value"] ?? "");
+        return matchesSearch(key) || matchesSearch(val);
+      });
+    }
     updateCount();
+  }
+
+  function switchMode(newMode: "binary" | "localisation"): void {
+    if (newMode === mode) return;
+    mode = newMode;
+
+    if (binaryBtn && localisationBtn) {
+      binaryBtn.classList.toggle("strings-mode-btn--active", mode === "binary");
+      localisationBtn.classList.toggle("strings-mode-btn--active", mode === "localisation");
+    }
+
+    // Swap columns and data
+    table.unmount();
+    table.setColumns(mode === "binary" ? BINARY_COLUMNS : LOCALISATION_COLUMNS);
+    table.mount(tableWrap);
+
+    buildChips();
+    table.setData(mode === "binary" ? binaryRows : localisationRows);
+    applyFilters();
   }
 
   // Append to DOM first so the table has real dimensions for virtual scrolling
   container.appendChild(wrapper);
-  table.setData(rows);
+  buildChips();
+  table.setData(binaryRows);
 
   // Restore saved search state (must happen after table is created)
   const savedState = getSearchState("strings");
