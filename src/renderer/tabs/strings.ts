@@ -138,7 +138,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
   let searchTerm = "";
   let searchRegex = false;
 
-  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+  const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
       doCrossBinarySearch(term, "strings", xbin, () => {
         const rows = xbin.results.map((r) => ({
@@ -150,7 +150,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
         table.setData(rows);
         table.setFilter(null);
         updateCount();
-      });
+      }, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;

@@ -159,7 +159,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   });
 
   // ── search-all-binaries ──
-  ipcMain.handle("search-all-binaries", async (_event, args: { query: string; tab: SearchableTab }) => {
+  ipcMain.handle("search-all-binaries", async (_event, args: { query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean }) => {
     try {
       return await searchAllBinaries(
         args.query,
@@ -167,6 +167,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
         (phase, percent) => {
           win.webContents.send("update-progress", { phase, percent, message: phase });
         },
+        args.isRegex,
+        args.caseSensitive,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

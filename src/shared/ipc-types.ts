@@ -137,7 +137,7 @@ export type InvokeChannelMap = {
     result: AnalysisResult;
   };
   'search-all-binaries': {
-    params: { query: string; tab: SearchableTab };
+    params: { query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean };
     result: CrossBinarySearchResult[];
   };
   'get-settings': {

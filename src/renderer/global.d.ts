@@ -10,7 +10,7 @@ export interface AppInspectAPI {
   openFilePicker(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<void>;
-  searchAllBinaries(query: string, tab: SearchableTab): Promise<CrossBinarySearchResult[]>;
+  searchAllBinaries(query: string, tab: SearchableTab, isRegex?: boolean, caseSensitive?: boolean): Promise<CrossBinarySearchResult[]>;
   showItemInFolder(filePath: string): Promise<void>;
   openFile(filePath: string): Promise<void>;
   getPlatform(): Promise<string>;

@@ -64,7 +64,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
   let searchTerm = "";
   let searchRegex = false;
 
-  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+  const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
       doCrossBinarySearch(term, "symbols", xbin, () => {
         const xrows = xbin.results.map((r) => ({
@@ -76,7 +76,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
         table.setData(xrows);
         table.setFilter(null);
         updateCount();
-      });
+      }, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;

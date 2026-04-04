@@ -52,6 +52,8 @@ export function doCrossBinarySearch(
   tab: SearchableTab,
   state: CrossBinaryState,
   onResults: () => void,
+  isRegex?: boolean,
+  caseSensitive?: boolean,
 ): void {
   if (state.debounce) clearTimeout(state.debounce);
 
@@ -68,7 +70,7 @@ export function doCrossBinarySearch(
     state.loading = true;
     onResults();
     try {
-      state.results = await window.api.searchAllBinaries(term, tab);
+      state.results = await window.api.searchAllBinaries(term, tab, isRegex, caseSensitive);
     } catch {
       state.results = [];
     }

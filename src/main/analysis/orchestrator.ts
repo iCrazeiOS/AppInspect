@@ -140,18 +140,31 @@ export async function searchAllBinaries(
   query: string,
   tab: SearchableTab,
   progressCallback: (phase: string, percent: number) => void,
+  isRegex?: boolean,
+  caseSensitive?: boolean,
 ): Promise<CrossBinarySearchResult[]> {
   if (cachedBinaries.length === 0 || !query) return [];
 
   const index = await ensureSearchIndex(progressCallback);
-  const lowerQuery = query.toLowerCase();
   const results: CrossBinarySearchResult[] = [];
+
+  let matcher: (value: string) => boolean;
+  if (isRegex) {
+    const flags = caseSensitive ? "" : "i";
+    const re = new RegExp(query, flags);
+    matcher = (value) => re.test(value);
+  } else if (caseSensitive) {
+    matcher = (value) => value.includes(query);
+  } else {
+    const lowerQuery = query.toLowerCase();
+    matcher = (value) => value.toLowerCase().includes(lowerQuery);
+  }
 
   for (const [binaryIndex, entry] of index) {
     const bin = cachedBinaries[binaryIndex];
     if (!bin) continue;
     for (const value of entry[tab]) {
-      if (value.toLowerCase().includes(lowerQuery)) {
+      if (matcher(value)) {
         results.push({
           binaryIndex,
           binaryName: bin.name,

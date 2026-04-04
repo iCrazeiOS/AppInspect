@@ -266,7 +266,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       doCrossBinarySearch(term, "classes", xbin, () => {
         searchBar.updateCount(xbin.results.length, xbin.results.length);
         renderList();
-      });
+      }, isRegex, caseSensitive);
       return;
     }
 
@@ -388,9 +388,25 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       rowContainer.style.transform = "";
       const hint = document.createElement("div");
       hint.className = "cls-cross-loading";
-      hint.textContent = searchBar.getValue()
-        ? "No classes found across binaries."
-        : "Type a class name to search across all binaries.";
+      if (searchBar.getValue()) {
+        hint.textContent = "No classes found across binaries.";
+      } else {
+        hint.textContent = "Type a class name to search across all binaries.";
+        const showAll = document.createElement("a");
+        showAll.className = "cls-cross-show-all";
+        showAll.textContent = "Show all classes";
+        showAll.href = "#";
+        showAll.addEventListener("click", (e) => {
+          e.preventDefault();
+          // Trigger a wildcard search that matches everything
+          doCrossBinarySearch(".", "classes", xbin, () => {
+            searchBar.updateCount(xbin.results.length, xbin.results.length);
+            renderList();
+          }, true, false);
+        });
+        hint.appendChild(document.createElement("br"));
+        hint.appendChild(showAll);
+      }
       rowContainer.appendChild(hint);
       return;
     }

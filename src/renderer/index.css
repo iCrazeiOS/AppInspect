@@ -1817,6 +1817,17 @@ body.platform-darwin .app-title-row {
   font-size: 12px;
 }
 
+.cls-cross-show-all {
+  color: var(--accent, #58a6ff);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.cls-cross-show-all:hover {
+  text-decoration: underline;
+}
+
 .cls-proto-section {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
