@@ -475,11 +475,15 @@ body.platform-darwin .app-title-row {
 /* ── Tab content ── */
 .tab-content {
   flex: 1;
-  overflow-y: auto;
-  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .tab-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
   animation: tab-fade-in 150ms ease;
 }
 
