@@ -165,6 +165,7 @@ function findBinariesRecursive(
   dir: string,
   results: DEBBinaryInfo[],
   rootDir: string,
+  seenRealPaths: Set<string> = new Set(),
 ): void {
   let entries: fs.Dirent[];
   try {
@@ -176,8 +177,18 @@ function findBinariesRecursive(
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
 
+    // Skip symlinks whose targets are within the scan tree (they'll be found at their real location)
+    if (entry.isSymbolicLink()) {
+      try {
+        const realPath = fs.realpathSync(fullPath);
+        if (realPath.startsWith(rootDir + path.sep) || realPath === rootDir) continue;
+      } catch {
+        continue; // broken symlink
+      }
+    }
+
     if (entry.isDirectory()) {
-      findBinariesRecursive(fullPath, results, rootDir);
+      findBinariesRecursive(fullPath, results, rootDir, seenRealPaths);
       continue;
     }
 

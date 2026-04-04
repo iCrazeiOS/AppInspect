@@ -101,13 +101,24 @@ export function discoverAppBundle(extractedDir: string): string | null {
  */
 export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
   const binaries: BinaryInfo[] = [];
+  const seenRealPaths = new Set<string>();
+
+  /** Add binary only if its real path hasn't been seen (skips symlink duplicates). */
+  const addBinary = (info: BinaryInfo): void => {
+    try {
+      const realPath = fs.realpathSync(info.path);
+      if (seenRealPaths.has(realPath)) return;
+      seenRealPaths.add(realPath);
+    } catch { /* add anyway if resolve fails */ }
+    binaries.push(info);
+  };
 
   // Determine main executable name from the .app folder name
   const appName = path.basename(appBundlePath, ".app");
   const mainBinaryPath = path.join(appBundlePath, appName);
 
   if (fs.existsSync(mainBinaryPath)) {
-    binaries.push({
+    addBinary({
       name: appName,
       path: mainBinaryPath,
       type: "main",
@@ -127,7 +138,7 @@ export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
             entry.name,
             frameworkName
           );
-          binaries.push({
+          addBinary({
             name: frameworkName,
             path: frameworkBinaryPath,
             type: "framework",
@@ -148,7 +159,7 @@ export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
         if (entry.isDirectory() && entry.name.endsWith(".appex")) {
           const extensionName = path.basename(entry.name, ".appex");
           const extensionPath = path.join(plugInsDir, entry.name);
-          binaries.push({
+          addBinary({
             name: extensionName,
             path: extensionPath,
             type: "extension",
@@ -227,6 +238,18 @@ function isMachOFile(filePath: string): boolean {
  */
 export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
   const binaries: BinaryInfo[] = [];
+  const seenRealPaths = new Set<string>();
+
+  /** Add binary only if its real path hasn't been seen (skips symlink duplicates). */
+  const addBinary = (info: BinaryInfo): void => {
+    try {
+      const realPath = fs.realpathSync(info.path);
+      if (seenRealPaths.has(realPath)) return;
+      seenRealPaths.add(realPath);
+    } catch { /* add anyway if resolve fails */ }
+    binaries.push(info);
+  };
+
   const contentsDir = path.join(appBundlePath, "Contents");
   const macosDir = path.join(contentsDir, "MacOS");
 
@@ -243,7 +266,7 @@ export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
         const fullPath = path.join(macosDir, entry.name);
         if (!isMachOFile(fullPath)) continue;
 
-        binaries.push({
+        addBinary({
           name: entry.name,
           path: fullPath,
           type: entry.name === execName ? "main" : "framework",
@@ -290,7 +313,7 @@ export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
           for (const candidate of candidates) {
             try {
               if (fs.existsSync(candidate) && fs.statSync(candidate).isFile() && isMachOFile(candidate)) {
-                binaries.push({ name: fwName, path: candidate, type: "framework" });
+                addBinary({ name: fwName, path: candidate, type: "framework" });
                 break;
               }
             } catch { /* ignore */ }
@@ -298,7 +321,7 @@ export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
         } else if (entry.isFile() && entry.name.endsWith(".dylib")) {
           // Loose dylibs in Frameworks/
           if (isMachOFile(fullEntryPath)) {
-            binaries.push({ name: entry.name, path: fullEntryPath, type: "framework" });
+            addBinary({ name: entry.name, path: fullEntryPath, type: "framework" });
           }
         }
       }
@@ -322,7 +345,7 @@ export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
           const flatPath = path.join(plugInsDir, entry.name, pluginExec);
           const extBinaryPath = fs.existsSync(nestedPath) ? nestedPath : flatPath;
           if (fs.existsSync(extBinaryPath) && isMachOFile(extBinaryPath)) {
-            binaries.push({ name: extName, path: extBinaryPath, type: "extension" });
+            addBinary({ name: extName, path: extBinaryPath, type: "extension" });
           }
         }
       }
