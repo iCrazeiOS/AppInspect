@@ -8,6 +8,8 @@
  * Does NOT parse load commands or read files from disk.
  */
 
+import * as fs from "fs";
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 export const MH_MAGIC_64 = 0xfeedfacf; // 64-bit Mach-O, native endian
@@ -25,6 +27,16 @@ export const MH_EXECUTE = 2;
 export const MH_DYLIB = 6;
 
 export const MH_PIE = 0x200000;
+
+/** Set of all known Mach-O / fat binary magic values. */
+export const MACHO_MAGICS = new Set([
+  MH_MAGIC,     // 0xfeedface — 32-bit
+  MH_CIGAM,     // 0xcefaedfe — 32-bit swapped
+  MH_MAGIC_64,  // 0xfeedfacf — 64-bit
+  MH_CIGAM_64,  // 0xcffaedfe — 64-bit swapped
+  FAT_MAGIC,    // 0xcafebabe — fat binary
+  FAT_CIGAM,    // 0xbebafeca — fat binary swapped
+]);
 
 // Struct sizes
 const FAT_HEADER_SIZE = 8; // magic(4) + nfat_arch(4)
@@ -200,4 +212,23 @@ export function parseMachOHeader(
       littleEndian,
     },
   };
+}
+
+// ── File-Level Detection ──────────────────────────────────────────────
+
+/**
+ * Check if a file looks like a Mach-O (or fat) binary by reading its magic bytes.
+ */
+export function isMachOFile(filePath: string): boolean {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(4);
+    fs.readSync(fd, buf, 0, 4, 0);
+    fs.closeSync(fd);
+    const magic = buf.readUInt32BE(0);
+    const magicLE = buf.readUInt32LE(0);
+    return MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE);
+  } catch {
+    return false;
+  }
 }

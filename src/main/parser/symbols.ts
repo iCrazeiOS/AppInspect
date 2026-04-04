@@ -7,6 +7,8 @@
  * Does NOT demangle Swift/C++ names or parse dyld bind opcodes.
  */
 
+import { readCString } from "./load-commands";
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 export interface Symbol {
@@ -61,7 +63,7 @@ export function readULEB128(
 // ── Helpers ───────────────────────────────────────────────────────────
 
 /**
- * Read a null-terminated C string from a DataView starting at `offset`.
+ * Read a null-terminated C string from the string table.
  * Returns an empty string if offset is out of bounds.
  */
 function readStringFromTable(
@@ -71,14 +73,7 @@ function readStringFromTable(
 ): string {
   const start = strTableOffset + n_strx;
   if (start >= dataView.byteLength) return "";
-
-  const bytes: number[] = [];
-  for (let i = start; i < dataView.byteLength; i++) {
-    const b = dataView.getUint8(i);
-    if (b === 0) break;
-    bytes.push(b);
-  }
-  return String.fromCharCode(...bytes);
+  return readCString(dataView, start, dataView.byteLength - start);
 }
 
 // ── Symbol Table Parser ───────────────────────────────────────────────

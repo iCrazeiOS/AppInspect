@@ -16,16 +16,7 @@ import * as path from "path";
 import * as os from "os";
 import { execFile } from "child_process";
 import type { DEBControlInfo } from "../../shared/types";
-
-// Mach-O magic values for binary detection
-const MACHO_MAGICS = new Set([
-  0xfeedface, // MH_MAGIC (32-bit)
-  0xcefaedfe, // MH_CIGAM (32-bit swapped)
-  0xfeedfacf, // MH_MAGIC_64 (64-bit)
-  0xcffaedfe, // MH_CIGAM_64 (64-bit swapped)
-  0xcafebabe, // FAT_MAGIC
-  0xbebafeca, // FAT_CIGAM
-]);
+import { isMachOFile } from "../parser/macho";
 
 export interface DEBBinaryInfo {
   name: string;
@@ -147,20 +138,6 @@ function extractTar(tarPath: string, destDir: string): Promise<void> {
 
 // ── Binary discovery ───────────────────────────────────────────────
 
-function isMachO(filePath: string): boolean {
-  try {
-    const fd = fs.openSync(filePath, "r");
-    const buf = Buffer.alloc(4);
-    fs.readSync(fd, buf, 0, 4, 0);
-    fs.closeSync(fd);
-    const magic = buf.readUInt32BE(0);
-    const magicLE = buf.readUInt32LE(0);
-    return MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE);
-  } catch {
-    return false;
-  }
-}
-
 function findBinariesRecursive(
   dir: string,
   results: DEBBinaryInfo[],
@@ -212,7 +189,7 @@ function findBinariesRecursive(
       relPath.includes("/usr/sbin/") ||
       relPath.includes("/usr/local/bin/")
     ) {
-      if (isMachO(fullPath)) {
+      if (isMachOFile(fullPath)) {
         results.push({
           name: entry.name,
           path: fullPath,
@@ -221,7 +198,7 @@ function findBinariesRecursive(
       }
     } else if (relPath.includes(".app/") && !entry.name.includes(".")) {
       // App bundle binaries (e.g. /Applications/Ghost.app/Ghost)
-      if (isMachO(fullPath)) {
+      if (isMachOFile(fullPath)) {
         results.push({
           name: entry.name,
           path: fullPath,
@@ -230,7 +207,7 @@ function findBinariesRecursive(
       }
     } else if (relPath.includes(".bundle/") && !entry.name.includes(".")) {
       // Bundle binaries (PreferenceBundles, ControlCenter modules, etc.)
-      if (isMachO(fullPath)) {
+      if (isMachOFile(fullPath)) {
         results.push({
           name: entry.name,
           path: fullPath,

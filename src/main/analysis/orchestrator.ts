@@ -59,12 +59,7 @@ import { parseFunctionStarts, buildStringXrefMap, formatFunctionName } from "../
 import { extractDEB } from "../deb/extractor";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import {
-  MH_MAGIC_64,
-  MH_CIGAM_64,
-  MH_MAGIC,
-  MH_CIGAM,
-  FAT_MAGIC,
-  FAT_CIGAM,
+  MACHO_MAGICS,
 } from "../parser/macho";
 
 // ── Event loop yield ───────────────────────────────────────────────
@@ -1601,15 +1596,6 @@ export async function analyseBinary(
 }
 
 // ── File type detection ────────────────────────────────────────────
-
-const MACHO_MAGICS = new Set([
-  MH_MAGIC_64,  // 0xfeedfacf
-  MH_CIGAM_64,  // 0xcffaedfe
-  MH_MAGIC,     // 0xfeedface
-  MH_CIGAM,     // 0xcefaedfe
-  FAT_MAGIC,    // 0xcafebabe
-  FAT_CIGAM,    // 0xbebafeca
-]);
 
 export function detectFileType(filePath: string): SourceType {
   // Handle directories: .app bundles are valid, anything else is not

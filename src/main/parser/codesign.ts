@@ -12,6 +12,7 @@
  */
 
 import plist from "plist";
+import { readCString } from "./load-commands";
 
 // ── Magic Constants ──────────────────────────────────────────────────
 
@@ -51,25 +52,6 @@ export interface CodeSignatureResult {
   entitlements: Record<string, unknown> | null;
   entitlementsRaw: string | null;
   codeDirectory: CodeDirectory | null;
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Read a null-terminated UTF-8 string from a DataView starting at offset.
- */
-function readNullTerminatedString(
-  view: DataView,
-  offset: number,
-  maxLen: number,
-): string {
-  const bytes: number[] = [];
-  for (let i = 0; i < maxLen; i++) {
-    const byte = view.getUint8(offset + i);
-    if (byte === 0) break;
-    bytes.push(byte);
-  }
-  return String.fromCharCode(...bytes);
 }
 
 // ── Parsers ──────────────────────────────────────────────────────────
@@ -146,7 +128,7 @@ function parseCodeDirectoryBlob(
   if (version >= 0x20200 && length > 52) {
     const teamOffset = view.getUint32(blobStart + 48, false);
     if (teamOffset > 0 && teamOffset < length) {
-      teamID = readNullTerminatedString(
+      teamID = readCString(
         view,
         blobStart + teamOffset,
         Math.min(256, length - teamOffset),
