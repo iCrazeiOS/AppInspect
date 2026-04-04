@@ -5,7 +5,7 @@
 import type { AnalysisResult } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
-import { decodeCpuType, decodeFileType } from "../utils/macho";
+import { decodeCpuType, decodeFileType, decodePlatform, isMacOSPlatform } from "../utils/macho";
 
 type OverviewData = AnalysisResult["overview"];
 
@@ -62,7 +62,11 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
   const { header, buildVersion, encryptionInfo, hardening, ipa } = data;
 
   const infoPlist = (data as any).infoPlist as Record<string, any> | undefined;
-  const minIOS = buildVersion?.minos ?? "N/A";
+  const minOS = buildVersion?.minos ?? "N/A";
+  const platform = buildVersion?.platform ?? 0;
+  const platformName = platform ? decodePlatform(platform) : "";
+  const isMacOS = sourceType === "app" || isMacOSPlatform(platform);
+  const minOSLabel = isMacOS ? "Min macOS" : `Min ${platformName || "iOS"}`;
   const arch = decodeCpuType(header.cputype);
   const fileType = decodeFileType(header.filetype);
 
@@ -118,9 +122,54 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
         : `${(binarySize / 1024).toFixed(1)} KB`;
       machoItems.push(buildKV("File Size", sizeStr));
     }
-    machoItems.push(buildKV("Min iOS", minIOS));
+    if (platformName) machoItems.push(buildKV("Platform", platformName));
+    machoItems.push(buildKV(minOSLabel, minOS));
     machoItems.push(buildKV("Team ID", String(teamId)));
     wrapper.appendChild(buildCard("Binary Info", ...machoItems));
+  } else if (sourceType === "app") {
+    // ── macOS .app Bundle Summary card ──
+    const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+    const displayName =
+      infoPlist?.["CFBundleDisplayName"] ?? infoPlist?.["CFBundleName"] ?? ipa?.appName ?? "N/A";
+    const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
+    const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
+    const lsMinSys = infoPlist?.["LSMinimumSystemVersion"];
+    const displayMinOS = lsMinSys ? String(lsMinSys) : minOS;
+    const category = infoPlist?.["LSApplicationCategoryType"];
+
+    const appFrameworks = (data as any).appFrameworks as string[] | undefined;
+
+    const summaryItems: HTMLElement[] = [
+      buildKV("Bundle ID", String(bundleId)),
+      buildKV("Display Name", String(displayName)),
+      buildKV("Version", String(version)),
+      buildKV("Build", String(buildNumber)),
+    ];
+    if (platformName) summaryItems.push(buildKV("Platform", platformName));
+    summaryItems.push(buildKV(minOSLabel, String(displayMinOS)));
+    summaryItems.push(buildKV("Architecture", arch));
+    summaryItems.push(buildKV("File Type", fileType));
+    summaryItems.push(buildKV("UUID", String(uuid)));
+
+    if (category) {
+      summaryItems.push(buildKV("Category", String(category)));
+    }
+
+    // Show detected frameworks
+    if (appFrameworks && appFrameworks.length > 0) {
+      const fwRow = el("div", "ov-kv");
+      fwRow.appendChild(el("span", "ov-kv-label", appFrameworks.length > 1 ? "Frameworks" : "Framework"));
+      const badgeWrap = el("span", "ov-badge-group");
+      for (const fw of appFrameworks) {
+        badgeWrap.appendChild(buildBadge(fw, "yellow"));
+      }
+      fwRow.appendChild(badgeWrap);
+      summaryItems.push(fwRow);
+    }
+
+    summaryItems.push(buildKV("Team ID", String(teamId)));
+
+    wrapper.appendChild(buildCard("App Summary", ...summaryItems));
   } else {
     // ── IPA App Summary card (existing) ──
     const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
@@ -136,11 +185,14 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
       buildKV("Display Name", String(displayName)),
       buildKV("Version", String(version)),
       buildKV("Build", String(buildNumber)),
-      buildKV("Min iOS", String(minIOS)),
+    ];
+    if (platformName) summaryItems.push(buildKV("Platform", platformName));
+    summaryItems.push(buildKV(minOSLabel, String(minOS)));
+    summaryItems.push(
       buildKV("Architecture", arch),
       buildKV("File Type", fileType),
       buildKV("UUID", String(uuid)),
-    ];
+    );
 
     // Show detected frameworks
     if (appFrameworks && appFrameworks.length > 0) {
@@ -171,7 +223,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
       buildKV("Architecture", arch),
       buildKV("File Type", fileType),
       buildKV("UUID", String(uuid)),
-      buildKV("Min iOS", minIOS),
+      buildKV(minOSLabel, minOS),
       buildKV("Team ID", String(teamId)),
     ];
 

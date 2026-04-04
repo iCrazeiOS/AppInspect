@@ -103,7 +103,7 @@ function showError(message: string): void {
 // ── Tab visibility based on source type ──
 function updateTabsForSourceType(sourceType: string): void {
   const isTweak = sourceType === "deb" || sourceType === "macho";
-  // Show Hooks tab for tweaks/binaries, Info.plist for IPAs
+  // Show Hooks tab for tweaks/binaries, Info.plist for IPAs and macOS apps
   tabBtnInfoPlist.classList.toggle("hidden", isTweak);
   tabBtnHooks.classList.toggle("hidden", !isTweak);
 }
@@ -315,6 +315,10 @@ async function handleBinaryChange(): Promise<void> {
   setBinarySwitchLoading(true);
 
   try {
+    // Remember the current arch so we can try to preserve it
+    const prevArchs = analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
+    const prevArch = prevArchs?.[currentArchIndex];
+
     const result = await window.api.analyseBinary(selectedIndex);
     analysisResult = result;
 
@@ -325,12 +329,31 @@ async function handleBinaryChange(): Promise<void> {
     loadedTabs.add(currentTab);
     await loadTabData(currentTab);
 
-    // Repopulate arch selector for the new binary
-    currentArchIndex = 0;
-    if (result.overview?.fatArchs) {
-      populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
+    // Repopulate arch selector for the new binary, preserving arch if available
+    const newArchs = result.overview?.fatArchs as FatArchInfo[] | undefined;
+    let matchedIdx = 0;
+    if (prevArch && newArchs) {
+      const found = newArchs.findIndex(
+        (a) => a.cputype === prevArch.cputype && a.cpusubtype === prevArch.cpusubtype
+      );
+      if (found >= 0) matchedIdx = found;
+    }
+    currentArchIndex = matchedIdx;
+
+    if (newArchs) {
+      populateArchSelector(newArchs);
     } else {
       archSelector.classList.add("hidden");
+    }
+
+    // If we matched a non-default arch, re-analyse with that arch
+    if (matchedIdx > 0 && newArchs?.[matchedIdx]) {
+      const arch = newArchs[matchedIdx];
+      const archResult = await window.api.analyseBinary(selectedIndex, arch.cputype, arch.cpusubtype);
+      analysisResult = archResult;
+      clearAllTabContent();
+      loadedTabs.add(currentTab);
+      await loadTabData(currentTab);
     }
 
     // Check encryption for the new binary
@@ -356,9 +379,19 @@ function cpuLabel(cputype: number, cpusubtype: number): string {
   const base = CPU_TYPE_NAMES[cputype] ?? `CPU(0x${cputype.toString(16)})`;
   // Mask off CPU_SUBTYPE_LIB64 (bit 31) to get the real subtype
   const sub = cpusubtype & 0x00ffffff;
+
+  // Known "all/default" subtypes — don't append anything
+  // x86/x86_64: CPU_SUBTYPE_X86_ALL = 3, CPU_SUBTYPE_X86_64_ALL = 3
+  // ARM: CPU_SUBTYPE_ARM_ALL = 0
+  // ARM64: CPU_SUBTYPE_ARM64_ALL = 0
+  if (sub === 0) return base;
+  if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return base;
+
+  // Named subtypes
   if (cputype === 0x0100000c && sub === 2) return "ARM64e";
-  if (sub !== 0) return `${base} (sub ${sub})`;
-  return base;
+  if (cputype === 0x01000007 && sub === 8) return "x86_64 (Haswell)";
+
+  return `${base} (sub ${sub})`;
 }
 
 interface FatArchInfo {
@@ -545,13 +578,13 @@ document.addEventListener("drop", (e: DragEvent) => {
   }
 
   const lowerPath = filePath.toLowerCase();
-  const supported = lowerPath.endsWith(".ipa") || lowerPath.endsWith(".deb") || lowerPath.endsWith(".dylib");
+  const supported = lowerPath.endsWith(".ipa") || lowerPath.endsWith(".deb") || lowerPath.endsWith(".dylib") || lowerPath.endsWith(".app");
   if (!supported) {
     // Allow extensionless files (bare Mach-O executables) — they'll be detected by magic bytes
     const fileName = filePath.split(/[\\/]/).pop() ?? "";
     const hasExtension = fileName.includes(".");
     if (hasExtension) {
-      showToast("Unsupported file type. Supported: IPA, DEB, dylib, Mach-O", "warning");
+      showToast("Unsupported file type. Supported: IPA, .app, DEB, dylib, Mach-O", "warning");
       return;
     }
   }

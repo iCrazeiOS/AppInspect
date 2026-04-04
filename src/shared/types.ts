@@ -1,7 +1,7 @@
 // ── Shared analysis data types for AppInspect ──
 
 /** What kind of file was loaded */
-export type SourceType = 'ipa' | 'macho' | 'deb';
+export type SourceType = 'ipa' | 'macho' | 'deb' | 'app';
 
 /** DEB package control metadata */
 export interface DEBControlInfo {

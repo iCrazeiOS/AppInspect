@@ -35,6 +35,8 @@ import {
   extractIPA,
   discoverAppBundle,
   discoverBinaries,
+  isMacOSAppBundle,
+  discoverMacOSBinaries,
 } from "../ipa/extractor";
 import type { BinaryInfo } from "../ipa/extractor";
 import { parseFatHeader, parseMachOHeader, CPU_TYPE_ARM64 } from "../parser/macho";
@@ -1661,12 +1663,185 @@ export async function analyseDEB(
   return result;
 }
 
+// ── Analyse macOS .app bundle ─────────────────────────────────────
+
+export async function analyseApp(
+  appPath: string,
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<AnalysisResult> {
+  cachedSourceType = "app";
+  cachedFilePath = appPath;
+
+  // macOS .app bundles use Contents/ structure
+  const isMacOS = isMacOSAppBundle(appPath);
+  cachedAppBundlePath = appPath;
+
+  // Step 1: Discover binaries
+  progressCallback("Discovering binaries...", 5);
+  await yieldToEventLoop();
+
+  const binaries = isMacOS
+    ? discoverMacOSBinaries(appPath)
+    : discoverBinaries(appPath);
+  cachedBinaries = binaries;
+
+  if (binaries.length === 0) {
+    throw new Error("No binaries found in .app bundle");
+  }
+
+  // Step 2: Parse Info.plist
+  progressCallback("Parsing plists...", 10);
+  let infoPlistData: Record<string, PlistValue> = {};
+  const plistDir = isMacOS ? path.join(appPath, "Contents") : appPath;
+  try {
+    const plistResult = parseInfoPlist(plistDir);
+    if (plistResult && plistResult.ok) {
+      infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Try the .app root as fallback
+    try {
+      const plistResult = parseInfoPlist(appPath);
+      if (plistResult && plistResult.ok) {
+        infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+      }
+    } catch {
+      // Non-critical
+    }
+  }
+  cachedInfoPlist = infoPlistData;
+
+  // Steps 3-12: Analyse main binary
+  progressCallback("Reading binary...", 15);
+  const mainBinary = binaries[0]!;
+  cachedActiveBinaryName = mainBinary.name;
+  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+
+  // Entitlements from code signature
+  let finalEntitlements = binaryResult.entitlements;
+
+  // Detect app frameworks
+  const bundleRoot = isMacOS ? path.join(appPath, "Contents") : appPath;
+  const libNames = binaryResult.libraries.map((l) => l.name);
+  const appFrameworks = detectAppFrameworks(bundleRoot, libNames);
+
+  // Scan bundle files for secrets
+  progressCallback("Scanning bundle files...", 80);
+  await yieldToEventLoop();
+  let bundleFindings: SecurityFinding[] = [];
+  try {
+    const bundleFiles = readBundleFiles(bundleRoot);
+    if (bundleFiles.length > 0) {
+      bundleFindings = scanBundleFileContents(bundleFiles);
+    }
+  } catch {
+    // Non-critical
+  }
+
+  // Scan additional binaries if enabled
+  let extraBinaryFindings: SecurityFinding[] = [];
+  const settings = loadSettings();
+  if (settings.scanAllBinaries && binaries.length > 1) {
+    progressCallback("Scanning additional binaries...", 85);
+    await yieldToEventLoop();
+    for (let i = 1; i < binaries.length; i++) {
+      try {
+        const extraResult = await analyseBinaryFile(binaries[i]!.path, () => {}, 0);
+        for (const finding of extraResult.security.findings) {
+          extraBinaryFindings.push({ ...finding, source: binaries[i]!.name });
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+  }
+
+  const mergedSecurity = {
+    findings: [...binaryResult.security.findings, ...bundleFindings, ...extraBinaryFindings],
+    hardening: binaryResult.security.hardening,
+  };
+
+  // Build file tree — for macOS apps where the only top-level entry is
+  // "Contents", promote its children to root so users see the useful stuff
+  progressCallback("Building file tree...", 95);
+  await yieldToEventLoop();
+  let files = buildFileTree(appPath);
+  if (
+    isMacOS &&
+    files.length === 1 &&
+    files[0]!.isDirectory &&
+    files[0]!.name === "Contents" &&
+    files[0]!.children
+  ) {
+    files = files[0]!.children;
+  }
+
+  const appName = path.basename(appPath, ".app");
+  const result: AnalysisResult = {
+    overview: {
+      sourceType: "app",
+      filePath: appPath,
+      ipa: {
+        bundlePath: appPath,
+        appName,
+        binaries: binaries.map((b) => ({
+          name: b.name,
+          path: b.path,
+          type: b.type,
+          size: (() => {
+            try { return fs.statSync(b.path).size; } catch { return 0; }
+          })(),
+        })),
+      },
+      header: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      buildVersion: binaryResult.buildVersion,
+      encryptionInfo: binaryResult.encryptionInfo,
+      hardening: binaryResult.security.hardening,
+      uuid: binaryResult.uuid ?? undefined,
+      teamId: binaryResult.teamId ?? undefined,
+      infoPlist: infoPlistData,
+      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+    },
+    strings: binaryResult.strings,
+    headers: {
+      machO: binaryResult.header,
+      fatArchs: binaryResult.fatArchs,
+      loadCommands: binaryResult.loadCommands,
+    },
+    libraries: binaryResult.libraries,
+    symbols: binaryResult.symbols,
+    classes: binaryResult.classes,
+    protocols: binaryResult.protocols,
+    entitlements: finalEntitlements,
+    infoPlist: infoPlistData,
+    security: mergedSecurity,
+    hooks: binaryResult.hooks,
+    files,
+  };
+
+  cachedResult = result;
+  progressCallback("Analysis complete", 100);
+  return result;
+}
+
 // ── Unified file analysis entry point ──────────────────────────────
 
 export async function analyseFile(
   filePath: string,
   progressCallback: (phase: string, percent: number) => void,
 ): Promise<AnalysisResult> {
+  // Check if it's a .app directory
+  try {
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory() && filePath.endsWith(".app")) {
+      return analyseApp(filePath, progressCallback);
+    }
+  } catch {
+    // Not a directory — continue with file-based detection
+  }
+
   const fileType = detectFileType(filePath);
 
   switch (fileType) {
@@ -1676,5 +1851,7 @@ export async function analyseFile(
       return analyseMachO(filePath, progressCallback);
     case "deb":
       return analyseDEB(filePath, progressCallback);
+    case "app":
+      return analyseApp(filePath, progressCallback);
   }
 }

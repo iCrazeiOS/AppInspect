@@ -221,13 +221,14 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     try {
       const result = await dialog.showOpenDialog(win, {
         filters: [
-          { name: "Supported Files", extensions: ["ipa", "deb", "dylib"] },
+          { name: "Supported Files", extensions: ["ipa", "deb", "dylib", "app"] },
+          { name: "App Bundles", extensions: ["app"] },
           { name: "IPA Files", extensions: ["ipa"] },
           { name: "DEB Packages", extensions: ["deb"] },
           { name: "Mach-O Binaries", extensions: ["dylib"] },
           { name: "All Files", extensions: ["*"] },
         ],
-        properties: ["openFile"],
+        properties: ["openFile", "openDirectory"],
       });
 
       if (result.canceled || result.filePaths.length === 0) {

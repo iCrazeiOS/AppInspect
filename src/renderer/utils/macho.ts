@@ -7,6 +7,31 @@ export const CPU_TYPE_NAMES: Record<number, string> = {
   0x0100000c: "ARM64",
 };
 
+/** LC_BUILD_VERSION platform constants */
+export const PLATFORM_NAMES: Record<number, string> = {
+  1: "macOS",
+  2: "iOS",
+  3: "tvOS",
+  4: "watchOS",
+  5: "bridgeOS",
+  6: "Mac Catalyst",
+  7: "iOS Simulator",
+  8: "tvOS Simulator",
+  9: "watchOS Simulator",
+  10: "DriverKit",
+  11: "visionOS",
+  12: "visionOS Simulator",
+};
+
+export function decodePlatform(platform: number): string {
+  return PLATFORM_NAMES[platform] ?? `Unknown (${platform})`;
+}
+
+/** Returns true if the platform is macOS or Mac Catalyst */
+export function isMacOSPlatform(platform: number): boolean {
+  return platform === 1 || platform === 6;
+}
+
 export const FILE_TYPE_NAMES: Record<number, string> = {
   1: "MH_OBJECT",
   2: "MH_EXECUTE",
