@@ -172,6 +172,8 @@ export interface Symbol {
 export interface ObjCMethod {
   selector: string;
   signature: string;
+  /** @internal Set for metaclass (class-level) methods during parsing; used by enrichment. */
+  _isClassMethod?: boolean;
 }
 
 export interface ObjCClass {

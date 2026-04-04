@@ -47,7 +47,10 @@ export function readULEB128(
   while (offset + bytesRead < dataView.byteLength) {
     const byte = dataView.getUint8(offset + bytesRead);
     bytesRead++;
-    value |= (byte & 0x7f) << shift;
+    // Use multiplication instead of bitwise shift to avoid 32-bit overflow.
+    // Bitwise operators in JS truncate to 32-bit signed integers, which
+    // corrupts values when shift >= 28.
+    value += (byte & 0x7f) * (2 ** shift);
     if ((byte & 0x80) === 0) break;
     shift += 7;
   }

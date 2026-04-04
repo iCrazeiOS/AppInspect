@@ -162,6 +162,8 @@ function walkChain(
   imports: ChainedImport[],
   rebaseMap: Map<number, bigint>,
   bindMap: Map<number, { ordinal: number; symbolName: string; addend: bigint }>,
+  imageBase: bigint,
+  isOffset: boolean,
 ): void {
   let currentOffset = startOffset;
 
@@ -191,8 +193,11 @@ function walkChain(
       const high8 = (raw >> 36n) & 0xFFn; // bits 36-43
       const next = Number((raw >> 51n) & 0xFFFn); // bits 51-62
 
-      // Resolved value: target | (high8 << 56) for DYLD_CHAINED_PTR_64_OFFSET
-      const resolved = target | (high8 << 56n);
+      // For DYLD_CHAINED_PTR_64_OFFSET (format 6), target is a runtime offset
+      // that needs the image base added to produce a valid vmaddr.
+      // For DYLD_CHAINED_PTR_64 (format 2), target is already an absolute vmaddr.
+      const combined = target | (high8 << 56n);
+      const resolved = isOffset ? combined + imageBase : combined;
       rebaseMap.set(currentOffset, resolved);
 
       if (next === 0) break;
@@ -205,11 +210,8 @@ function walkChain(
       //   next:   bits 51-62 (12 bits)
       //   bind:   bit 63
       const ordinal = Number(raw & 0xFFFFFFn); // bits 0-23
-      const addendSign = (raw >> 24n) & 1n; // bit 24
-      const addendRaw = (raw >> 25n) & 0x3FFFFn; // bits 25-42 (18 bits)
+      const addend = (raw >> 24n) & 0xFFn; // bits 24-31 (8 bits, unsigned)
       const next = Number((raw >> 51n) & 0xFFFn); // bits 51-62
-
-      const addend = addendSign === 1n ? -addendRaw : addendRaw;
 
       const symbolName =
         ordinal < imports.length ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
@@ -235,6 +237,7 @@ function walkChainArm64e(
   imports: ChainedImport[],
   rebaseMap: Map<number, bigint>,
   bindMap: Map<number, { ordinal: number; symbolName: string; addend: bigint }>,
+  imageBase: bigint,
 ): void {
   let currentOffset = startOffset;
   const maxIterations = 1_000_000;
@@ -252,9 +255,10 @@ function walkChainArm64e(
       // Rebase
       if (auth === 1n) {
         // Auth rebase: target(32) | diversity(16) | addrDiv(1) | key(2) | next(11) | bind(1) | auth(1)
+        // target is a runtimeOffset — add imageBase to get the absolute vmaddr.
         const target = raw & 0xFFFFFFFFn;
         const next = Number((raw >> 51n) & 0x7FFn);
-        rebaseMap.set(currentOffset, target);
+        rebaseMap.set(currentOffset, target + imageBase);
         if (next === 0) break;
         currentOffset += next * STRIDE_ARM64E;
       } else {
@@ -363,6 +367,15 @@ export function buildFixupMap(
   const rebaseMap = new Map<number, bigint>();
   const bindMap = new Map<number, { ordinal: number; symbolName: string; addend: bigint }>();
 
+  // Compute image base (preferred load address = __TEXT vmaddr) for offset-based formats
+  let imageBase = 0n;
+  for (const seg of segments) {
+    if (seg.segname.trim() === "__TEXT") {
+      imageBase = seg.vmaddr;
+      break;
+    }
+  }
+
   // 4. For each segment with fixups, walk the chains
   for (let segIdx = 0; segIdx < segCount; segIdx++) {
     const segInfoOff = segInfoOffsets[segIdx];
@@ -398,9 +411,10 @@ export function buildFixupMap(
         segFileOffset + pageIdx * startsInSeg.page_size + pageStart;
 
       if (fmt === DYLD_CHAINED_PTR_ARM64E) {
-        walkChainArm64e(view, firstFixupOffset, le, imports, rebaseMap, bindMap);
+        walkChainArm64e(view, firstFixupOffset, le, imports, rebaseMap, bindMap, imageBase);
       } else {
-        walkChain(view, firstFixupOffset, le, imports, rebaseMap, bindMap);
+        const isOffset = fmt === DYLD_CHAINED_PTR_64_OFFSET;
+        walkChain(view, firstFixupOffset, le, imports, rebaseMap, bindMap, imageBase, isOffset);
       }
     }
   }

@@ -40,13 +40,11 @@ function encodeRebase(target: bigint, high8: bigint, next: number): bigint {
  *   bits 0-23 = ordinal, bit 24 = sign, bits 25-42 = addend, bits 51-62 = next, bit 63 = 1
  */
 function encodeBind(ordinal: number, addend: bigint, next: number): bigint {
-  const sign = addend < 0n ? 1n : 0n;
-  const absAddend = addend < 0n ? -addend : addend;
+  // Per Apple spec: addend is 8-bit unsigned (bits 24-31)
   return (
     (1n << 63n) |
     (BigInt(ordinal) & 0xFFFFFFn) |
-    (sign << 24n) |
-    ((absAddend & 0x3FFFFn) << 25n) |
+    ((addend & 0xFFn) << 24n) |
     (BigInt(next & 0xfff) << 51n)
   );
 }
@@ -384,10 +382,10 @@ describe("chained-fixups", () => {
       expect(bind.addend).toBe(0n);
     });
 
-    it("records bind entry with negative addend", () => {
+    it("records bind entry with non-zero addend", () => {
       const segOffset = 4096;
       const pageSize = 4096;
-      const bindEntry = encodeBind(1, -5n, 0);
+      const bindEntry = encodeBind(1, 11n, 0);
 
       const buf = buildFixupFixture({
         dataOffset: 256,
@@ -412,7 +410,7 @@ describe("chained-fixups", () => {
       const bind = result.bindMap.get(segOffset)!;
       expect(bind.ordinal).toBe(1);
       expect(bind.symbolName).toBe("_bar");
-      expect(bind.addend).toBe(-5n);
+      expect(bind.addend).toBe(11n);
     });
 
     it("skips pages with DYLD_CHAINED_PTR_START_NONE", () => {

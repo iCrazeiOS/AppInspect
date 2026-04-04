@@ -81,11 +81,11 @@ const yieldToEventLoop = (): Promise<void> =>
  * Convert bigint values to numbers (or strings for very large values)
  * so the result can be JSON-serialized over IPC.
  */
-function bigintToNumber(val: bigint): number {
+function bigintToNumber(val: bigint): number | string {
   if (val <= BigInt(Number.MAX_SAFE_INTEGER) && val >= BigInt(Number.MIN_SAFE_INTEGER)) {
     return Number(val);
   }
-  return Number(val);
+  return val.toString();
 }
 
 // ── Cached state ────────────────────────────────────────────────────

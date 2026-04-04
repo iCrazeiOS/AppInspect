@@ -157,8 +157,6 @@ const SCANNABLE_EXTENSIONS = new Set([
   '.config', '.cfg', '.ini', '.properties',
 ]);
 
-import { loadSettings } from "../settings";
-
 /**
  * Check if a file extension is scannable for secrets.
  */
@@ -193,6 +191,7 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
 
   for (const file of files) {
     // Skip very large files
+    const { loadSettings } = require("../settings") as typeof import("../settings");
     const maxFileSize = loadSettings().maxFileSizeMB * 1024 * 1024;
     if (file.content.length > maxFileSize) continue;
 
