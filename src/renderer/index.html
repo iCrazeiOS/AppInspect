@@ -33,6 +33,14 @@
               <input type="checkbox" id="opt-scan-all-binaries" />
               <span>Scan all binaries in security analysis</span>
             </label>
+            <label class="settings-option">
+              <span>Max bundle scan size (MB)</span>
+              <input type="number" id="opt-max-bundle-size" class="settings-number" min="1" max="2000" step="10" />
+            </label>
+            <label class="settings-option">
+              <span>Max single file size (MB)</span>
+              <input type="number" id="opt-max-file-size" class="settings-number" min="1" max="500" step="5" />
+            </label>
           </div>
           <button id="btn-open-ipa" class="btn-open-ipa">
             <span class="btn-icon">&#x1F4C2;</span>

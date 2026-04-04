@@ -1058,8 +1058,13 @@ function detectAppFrameworks(appBundlePath: string, linkedLibs: string[] = []): 
 
 // ── Bundle file reading for security scanning ─────────────────────
 
-const MAX_BUNDLE_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB total
-const MAX_SINGLE_FILE_SIZE = 10 * 1024 * 1024; // 10 MB per file
+function getBundleSizeLimits(): { maxTotal: number; maxSingle: number } {
+  const settings = loadSettings();
+  return {
+    maxTotal: settings.maxBundleSizeMB * 1024 * 1024,
+    maxSingle: settings.maxFileSizeMB * 1024 * 1024,
+  };
+}
 
 /**
  * Try to parse a binary plist or compiled .strings file into a JSON text
@@ -1097,9 +1102,10 @@ function hasBinaryContent(buf: Buffer): boolean {
 function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
   const files: BundleFileEntry[] = [];
   let totalSize = 0;
+  const { maxTotal, maxSingle } = getBundleSizeLimits();
 
   function walk(dir: string): void {
-    if (totalSize >= MAX_BUNDLE_TOTAL_SIZE) return;
+    if (totalSize >= maxTotal) return;
 
     let entries: fs.Dirent[];
     try {
@@ -1109,7 +1115,7 @@ function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
     }
 
     for (const entry of entries) {
-      if (totalSize >= MAX_BUNDLE_TOTAL_SIZE) break;
+      if (totalSize >= maxTotal) break;
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
@@ -1128,7 +1134,7 @@ function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
 
       try {
         const stat = fs.statSync(fullPath);
-        if (stat.size === 0 || stat.size > MAX_SINGLE_FILE_SIZE) continue;
+        if (stat.size === 0 || stat.size > maxSingle) continue;
 
         const rawBuf = fs.readFileSync(fullPath);
         let content: string;

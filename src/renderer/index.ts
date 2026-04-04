@@ -44,6 +44,8 @@ const tabPanels = document.querySelectorAll<HTMLDivElement>(".tab-panel");
 const btnSettings = $<HTMLButtonElement>("#btn-settings");
 const settingsPanel = $<HTMLDivElement>("#settings-panel");
 const optScanAllBinaries = $<HTMLInputElement>("#opt-scan-all-binaries");
+const optMaxBundleSize = $<HTMLInputElement>("#opt-max-bundle-size");
+const optMaxFileSize = $<HTMLInputElement>("#opt-max-file-size");
 
 console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, window.api);
 
@@ -644,11 +646,28 @@ optScanAllBinaries.addEventListener("change", async () => {
   }
 });
 
+async function saveNumberSetting(key: "maxBundleSizeMB" | "maxFileSizeMB", el: HTMLInputElement): Promise<void> {
+  const val = parseInt(el.value, 10);
+  if (isNaN(val) || val < 1) return;
+  try {
+    const current = await window.api.getSettings();
+    current[key] = val;
+    await window.api.setSettings(current);
+  } catch (err) {
+    console.error("[AppInspect] Failed to save settings:", err);
+  }
+}
+
+optMaxBundleSize.addEventListener("change", () => saveNumberSetting("maxBundleSizeMB", optMaxBundleSize));
+optMaxFileSize.addEventListener("change", () => saveNumberSetting("maxFileSizeMB", optMaxFileSize));
+
 // Load settings on startup
 (async () => {
   try {
     const settings = await window.api.getSettings();
     optScanAllBinaries.checked = settings.scanAllBinaries;
+    optMaxBundleSize.value = String(settings.maxBundleSizeMB);
+    optMaxFileSize.value = String(settings.maxFileSizeMB);
   } catch {
     // Settings not available yet — use defaults
   }

@@ -157,8 +157,7 @@ const SCANNABLE_EXTENSIONS = new Set([
   '.config', '.cfg', '.ini', '.properties',
 ]);
 
-/** Max file size to scan (10 MB) */
-const MAX_BUNDLE_FILE_SIZE = 10 * 1024 * 1024;
+import { loadSettings } from "../settings";
 
 /**
  * Check if a file extension is scannable for secrets.
@@ -194,7 +193,8 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
 
   for (const file of files) {
     // Skip very large files
-    if (file.content.length > MAX_BUNDLE_FILE_SIZE) continue;
+    const maxFileSize = loadSettings().maxFileSizeMB * 1024 * 1024;
+    if (file.content.length > maxFileSize) continue;
 
     // Skip Lottie/animation JSON files (large, never contain secrets)
     if (file.relativePath.endsWith('.json') && isAssetJSON(file.content)) continue;

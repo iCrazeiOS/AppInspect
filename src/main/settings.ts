@@ -9,6 +9,8 @@ import type { AppSettings } from "../shared/types";
 
 const DEFAULT_SETTINGS: AppSettings = {
   scanAllBinaries: false,
+  maxBundleSizeMB: 200,
+  maxFileSizeMB: 50,
 };
 
 function getSettingsPath(): string {

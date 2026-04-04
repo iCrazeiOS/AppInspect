@@ -149,6 +149,19 @@ body.platform-darwin .app-title-row {
   flex-shrink: 0;
 }
 
+.settings-number {
+  width: 64px;
+  margin-left: auto;
+  padding: 3px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: var(--font-stack);
+  text-align: right;
+}
+
 .btn-open-ipa {
   -webkit-app-region: no-drag;
   display: flex;

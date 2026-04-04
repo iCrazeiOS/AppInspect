@@ -206,6 +206,10 @@ export interface SecurityFinding {
 export interface AppSettings {
   /** When true, security scan runs on all binaries (frameworks, extensions), not just the main binary */
   scanAllBinaries: boolean;
+  /** Maximum total size of bundle files to scan (MB) */
+  maxBundleSizeMB: number;
+  /** Maximum size of a single bundle file to scan (MB) */
+  maxFileSizeMB: number;
 }
 
 export interface BinaryHardening {
