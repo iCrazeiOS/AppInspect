@@ -142,7 +142,7 @@ export function renderPlist(container: HTMLElement, data: any): void {
   tree.setData(plist);
 
   const totalKeys = Object.keys(plist).length;
-  const searchBar = new SearchBar((term, isRegex) => {
+  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
     saveSearchState("plist", term, isRegex);
     tree.filter(term);
     // Update count based on visible nodes

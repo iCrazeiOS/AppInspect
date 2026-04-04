@@ -756,6 +756,11 @@ body.platform-darwin .app-title-row {
   border-color: #f85149;
 }
 
+.sb-case-btn {
+  margin-right: 4px;
+}
+
+.sb-case-btn,
 .sb-regex-btn {
   background: none;
   border: 1px solid var(--border);
@@ -768,9 +773,16 @@ body.platform-darwin .app-title-row {
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
+.sb-case-btn:hover,
 .sb-regex-btn:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+.sb-case-btn.sb-case-active {
+  background-color: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .sb-regex-btn.sb-regex-active {

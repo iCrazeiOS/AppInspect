@@ -246,16 +246,23 @@ export function renderClasses(container: HTMLElement, data: any): void {
   wrapper.appendChild(leftPanel);
 
   // Search bar
-  const searchBar = new SearchBar((term, isRegex) => {
+  const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (!term) {
       filteredClasses = allClasses;
     } else {
       try {
-        const re = isRegex ? new RegExp(term, "i") : null;
-        const lower = term.toLowerCase();
-        filteredClasses = allClasses.filter((c) =>
-          re ? re.test(c.name) : c.name.toLowerCase().includes(lower)
-        );
+        const flags = caseSensitive ? "" : "i";
+        const re = isRegex ? new RegExp(term, flags) : null;
+        if (caseSensitive) {
+          filteredClasses = allClasses.filter((c) =>
+            re ? re.test(c.name) : c.name.includes(term)
+          );
+        } else {
+          const lower = term.toLowerCase();
+          filteredClasses = allClasses.filter((c) =>
+            re ? re.test(c.name) : c.name.toLowerCase().includes(lower)
+          );
+        }
       } catch {
         return;
       }
@@ -388,11 +395,13 @@ export function renderClasses(container: HTMLElement, data: any): void {
 
   let methodSearchTerm = "";
   let methodSearchRegex = false;
+  let methodSearchCaseSensitive = true;
   let searchAllClasses = false;
 
-  const methodSearchBar = new SearchBar((term, isRegex) => {
+  const methodSearchBar = new SearchBar((term, isRegex, caseSensitive) => {
     methodSearchTerm = term;
     methodSearchRegex = isRegex;
+    methodSearchCaseSensitive = caseSensitive;
     renderMethodList();
   });
   methodSearchBar.mount(methodSearchWrap);
@@ -430,8 +439,11 @@ export function renderClasses(container: HTMLElement, data: any): void {
     if (methodSearchTerm) {
       try {
         if (methodSearchRegex) {
-          const re = new RegExp(methodSearchTerm, "i");
+          const flags = methodSearchCaseSensitive ? "" : "i";
+          const re = new RegExp(methodSearchTerm, flags);
           matcher = (s) => re.test(s);
+        } else if (methodSearchCaseSensitive) {
+          matcher = (s) => s.includes(methodSearchTerm);
         } else {
           const lower = methodSearchTerm.toLowerCase();
           matcher = (s) => s.toLowerCase().includes(lower);

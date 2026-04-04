@@ -4,19 +4,22 @@
  */
 
 export class SearchBar {
-  private onFilter: (term: string, isRegex: boolean) => void;
+  private onFilter: (term: string, isRegex: boolean, caseSensitive: boolean) => void;
   private container: HTMLElement | null = null;
   private root: HTMLElement | null = null;
   private input: HTMLInputElement | null = null;
   private regexBtn: HTMLButtonElement | null = null;
+  private caseBtn: HTMLButtonElement | null = null;
   private countEl: HTMLElement | null = null;
   private errorEl: HTMLElement | null = null;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private regexMode = false;
+  private caseSensitive = true;
 
   private static DEBOUNCE_MS = 200;
+  private static DEBOUNCE_REGEX_MS = 400;
 
-  constructor(onFilter: (term: string, isRegex: boolean) => void) {
+  constructor(onFilter: (term: string, isRegex: boolean, caseSensitive: boolean) => void) {
     this.onFilter = onFilter;
   }
 
@@ -47,6 +50,15 @@ export class SearchBar {
     this.input = input;
     inputWrap.appendChild(input);
 
+    // Case-sensitive toggle
+    const caseBtn = document.createElement("button");
+    caseBtn.className = "sb-case-btn sb-case-active";
+    caseBtn.textContent = "Aa";
+    caseBtn.title = "Toggle case sensitivity (on = faster)";
+    caseBtn.addEventListener("click", () => this.toggleCase());
+    this.caseBtn = caseBtn;
+    inputWrap.appendChild(caseBtn);
+
     // Regex toggle
     const regexBtn = document.createElement("button");
     regexBtn.className = "sb-regex-btn";
@@ -75,16 +87,25 @@ export class SearchBar {
 
   private handleInput(): void {
     if (this.timerId !== null) clearTimeout(this.timerId);
+    const delay = this.regexMode ? SearchBar.DEBOUNCE_REGEX_MS : SearchBar.DEBOUNCE_MS;
     this.timerId = setTimeout(() => {
       this.timerId = null;
       this.emitFilter();
-    }, SearchBar.DEBOUNCE_MS);
+    }, delay);
   }
 
   private toggleRegex(): void {
     this.regexMode = !this.regexMode;
     if (this.regexBtn) {
       this.regexBtn.classList.toggle("sb-regex-active", this.regexMode);
+    }
+    this.emitFilter();
+  }
+
+  private toggleCase(): void {
+    this.caseSensitive = !this.caseSensitive;
+    if (this.caseBtn) {
+      this.caseBtn.classList.toggle("sb-case-active", this.caseSensitive);
     }
     this.emitFilter();
   }
@@ -108,7 +129,7 @@ export class SearchBar {
       this.setError(null);
     }
 
-    this.onFilter(term, this.regexMode);
+    this.onFilter(term, this.regexMode, this.caseSensitive);
   }
 
   private setError(msg: string | null): void {
@@ -138,12 +159,20 @@ export class SearchBar {
     return this.regexMode;
   }
 
-  /** Set the search term and regex mode programmatically (e.g. for state restore). */
-  setValue(term: string, isRegex: boolean): void {
+  isCaseSensitive(): boolean {
+    return this.caseSensitive;
+  }
+
+  /** Set the search term, regex mode, and case sensitivity programmatically (e.g. for state restore). */
+  setValue(term: string, isRegex: boolean, caseSensitive?: boolean): void {
     if (this.input) this.input.value = term;
     this.regexMode = isRegex;
+    if (caseSensitive !== undefined) this.caseSensitive = caseSensitive;
     if (this.regexBtn) {
       this.regexBtn.classList.toggle("sb-regex-active", isRegex);
+    }
+    if (this.caseBtn) {
+      this.caseBtn.classList.toggle("sb-case-active", this.caseSensitive);
     }
     // Emit filter immediately so the tab re-filters
     this.emitFilter();
@@ -163,6 +192,7 @@ export class SearchBar {
     this.container = null;
     this.input = null;
     this.regexBtn = null;
+    this.caseBtn = null;
     this.countEl = null;
     this.errorEl = null;
   }

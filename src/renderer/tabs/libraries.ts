@@ -78,7 +78,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   table.setData(rows as any);
 
   // ── Wire up search ──
-  const searchBar = new SearchBar((term, isRegex) => {
+  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
     if (!term) {
       table.setFilter(null);
     } else if (isRegex) {

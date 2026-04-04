@@ -147,7 +147,7 @@ export function renderSecurity(container: HTMLElement, data: any): void {
   // ── Search bar ──
   const searchWrap = document.createElement("div");
   searchWrap.className = "sec-search";
-  const searchBar = new SearchBar((term, isRegex) => {
+  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
     searchTerm = term;
     searchRegex = isRegex;
     saveSearchState("security", term, isRegex);

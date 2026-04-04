@@ -50,7 +50,7 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   let searchTerm = "";
   let searchRegex = false;
 
-  const searchBar = new SearchBar((term, isRegex) => {
+  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
     searchTerm = term;
     searchRegex = isRegex;
     saveSearchState("symbols", term, isRegex);

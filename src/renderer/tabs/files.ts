@@ -232,7 +232,7 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   // -- Search integration --
   let totalFileCount = count;
 
-  const searchBar = new SearchBar((term: string, isRegex: boolean) => {
+  const searchBar = new SearchBar((term: string, isRegex: boolean, _caseSensitive: boolean) => {
     saveSearchState("files", term, isRegex);
 
     if (!term) {
