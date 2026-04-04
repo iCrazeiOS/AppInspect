@@ -15,7 +15,9 @@ import {
   analyseBinary,
   getCachedResult,
   getActiveBinaryName,
+  searchAllBinaries,
 } from "../analysis/orchestrator";
+import type { SearchableTab } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
 import { loadSettings, saveSettings } from "../settings";
 import type { AppSettings } from "../../shared/types";
@@ -153,6 +155,23 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
       return null;
+    }
+  });
+
+  // ── search-all-binaries ──
+  ipcMain.handle("search-all-binaries", async (_event, args: { query: string; tab: SearchableTab }) => {
+    try {
+      return await searchAllBinaries(
+        args.query,
+        args.tab,
+        (phase, percent) => {
+          win.webContents.send("update-progress", { phase, percent, message: phase });
+        },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { message });
+      return [];
     }
   });
 

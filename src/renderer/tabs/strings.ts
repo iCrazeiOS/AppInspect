@@ -7,6 +7,12 @@
 import { DataTable, SearchBar } from "../components";
 import type { Column } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
+import {
+  createCrossBinaryState,
+  addAllBinariesToggle,
+  doCrossBinarySearch,
+  binaryTypeBadge,
+} from "../utils/cross-binary-search";
 
 interface StringEntry {
   value: string;
@@ -39,7 +45,12 @@ const LOCALISATION_COLUMNS: Column[] = [
   { key: "file", label: "File", width: "30%" },
 ];
 
-export function renderStrings(container: HTMLElement, data: unknown): void {
+const CROSS_BINARY_COLUMNS: Column[] = [
+  { key: "value", label: "String Value" },
+  { key: "binary", label: "Binary", width: "280px" },
+];
+
+export function renderStrings(container: HTMLElement, data: unknown, binaryCount: number = 1): void {
   container.innerHTML = "";
 
   // Handle both old format (array) and new format ({ binary, localisation })
@@ -120,11 +131,28 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
     wrapper.appendChild(toggleBar);
   }
 
+  // ── Cross-binary state ──
+  const xbin = createCrossBinaryState();
+
   // ── Search bar ──
   let searchTerm = "";
   let searchRegex = false;
 
   const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+    if (xbin.active) {
+      doCrossBinarySearch(term, "strings", xbin, () => {
+        const rows = xbin.results.map((r) => ({
+          value: r.match,
+          binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
+        }));
+        table.setColumns(CROSS_BINARY_COLUMNS);
+        table.setStorageKey("cols:strings:xbin");
+        table.setData(rows);
+        table.setFilter(null);
+        updateCount();
+      });
+      return;
+    }
     searchTerm = term;
     searchRegex = isRegex;
     saveSearchState("strings", term, isRegex);
@@ -132,6 +160,18 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   });
   searchBar.mount(wrapper);
   registerSearchBar("strings", searchBar);
+
+  addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
+    if (!xbin.active) {
+      // Switching back to local mode — restore original data
+      table.setColumns(mode === "binary" ? BINARY_COLUMNS : LOCALISATION_COLUMNS);
+      table.setStorageKey(mode === "binary" ? "cols:strings:binary" : "cols:strings:localisation");
+      table.setData(mode === "binary" ? binaryRows : localisationRows);
+      applyFilters();
+    }
+    const t = searchBar.getValue();
+    searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
+  });
 
   // ── Section/language filter chips ──
   const chipBar = document.createElement("div");

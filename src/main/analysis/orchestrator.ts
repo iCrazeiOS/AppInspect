@@ -85,6 +85,15 @@ let cachedInfoPlist: Record<string, unknown> = {};
 let cachedSourceType: SourceType = "ipa";
 let cachedFilePath: string = "";
 let cachedActiveBinaryName: string = "";
+// Per-binary lightweight index for cross-binary search
+interface BinarySearchIndex {
+  classes: string[];
+  strings: string[];
+  symbols: string[];
+}
+let cachedSearchIndex: Map<number, BinarySearchIndex> | null = null;
+
+export type SearchableTab = "classes" | "strings" | "symbols";
 
 export function getCachedResult(): AnalysisResult | null {
   return cachedResult;
@@ -92,6 +101,75 @@ export function getCachedResult(): AnalysisResult | null {
 
 export function getActiveBinaryName(): string {
   return cachedActiveBinaryName;
+}
+
+export function getCachedBinariesCount(): number {
+  return cachedBinaries.length;
+}
+
+// ── Cross-binary search (classes, strings, symbols) ────────────────
+
+async function ensureSearchIndex(
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<Map<number, BinarySearchIndex>> {
+  if (cachedSearchIndex) return cachedSearchIndex;
+
+  cachedSearchIndex = new Map();
+  for (let i = 0; i < cachedBinaries.length; i++) {
+    const bin = cachedBinaries[i]!;
+    progressCallback(
+      `Indexing ${bin.name}...`,
+      Math.round((i / cachedBinaries.length) * 100),
+    );
+    await yieldToEventLoop();
+    try {
+      const result = await analyseBinaryFile(bin.path, () => {}, 0);
+      cachedSearchIndex.set(i, {
+        classes: result.classes.map((c) => c.name),
+        strings: result.strings.map((s) => s.value),
+        symbols: result.symbols.map((s) => s.name),
+      });
+    } catch {
+      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [] });
+    }
+  }
+  return cachedSearchIndex;
+}
+
+export interface CrossBinarySearchResult {
+  binaryIndex: number;
+  binaryName: string;
+  binaryType: string;
+  match: string;
+}
+
+export async function searchAllBinaries(
+  query: string,
+  tab: SearchableTab,
+  progressCallback: (phase: string, percent: number) => void,
+): Promise<CrossBinarySearchResult[]> {
+  if (cachedBinaries.length === 0 || !query) return [];
+
+  const index = await ensureSearchIndex(progressCallback);
+  const lowerQuery = query.toLowerCase();
+  const results: CrossBinarySearchResult[] = [];
+
+  for (const [binaryIndex, entry] of index) {
+    const bin = cachedBinaries[binaryIndex];
+    if (!bin) continue;
+    for (const value of entry[tab]) {
+      if (value.toLowerCase().includes(lowerQuery)) {
+        results.push({
+          binaryIndex,
+          binaryName: bin.name,
+          binaryType: bin.type,
+          match: value,
+        });
+      }
+    }
+  }
+
+  return results;
 }
 
 // ── File tree builder ───────────────────────────────────────────────
@@ -1325,6 +1403,7 @@ export async function analyseIPA(
 
   const binaries = discoverBinaries(appBundlePath);
   cachedBinaries = binaries;
+  cachedSearchIndex = null;
 
   if (binaries.length === 0) {
     throw new Error("No binaries found in app bundle");
@@ -1622,6 +1701,7 @@ export async function analyseMachO(
     path: filePath,
     type: "main",
   }];
+  cachedSearchIndex = null;
   cachedActiveBinaryName = fileName;
 
   progressCallback("Analysing binary...", 10);
@@ -1699,6 +1779,7 @@ export async function analyseDEB(
     path: b.path,
     type: b.type === "tweak" ? "main" as const : "framework" as const,
   }));
+  cachedSearchIndex = null;
 
   if (cachedBinaries.length === 0) {
     throw new Error("No Mach-O binaries found in .deb package");
@@ -1839,6 +1920,7 @@ export async function analyseApp(
     ? discoverMacOSBinaries(appPath)
     : discoverBinaries(appPath);
   cachedBinaries = binaries;
+  cachedSearchIndex = null;
 
   if (binaries.length === 0) {
     throw new Error("No binaries found in .app bundle");

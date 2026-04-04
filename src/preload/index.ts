@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("get-settings"),
   setSettings: (settings: any) =>
     ipcRenderer.invoke("set-settings", settings),
+  searchAllBinaries: (query: string, tab: string) =>
+    ipcRenderer.invoke("search-all-binaries", { query, tab }),
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
   openFile: (filePath: string) =>

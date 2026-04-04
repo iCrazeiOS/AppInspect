@@ -7,6 +7,7 @@ export class SearchBar {
   private onFilter: (term: string, isRegex: boolean, caseSensitive: boolean) => void;
   private container: HTMLElement | null = null;
   private root: HTMLElement | null = null;
+  private inputWrap: HTMLElement | null = null;
   private input: HTMLInputElement | null = null;
   private regexBtn: HTMLButtonElement | null = null;
   private caseBtn: HTMLButtonElement | null = null;
@@ -33,6 +34,7 @@ export class SearchBar {
     // Input wrapper
     const inputWrap = document.createElement("div");
     inputWrap.className = "sb-input-wrap";
+    this.inputWrap = inputWrap;
 
     // Search icon
     const icon = document.createElement("span");
@@ -178,6 +180,14 @@ export class SearchBar {
     this.emitFilter();
   }
 
+  /** Append a custom toggle button inside the input wrapper (after regex btn). */
+  addToggle(btn: HTMLButtonElement): void {
+    if (this.inputWrap) {
+      btn.classList.add("sb-extra-toggle");
+      this.inputWrap.appendChild(btn);
+    }
+  }
+
   /** Focus the search input element. */
   focus(): void {
     this.input?.focus();
@@ -190,6 +200,7 @@ export class SearchBar {
     }
     this.root = null;
     this.container = null;
+    this.inputWrap = null;
     this.input = null;
     this.regexBtn = null;
     this.caseBtn = null;

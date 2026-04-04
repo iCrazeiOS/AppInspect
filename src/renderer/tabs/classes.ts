@@ -5,6 +5,12 @@
 import { SearchBar, EmptyState } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 import { saveWidths, loadWidths } from "../utils/layout-store";
+import {
+  createCrossBinaryState,
+  addAllBinariesToggle,
+  doCrossBinarySearch,
+  binaryTypeBadge,
+} from "../utils/cross-binary-search";
 
 interface ObjCMethod {
   selector: string;
@@ -207,7 +213,7 @@ function copyWithFeedback(btn: HTMLButtonElement, text: string): void {
 
 // ── Main render ──
 
-export function renderClasses(container: HTMLElement, data: any): void {
+export function renderClasses(container: HTMLElement, data: any, binaryCount: number = 1): void {
   container.innerHTML = "";
 
   const classesData = data as ClassesData | null;
@@ -228,6 +234,9 @@ export function renderClasses(container: HTMLElement, data: any): void {
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
   let selectedMethod: ObjCMethod | null = null;
+
+  // ── Cross-binary search state ──
+  const xbin = createCrossBinaryState();
 
   // Stats bar
   const stats = document.createElement("div");
@@ -253,6 +262,14 @@ export function renderClasses(container: HTMLElement, data: any): void {
 
   // Search bar
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
+    if (xbin.active) {
+      doCrossBinarySearch(term, "classes", xbin, () => {
+        searchBar.updateCount(xbin.results.length, xbin.results.length);
+        renderList();
+      });
+      return;
+    }
+
     if (!term) {
       filteredClasses = allClasses;
     } else {
@@ -281,11 +298,10 @@ export function renderClasses(container: HTMLElement, data: any): void {
   registerSearchBar("classes", searchBar);
   searchBar.updateCount(filteredClasses.length, allClasses.length);
 
-  // Restore saved search state
-  const savedState = getSearchState("classes");
-  if (savedState && savedState.term) {
-    searchBar.setValue(savedState.term, savedState.isRegex);
-  }
+  addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
+    const t = searchBar.getValue();
+    searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
+  });
 
   // Virtual scroll container for class list
   const scrollContainer = document.createElement("div");
@@ -300,12 +316,24 @@ export function renderClasses(container: HTMLElement, data: any): void {
   rowContainer.className = "cls-rows";
   scrollContainer.appendChild(rowContainer);
 
+  const CROSS_ROW_HEIGHT = 44; // taller rows for cross-binary results
+
   function renderList(): void {
-    spacer.style.height = `${filteredClasses.length * ROW_HEIGHT}px`;
+    if (xbin.active) {
+      const rh = CROSS_ROW_HEIGHT;
+      spacer.style.height = `${xbin.results.length * rh}px`;
+    } else {
+      spacer.style.height = `${filteredClasses.length * ROW_HEIGHT}px`;
+    }
     renderVisibleRows();
   }
 
   function renderVisibleRows(): void {
+    if (xbin.active) {
+      renderCrossBinaryRows();
+      return;
+    }
+
     const scrollTop = scrollContainer.scrollTop;
     const viewportHeight = scrollContainer.clientHeight;
     const total = filteredClasses.length;
@@ -344,6 +372,75 @@ export function renderClasses(container: HTMLElement, data: any): void {
     rowContainer.appendChild(fragment);
   }
 
+  function renderCrossBinaryRows(): void {
+    if (xbin.loading) {
+      rowContainer.innerHTML = "";
+      rowContainer.style.transform = "";
+      const loading = document.createElement("div");
+      loading.className = "cls-cross-loading";
+      loading.textContent = "Indexing binaries\u2026";
+      rowContainer.appendChild(loading);
+      return;
+    }
+
+    if (xbin.results.length === 0) {
+      rowContainer.innerHTML = "";
+      rowContainer.style.transform = "";
+      const hint = document.createElement("div");
+      hint.className = "cls-cross-loading";
+      hint.textContent = searchBar.getValue()
+        ? "No classes found across binaries."
+        : "Type a class name to search across all binaries.";
+      rowContainer.appendChild(hint);
+      return;
+    }
+
+    const rh = CROSS_ROW_HEIGHT;
+    const scrollTop = scrollContainer.scrollTop;
+    const viewportHeight = scrollContainer.clientHeight;
+    const total = xbin.results.length;
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / rh) - BUFFER);
+    const visibleCount = Math.ceil(viewportHeight / rh);
+    const endIndex = Math.min(total, startIndex + visibleCount + BUFFER * 2);
+
+    rowContainer.style.transform = `translateY(${startIndex * rh}px)`;
+
+    const fragment = document.createDocumentFragment();
+    for (let i = startIndex; i < endIndex; i++) {
+      const result = xbin.results[i];
+      if (!result) continue;
+
+      const row = document.createElement("div");
+      row.className = "cls-row cls-cross-row";
+      row.style.height = `${rh}px`;
+      row.title = `${result.match} in ${result.binaryName}`;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "cls-cross-name";
+      nameSpan.textContent = result.match;
+      row.appendChild(nameSpan);
+
+      const binSpan = document.createElement("span");
+      binSpan.className = "cls-cross-binary";
+      binSpan.textContent = `${result.binaryName}  [${binaryTypeBadge(result.binaryType)}]`;
+      row.appendChild(binSpan);
+
+      row.addEventListener("click", () => {
+        // Switch to that binary via the dropdown
+        const dropdown = document.getElementById("binary-dropdown") as HTMLSelectElement | null;
+        if (dropdown && dropdown.value !== String(result.binaryIndex)) {
+          dropdown.value = String(result.binaryIndex);
+          dropdown.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      });
+
+      fragment.appendChild(row);
+    }
+    rowContainer.innerHTML = "";
+    rowContainer.appendChild(fragment);
+  }
+
   let rafId = 0;
   scrollContainer.addEventListener(
     "scroll",
@@ -356,6 +453,12 @@ export function renderClasses(container: HTMLElement, data: any): void {
     },
     { passive: true }
   );
+
+  // Restore saved search state (must happen after spacer/rowContainer are created)
+  const savedState = getSearchState("classes");
+  if (savedState && savedState.term) {
+    searchBar.setValue(savedState.term, savedState.isRegex);
+  }
 
   // Protocols collapsible section
   if (allProtocols.length > 0) {

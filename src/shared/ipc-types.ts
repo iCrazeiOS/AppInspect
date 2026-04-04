@@ -98,6 +98,15 @@ export type TabData =
   | FilesTabData
   | HooksTabData;
 
+export interface CrossBinarySearchResult {
+  binaryIndex: number;
+  binaryName: string;
+  binaryType: string;
+  match: string;
+}
+
+export type SearchableTab = 'classes' | 'strings' | 'symbols';
+
 export type TabName = TabData['tab'];
 
 // ── Invoke channels (renderer -> main) ──
@@ -126,6 +135,10 @@ export type InvokeChannelMap = {
   'analyse-binary': {
     params: { binaryIndex: number };
     result: AnalysisResult;
+  };
+  'search-all-binaries': {
+    params: { query: string; tab: SearchableTab };
+    result: CrossBinarySearchResult[];
   };
   'get-settings': {
     params: void;

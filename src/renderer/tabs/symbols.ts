@@ -6,6 +6,12 @@
 import { DataTable, SearchBar } from "../components";
 import type { Column } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
+import {
+  createCrossBinaryState,
+  addAllBinariesToggle,
+  doCrossBinarySearch,
+  binaryTypeBadge,
+} from "../utils/cross-binary-search";
 
 interface SymbolEntry {
   name: string;
@@ -21,7 +27,12 @@ const COLUMNS: Column[] = [
 
 type TypeFilter = "all" | "exported" | "imported" | "local";
 
-export function renderSymbols(container: HTMLElement, data: unknown): void {
+const CROSS_BINARY_COLUMNS: Column[] = [
+  { key: "name", label: "Symbol Name" },
+  { key: "binary", label: "Binary", width: "280px" },
+];
+
+export function renderSymbols(container: HTMLElement, data: unknown, binaryCount: number = 1): void {
   container.innerHTML = "";
 
   const entries = (Array.isArray(data) ? data : []) as SymbolEntry[];
@@ -46,11 +57,28 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   wrapper.className = "symbols-tab";
   wrapper.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;";
 
+  // ── Cross-binary state ──
+  const xbin = createCrossBinaryState();
+
   // ── Search bar ──
   let searchTerm = "";
   let searchRegex = false;
 
   const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+    if (xbin.active) {
+      doCrossBinarySearch(term, "symbols", xbin, () => {
+        const xrows = xbin.results.map((r) => ({
+          name: r.match,
+          binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
+        }));
+        table.setColumns(CROSS_BINARY_COLUMNS);
+        table.setStorageKey("cols:symbols:xbin");
+        table.setData(xrows);
+        table.setFilter(null);
+        updateCount();
+      });
+      return;
+    }
     searchTerm = term;
     searchRegex = isRegex;
     saveSearchState("symbols", term, isRegex);
@@ -58,6 +86,18 @@ export function renderSymbols(container: HTMLElement, data: unknown): void {
   });
   searchBar.mount(wrapper);
   registerSearchBar("symbols", searchBar);
+
+  addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
+    if (!xbin.active) {
+      // Switching back to local mode — restore original columns/data
+      table.setColumns(COLUMNS);
+      table.setStorageKey("cols:symbols");
+      table.setData(rows);
+      applyFilters();
+    }
+    const t = searchBar.getValue();
+    searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
+  });
 
   // ── Type filter buttons ──
   let activeType: TypeFilter = "all";

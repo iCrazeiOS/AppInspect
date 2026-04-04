@@ -1,5 +1,5 @@
 import type { AnalysisResult, AppSettings } from "../shared/types";
-import type { TabData, TabName, ProgressPayload, AnalysisErrorPayload } from "../shared/ipc-types";
+import type { TabData, TabName, ProgressPayload, AnalysisErrorPayload, CrossBinarySearchResult, SearchableTab } from "../shared/ipc-types";
 
 export interface AppInspectAPI {
   analyseFile(filePath: string): Promise<AnalysisResult>;
@@ -10,6 +10,7 @@ export interface AppInspectAPI {
   openFilePicker(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(settings: AppSettings): Promise<void>;
+  searchAllBinaries(query: string, tab: SearchableTab): Promise<CrossBinarySearchResult[]>;
   showItemInFolder(filePath: string): Promise<void>;
   openFile(filePath: string): Promise<void>;
   getPlatform(): Promise<string>;

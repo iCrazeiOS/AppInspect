@@ -189,21 +189,27 @@ async function loadTabData(tabId: string): Promise<void> {
         case "headers":
           renderHeaders(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "strings":
-          renderStrings(panel, (tabData as any)?.data ?? tabData);
+        case "strings": {
+          const strBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
+          renderStrings(panel, (tabData as any)?.data ?? tabData, strBinCount);
           break;
-        case "symbols":
-          renderSymbols(panel, (tabData as any)?.data ?? tabData);
+        }
+        case "symbols": {
+          const symBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
+          renderSymbols(panel, (tabData as any)?.data ?? tabData, symBinCount);
           break;
+        }
         case "security":
           renderSecurity(panel, (tabData as any)?.data ?? tabData);
           break;
         case "files":
           renderFiles(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "classes":
-          renderClasses(panel, (tabData as any)?.data ?? tabData);
+        case "classes": {
+          const binaryCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
+          renderClasses(panel, (tabData as any)?.data ?? tabData, binaryCount);
           break;
+        }
         case "entitlements":
           renderEntitlements(panel, (tabData as any)?.data ?? tabData);
           break;
@@ -320,6 +326,7 @@ async function handleBinaryChange(): Promise<void> {
     const prevArch = prevArchs?.[currentArchIndex];
 
     const result = await window.api.analyseBinary(selectedIndex);
+    if (!result) throw new Error("Binary analysis returned no result");
     analysisResult = result;
 
     // Clear all cached tab renders so they re-render with new data
