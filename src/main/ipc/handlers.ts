@@ -222,16 +222,29 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── open-file-picker ──
   ipcMain.handle("open-file-picker", async () => {
     try {
+      // On macOS, .app bundles are directories that appear as files in
+      // Finder, so we need both openFile and openDirectory. On Windows
+      // and Linux, combining the two flags results in a folder-only
+      // picker, so we only allow openFile (folders can still be dropped).
+      const props: Electron.OpenDialogOptions["properties"] =
+        process.platform === "darwin"
+          ? ["openFile", "openDirectory"]
+          : ["openFile"];
+
+      const isMac = process.platform === "darwin";
+
+      const filters: Electron.FileFilter[] = [
+        { name: "Supported Files", extensions: isMac ? ["ipa", "deb", "dylib", "app"] : ["ipa", "deb", "dylib"] },
+        ...(isMac ? [{ name: "App Bundles", extensions: ["app"] }] : []),
+        { name: "IPA Files", extensions: ["ipa"] },
+        { name: "DEB Packages", extensions: ["deb"] },
+        { name: "Mach-O Binaries", extensions: ["dylib"] },
+        { name: "All Files", extensions: ["*"] },
+      ];
+
       const result = await dialog.showOpenDialog(win, {
-        filters: [
-          { name: "Supported Files", extensions: ["ipa", "deb", "dylib", "app"] },
-          { name: "App Bundles", extensions: ["app"] },
-          { name: "IPA Files", extensions: ["ipa"] },
-          { name: "DEB Packages", extensions: ["deb"] },
-          { name: "Mach-O Binaries", extensions: ["dylib"] },
-          { name: "All Files", extensions: ["*"] },
-        ],
-        properties: ["openFile", "openDirectory"],
+        filters,
+        properties: props,
       });
 
       if (result.canceled || result.filePaths.length === 0) {
