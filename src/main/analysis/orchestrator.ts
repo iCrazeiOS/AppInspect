@@ -47,10 +47,10 @@ import type { LoadCommandsResult, Segment64, Section64 } from "../parser/load-co
 import { buildFixupMap } from "../parser/chained-fixups";
 import { extractStrings } from "../parser/strings";
 import type { StringEntry as ParserStringEntry } from "../parser/strings";
-import { parseSymbolTable, parseExportTrie } from "../parser/symbols";
+import { parseSymbolTable } from "../parser/symbols";
 import type { Symbol as ParserSymbol } from "../parser/symbols";
 import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
-import { parseCodeSignature, extractEntitlements } from "../parser/codesign";
+import { parseCodeSignature } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
 import { runSecurityScan, getBinaryHardening, scanBundleFileContents, isScannableExtension } from "./security";
 import type { BundleFileEntry } from "./security";
@@ -74,19 +74,6 @@ import {
 /** Yield to the event loop so the UI stays responsive during heavy parsing. */
 const yieldToEventLoop = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
-
-// ── BigInt serialization helpers ────────────────────────────────────
-
-/**
- * Convert bigint values to numbers (or strings for very large values)
- * so the result can be JSON-serialized over IPC.
- */
-function bigintToNumber(val: bigint): number | string {
-  if (val <= BigInt(Number.MAX_SAFE_INTEGER) && val >= BigInt(Number.MIN_SAFE_INTEGER)) {
-    return Number(val);
-  }
-  return val.toString();
-}
 
 // ── Cached state ────────────────────────────────────────────────────
 

@@ -93,7 +93,8 @@ export class DataTable {
     if (!this.headerRow) return;
     this.headerRow.innerHTML = "";
 
-    for (const col of this.columns) {
+    for (let ci = 0; ci < this.columns.length; ci++) {
+      const col = this.columns[ci];
       const cell = document.createElement("div");
       cell.className = "dt-hcell";
       if (col.width) cell.style.width = col.width;
@@ -112,8 +113,73 @@ export class DataTable {
       cell.appendChild(indicator);
 
       cell.addEventListener("click", () => this.handleSort(col.key));
+
+      // Resize handle (not on the last column)
+      if (ci < this.columns.length - 1) {
+        const handle = document.createElement("div");
+        handle.className = "dt-resize-handle";
+        handle.addEventListener("mousedown", (e) => {
+          e.stopPropagation(); // prevent sort
+          e.preventDefault();
+          this.startResize(ci, cell, e);
+        });
+        cell.appendChild(handle);
+      }
+
       this.headerRow.appendChild(cell);
     }
+  }
+
+  private startResize(colIndex: number, headerCell: HTMLElement, e: MouseEvent): void {
+    const startX = e.clientX;
+    // If the column has no explicit pixel width yet, capture its rendered width
+    const startWidth = headerCell.getBoundingClientRect().width;
+
+    const handle = headerCell.querySelector(".dt-resize-handle") as HTMLElement | null;
+    handle?.classList.add("dt-resizing");
+
+    // Prevent text selection during drag
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    const onMouseMove = (ev: MouseEvent): void => {
+      const delta = ev.clientX - startX;
+      const newWidth = Math.max(50, startWidth + delta);
+      const widthStr = `${Math.round(newWidth)}px`;
+
+      // Update header cell
+      headerCell.style.width = widthStr;
+      headerCell.style.flex = "";
+
+      // Update all visible data cells in the same column
+      if (this.rowContainer) {
+        const rows = this.rowContainer.children;
+        for (let r = 0; r < rows.length; r++) {
+          const cell = rows[r].children[colIndex] as HTMLElement | undefined;
+          if (cell) {
+            cell.style.width = widthStr;
+            cell.style.flex = "";
+          }
+        }
+      }
+    };
+
+    const onMouseUp = (ev: MouseEvent): void => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.userSelect = prevSelect;
+      handle?.classList.remove("dt-resizing");
+
+      const delta = ev.clientX - startX;
+      const newWidth = Math.max(50, startWidth + delta);
+      this.columns[colIndex].width = `${Math.round(newWidth)}px`;
+
+      // Re-render visible rows so virtual scroll picks up the persisted width
+      this.renderVisibleRows();
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
   }
 
   private handleSort(key: string): void {

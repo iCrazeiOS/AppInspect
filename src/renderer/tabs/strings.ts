@@ -33,10 +33,10 @@ const BINARY_COLUMNS: Column[] = [
 ];
 
 const LOCALISATION_COLUMNS: Column[] = [
-  { key: "key", label: "Key" },
+  { key: "key", label: "Key", width: "25%" },
   { key: "value", label: "Value" },
   { key: "language", label: "Language", width: "100px" },
-  { key: "file", label: "File", width: "200px" },
+  { key: "file", label: "File", width: "30%" },
 ];
 
 export function renderStrings(container: HTMLElement, data: unknown): void {

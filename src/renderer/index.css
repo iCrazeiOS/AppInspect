@@ -648,10 +648,38 @@ body.platform-darwin .app-title-row {
   user-select: none;
   white-space: nowrap;
   overflow: hidden;
+  position: relative;
 }
 
 .dt-hcell:hover {
   color: var(--text);
+}
+
+.dt-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+}
+
+.dt-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  right: 2px;
+  width: 1px;
+  height: 50%;
+  background: transparent;
+  transition: background 150ms;
+}
+
+.dt-resize-handle:hover::after,
+.dt-resize-handle.dt-resizing::after {
+  background: var(--accent, #7aa2f7);
 }
 
 .dt-sort-indicator {
