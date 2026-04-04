@@ -105,7 +105,7 @@ export interface CrossBinarySearchResult {
   match: string;
 }
 
-export type SearchableTab = 'classes' | 'strings' | 'symbols';
+export type SearchableTab = 'classes' | 'strings' | 'symbols' | 'libraries';
 
 export type TabName = TabData['tab'];
 

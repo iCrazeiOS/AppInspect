@@ -183,9 +183,11 @@ async function loadTabData(tabId: string): Promise<void> {
         case "overview":
           renderOverview(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "libraries":
-          renderLibraries(panel, (tabData as any)?.data ?? tabData);
+        case "libraries": {
+          const libBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
+          renderLibraries(panel, (tabData as any)?.data ?? tabData, libBinCount);
           break;
+        }
         case "headers":
           renderHeaders(panel, (tabData as any)?.data ?? tabData);
           break;

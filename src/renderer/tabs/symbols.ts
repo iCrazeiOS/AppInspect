@@ -11,6 +11,8 @@ import {
   addAllBinariesToggle,
   doCrossBinarySearch,
   binaryTypeBadge,
+  createCrossBinaryHint,
+  updateCrossBinaryHint,
 } from "../utils/cross-binary-search";
 
 interface SymbolEntry {
@@ -66,17 +68,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
 
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
-      doCrossBinarySearch(term, "symbols", xbin, () => {
-        const xrows = xbin.results.map((r) => ({
-          name: r.match,
-          binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
-        }));
-        table.setColumns(CROSS_BINARY_COLUMNS);
-        table.setStorageKey("cols:symbols:xbin");
-        table.setData(xrows);
-        table.setFilter(null);
-        updateCount();
-      }, isRegex, caseSensitive);
+      doCrossBinarySearch(term, "symbols", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;
@@ -157,11 +149,27 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
   table.mount(tableWrap);
   table.onCapChange(() => updateCount());
 
+  // ── Cross-binary "show all" hint ──
+  const xbinHint = createCrossBinaryHint(tableWrap);
+
+  function applyCrossBinaryResults(): void {
+    const xrows = xbin.results.map((r) => ({
+      name: r.match,
+      binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
+    }));
+    table.setColumns(CROSS_BINARY_COLUMNS);
+    table.setStorageKey("cols:symbols:xbin");
+    table.setData(xrows);
+    table.setFilter(null);
+    updateCount();
+  }
+
   function updateCount(): void {
     const shown = table.filteredCount;
     const total = table.totalCount;
     rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} symbols`;
     searchBar.updateCount(shown, total);
+    updateCrossBinaryHint(xbinHint, xbin, searchBar.getValue(), "symbols", "symbols", applyCrossBinaryResults);
   }
 
   function applyFilters(): void {

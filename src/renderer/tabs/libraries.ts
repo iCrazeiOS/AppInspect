@@ -7,6 +7,14 @@ import { DataTable, SearchBar, EmptyState } from "../components";
 import type { Column } from "../components";
 import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
 import { el } from "../utils/dom";
+import {
+  createCrossBinaryState,
+  addAllBinariesToggle,
+  doCrossBinarySearch,
+  binaryTypeBadge,
+  createCrossBinaryHint,
+  updateCrossBinaryHint,
+} from "../utils/cross-binary-search";
 
 // ── Helpers ──
 
@@ -16,9 +24,20 @@ function classifyLibrary(name: string): "system" | "swift" | "embedded" {
   return "embedded";
 }
 
+const COLUMNS: Column[] = [
+  { key: "name", label: "Name" },
+  { key: "currentVersion", label: "Version", width: "120px" },
+  { key: "type", label: "Type", width: "80px" },
+];
+
+const CROSS_BINARY_COLUMNS: Column[] = [
+  { key: "name", label: "Library Name" },
+  { key: "binary", label: "Binary", width: "280px" },
+];
+
 // ── Main render ──
 
-export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | null): void {
+export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | null, binaryCount: number = 1): void {
   container.innerHTML = "";
 
   if (!data || data.length === 0) {
@@ -49,37 +68,23 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   summary.appendChild(buildCountBadge("Embedded", embeddedCount));
   wrapper.appendChild(summary);
 
+  // ── Cross-binary state ──
+  const xbin = createCrossBinaryState();
+
   // ── Search bar ──
   const searchContainer = el("div", "lib-search");
   wrapper.appendChild(searchContainer);
 
-  // ── Data Table ──
-  const tableContainer = el("div", "lib-table");
-  wrapper.appendChild(tableContainer);
-  container.appendChild(wrapper);
+  let searchTerm = "";
+  let searchRegex = false;
 
-  const columns: Column[] = [
-    { key: "name", label: "Name" },
-    { key: "currentVersion", label: "Version", width: "120px" },
-    { key: "type", label: "Type", width: "80px" },
-  ];
-
-  const table = new DataTable(columns);
-  table.setStorageKey("cols:libraries");
-  table.mount(tableContainer);
-
-  // Convert to table rows
-  const rows = data.map((lib) => ({
-    name: lib.name.includes("@rpath") ? "\u26A0 " + lib.name : lib.name,
-    currentVersion: lib.currentVersion ?? "",
-    type: lib.weak ? "weak" : "strong",
-    _rawName: lib.name,
-  }));
-
-  table.setData(rows as any);
-
-  // ── Wire up search ──
-  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+  const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
+    if (xbin.active) {
+      doCrossBinarySearch(term, "libraries", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
+      return;
+    }
+    searchTerm = term;
+    searchRegex = isRegex;
     if (!term) {
       table.setFilter(null);
     } else if (isRegex) {
@@ -94,11 +99,87 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
       table.setFilter((row) => String(row["name"] ?? "").toLowerCase().includes(lc));
     }
     saveSearchState("libraries", term, isRegex);
-    searchBar.updateCount(table.filteredCount, table.totalCount);
+    updateCount();
   });
   searchBar.mount(searchContainer);
   registerSearchBar("libraries", searchBar);
-  searchBar.updateCount(table.filteredCount, table.totalCount);
+
+  addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
+    if (!xbin.active) {
+      // Switching back to local mode — restore original columns/data
+      table.setColumns(COLUMNS);
+      table.setStorageKey("cols:libraries");
+      table.setData(rows as any);
+      applyLocalFilter();
+    }
+    const t = searchBar.getValue();
+    searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
+  });
+
+  // ── Row count ──
+  const rowCount = el("div", "tab-row-count");
+  wrapper.appendChild(rowCount);
+
+  // ── Data Table ──
+  const tableContainer = el("div", "lib-table");
+  wrapper.appendChild(tableContainer);
+  container.appendChild(wrapper);
+
+  const table = new DataTable(COLUMNS);
+  table.setStorageKey("cols:libraries");
+  table.mount(tableContainer);
+
+  // ── Cross-binary "show all" hint ──
+  const xbinHint = createCrossBinaryHint(tableContainer);
+
+  function applyCrossBinaryResults(): void {
+    const xrows = xbin.results.map((r) => ({
+      name: r.match,
+      binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
+    }));
+    table.setColumns(CROSS_BINARY_COLUMNS);
+    table.setStorageKey("cols:libraries:xbin");
+    table.setData(xrows);
+    table.setFilter(null);
+    updateCount();
+  }
+
+  // Convert to table rows
+  const rows = data.map((lib) => ({
+    name: lib.name.includes("@rpath") ? "\u26A0 " + lib.name : lib.name,
+    currentVersion: lib.currentVersion ?? "",
+    type: lib.weak ? "weak" : "strong",
+    _rawName: lib.name,
+  }));
+
+  table.setData(rows as any);
+
+  function updateCount(): void {
+    const shown = table.filteredCount;
+    const total = table.totalCount;
+    rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} libraries`;
+    searchBar.updateCount(shown, total);
+    updateCrossBinaryHint(xbinHint, xbin, searchBar.getValue(), "libraries", "libraries", applyCrossBinaryResults);
+  }
+
+  function applyLocalFilter(): void {
+    if (!searchTerm) {
+      table.setFilter(null);
+    } else if (searchRegex) {
+      try {
+        const re = new RegExp(searchTerm, "i");
+        table.setFilter((row) => re.test(String(row["name"] ?? "")));
+      } catch {
+        // invalid regex — ignore
+      }
+    } else {
+      const lc = searchTerm.toLowerCase();
+      table.setFilter((row) => String(row["name"] ?? "").toLowerCase().includes(lc));
+    }
+    updateCount();
+  }
+
+  updateCount();
 
   // Restore saved search state
   const savedState = getSearchState("libraries");

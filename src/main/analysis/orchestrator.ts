@@ -83,10 +83,11 @@ interface BinarySearchIndex {
   classes: string[];
   strings: string[];
   symbols: string[];
+  libraries: string[];
 }
 let cachedSearchIndex: Map<number, BinarySearchIndex> | null = null;
 
-export type SearchableTab = "classes" | "strings" | "symbols";
+export type SearchableTab = "classes" | "strings" | "symbols" | "libraries";
 
 export function getCachedResult(): AnalysisResult | null {
   return cachedResult;
@@ -121,9 +122,10 @@ async function ensureSearchIndex(
         classes: result.classes.map((c) => c.name),
         strings: result.strings.map((s) => s.value),
         symbols: result.symbols.map((s) => s.name),
+        libraries: result.libraries.map((l) => l.name),
       });
     } catch {
-      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [] });
+      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [], libraries: [] });
     }
   }
   return cachedSearchIndex;

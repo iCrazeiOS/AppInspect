@@ -10,6 +10,7 @@ import {
   addAllBinariesToggle,
   doCrossBinarySearch,
   binaryTypeBadge,
+  buildShowAllLink,
 } from "../utils/cross-binary-search";
 
 interface ObjCMethod {
@@ -392,17 +393,9 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
         hint.textContent = "No classes found across binaries.";
       } else {
         hint.textContent = "Type a class name to search across all binaries.";
-        const showAll = document.createElement("a");
-        showAll.className = "cls-cross-show-all";
-        showAll.textContent = "Show all classes";
-        showAll.href = "#";
-        showAll.addEventListener("click", (e) => {
-          e.preventDefault();
-          // Trigger a wildcard search that matches everything
-          doCrossBinarySearch(".", "classes", xbin, () => {
-            searchBar.updateCount(xbin.results.length, xbin.results.length);
-            renderList();
-          }, true, false);
+        const showAll = buildShowAllLink("classes", "classes", xbin, () => {
+          searchBar.updateCount(xbin.results.length, xbin.results.length);
+          renderList();
         });
         hint.appendChild(document.createElement("br"));
         hint.appendChild(showAll);
