@@ -31,6 +31,9 @@ interface ClassesData {
 const ROW_HEIGHT = 28;
 const BUFFER = 20;
 
+/** Set externally (e.g. by cross-binary click) to auto-select a class after render. */
+let pendingClassSelect: string | null = null;
+
 // ── Method signature parsing helpers ──
 
 interface ParsedMethod {
@@ -436,9 +439,32 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       row.appendChild(binSpan);
 
       row.addEventListener("click", () => {
-        // Switch to that binary via the dropdown
         const dropdown = document.getElementById("binary-dropdown") as HTMLSelectElement | null;
-        if (dropdown && dropdown.value !== String(result.binaryIndex)) {
+        const sameBinary = !dropdown || dropdown.value === String(result.binaryIndex);
+
+        if (sameBinary) {
+          // Same binary — find the class locally, disable xbin mode, select it
+          const cls = allClasses.find((c) => c.name === result.match);
+          if (cls) {
+            xbin.active = false;
+            // Visually deactivate the "All" toggle button
+            const toggleBtn = leftPanel.querySelector(".sb-extra-toggle--active");
+            if (toggleBtn) toggleBtn.classList.remove("sb-extra-toggle--active");
+            searchBar.setValue("", false);
+            selectedClass = cls;
+            selectedMethod = null;
+            filteredClasses = allClasses;
+            searchBar.updateCount(filteredClasses.length, allClasses.length);
+            renderList();
+            renderDetail();
+            renderSidebar();
+            // Scroll the selected class into view
+            const idx = filteredClasses.indexOf(cls);
+            if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
+          }
+        } else if (dropdown) {
+          // Different binary — queue the class name, then switch
+          pendingClassSelect = result.match;
           dropdown.value = String(result.binaryIndex);
           dropdown.dispatchEvent(new Event("change", { bubbles: true }));
         }
@@ -926,6 +952,22 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       copySigBtn.textContent = "Copy Signature";
       copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
       actions.appendChild(copySigBtn);
+    }
+  }
+
+  // Check for pending class selection (from cross-binary click on a different binary)
+  if (pendingClassSelect) {
+    const cls = allClasses.find((c) => c.name === pendingClassSelect);
+    pendingClassSelect = null;
+    if (cls) {
+      selectedClass = cls;
+      selectedMethod = null;
+      renderList();
+      renderDetail();
+      renderSidebar();
+      const idx = filteredClasses.indexOf(cls);
+      if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
+      return;
     }
   }
 
