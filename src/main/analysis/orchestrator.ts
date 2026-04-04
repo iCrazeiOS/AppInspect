@@ -51,13 +51,11 @@ import { parseSymbolTable } from "../parser/symbols";
 import type { Symbol as ParserSymbol } from "../parser/symbols";
 import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
 import { parseCodeSignature } from "../parser/codesign";
-import { parseInfoPlist, parseMobileprovision } from "../parser/plist";
+import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
 import { runSecurityScan, getBinaryHardening, scanBundleFileContents, isScannableExtension } from "./security";
 import type { BundleFileEntry } from "./security";
 import { loadSettings } from "../settings";
 import { parseFunctionStarts, buildStringXrefMap, formatFunctionName } from "../parser/xrefs";
-import bplist from "bplist-parser";
-import plist from "plist";
 import { extractDEB } from "../deb/extractor";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import {
@@ -1146,29 +1144,21 @@ function getBundleSizeLimits(): { maxTotal: number; maxSingle: number } {
 }
 
 /**
- * Try to parse a binary plist or compiled .strings file into a JSON text
- * representation so it can be scanned for secrets. Returns null if the
- * file isn't a binary plist or can't be parsed.
+ * Try to parse a plist (binary or XML) into a JSON text representation
+ * so it can be scanned for secrets. Returns null if parsing fails.
  */
-function tryParseBinaryPlist(buf: Buffer): string | null {
-  // Check for bplist magic
-  if (buf.length < 6 || buf.toString("ascii", 0, 6) !== "bplist") {
+function tryParsePlistToJson(buf: Buffer): string | null {
+  try {
+    const parsed = parsePlistBuffer(buf);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
     return null;
   }
-  try {
-    const parsed = bplist.parseBuffer(buf);
-    if (parsed && parsed.length > 0) {
-      return JSON.stringify(parsed[0], null, 2);
-    }
-  } catch {
-    // Fall through
-  }
-  return null;
 }
 
 /**
  * Check if a file appears to be binary (has null bytes in the first 512 bytes).
- * Binary plists are handled separately via tryParseBinaryPlist.
+ * Plists are handled separately via tryParsePlistToJson.
  */
 function hasBinaryContent(buf: Buffer): boolean {
   const checkLen = Math.min(buf.length, 512);
@@ -1218,8 +1208,8 @@ function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
         const rawBuf = fs.readFileSync(fullPath);
         let content: string;
 
-        // Try parsing binary plists (.plist, .strings can be binary plist format)
-        const plistText = tryParseBinaryPlist(rawBuf);
+        // Try parsing plists (.plist, .strings can be binary or XML plist format)
+        const plistText = tryParsePlistToJson(rawBuf);
         if (plistText !== null) {
           content = plistText;
         } else if (hasBinaryContent(rawBuf)) {
@@ -1245,42 +1235,24 @@ function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
 // ── Localisation string extraction ──────────────────────────────────
 
 /**
- * Parse a .strings file content (Apple old-style plist or XML plist format)
- * into key-value pairs. Handles both text and binary plist .strings files.
+ * Parse a .strings file content (binary plist, XML plist, or old-style format)
+ * into key-value pairs.
  */
 function parseStringsFile(buf: Buffer): Record<string, string> {
   const result: Record<string, string> = {};
 
-  // Try binary plist first
-  if (buf.length >= 6 && buf.toString("ascii", 0, 6) === "bplist") {
-    try {
-      const parsed = bplist.parseBuffer(buf);
-      if (parsed && parsed.length > 0 && typeof parsed[0] === "object") {
-        for (const [k, v] of Object.entries(parsed[0] as Record<string, unknown>)) {
-          if (typeof v === "string") result[k] = v;
-        }
-      }
-      return result;
-    } catch {
-      return result;
+  // Try binary or XML plist first
+  try {
+    const parsed = parsePlistBuffer(buf);
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === "string") result[k] = v;
     }
+    return result;
+  } catch {
+    // Fall through to old-style format
   }
 
-  // Try XML plist
   const text = buf.toString("utf-8");
-  if (text.trimStart().startsWith("<?xml") || text.trimStart().startsWith("<!DOCTYPE")) {
-    try {
-      const parsed = plist.parse(text) as Record<string, unknown>;
-      if (typeof parsed === "object" && parsed !== null) {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string") result[k] = v;
-        }
-      }
-      return result;
-    } catch {
-      // Fall through to old-style format
-    }
-  }
 
   // Old-style .strings format: "key" = "value";
   const regex = /"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;/g;
@@ -1879,15 +1851,16 @@ export async function analyseDEB(
     // Look for filter plist next to the dylib
     const filterPlistPath = path.join(path.dirname(mainBinary.path), mainBinaryName + ".plist");
     if (fs.existsSync(filterPlistPath)) {
-      const plistContent = fs.readFileSync(filterPlistPath, "utf-8");
-      // Simple XML plist extraction for Filter > Bundles
-      const bundleMatches = plistContent.match(/<string>([^<]+)<\/string>/g);
-      if (bundleMatches) {
-        const bundles = bundleMatches.map((m) => m.replace(/<\/?string>/g, ""));
-        // Only add bundles that are within the Filter dict context
-        if (plistContent.includes("<key>Filter</key>") || plistContent.includes("<key>Bundles</key>")) {
+      const filterBuf = fs.readFileSync(filterPlistPath);
+      try {
+        const filterDict = parsePlistBuffer(filterBuf);
+        const filter = filterDict.Filter as Record<string, unknown> | undefined;
+        const bundles = filter?.Bundles as string[] | undefined;
+        if (bundles && bundles.length > 0) {
           result.hooks.targetBundles = bundles;
         }
+      } catch {
+        // Non-critical — skip if filter plist can't be parsed
       }
     }
   } catch {

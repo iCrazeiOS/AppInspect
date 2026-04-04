@@ -60,7 +60,7 @@ export interface MobileprovisionData {
 /**
  * Parse a plist buffer, trying binary format first, then XML.
  */
-function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
+export function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
   // Try binary plist first
   try {
     const parsed = bplist.parseBuffer(buf);

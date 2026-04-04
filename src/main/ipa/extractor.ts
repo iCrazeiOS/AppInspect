@@ -1,8 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
-import bplist from "bplist-parser";
-import plist from "plist";
+import { parsePlistBuffer } from "../parser/plist";
 
 export interface BinaryInfo {
   name: string;
@@ -188,22 +187,8 @@ export function isMacOSAppBundle(appBundlePath: string): boolean {
 function readCFBundleExecutable(plistPath: string): string | null {
   try {
     const buf = fs.readFileSync(plistPath);
-    let parsed: Record<string, unknown> | null = null;
-
-    // Try binary plist first
-    if (buf.length >= 6 && buf.toString("ascii", 0, 6) === "bplist") {
-      const result = bplist.parseBuffer(buf);
-      if (result && result.length > 0) {
-        parsed = result[0] as Record<string, unknown>;
-      }
-    }
-
-    // Fall back to XML plist
-    if (!parsed) {
-      parsed = plist.parse(buf.toString("utf-8")) as Record<string, unknown>;
-    }
-
-    if (parsed && typeof parsed["CFBundleExecutable"] === "string") {
+    const parsed = parsePlistBuffer(buf);
+    if (typeof parsed["CFBundleExecutable"] === "string") {
       return parsed["CFBundleExecutable"];
     }
   } catch {
