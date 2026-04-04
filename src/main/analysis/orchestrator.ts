@@ -964,8 +964,8 @@ function detectAppFrameworks(appBundlePath: string, linkedLibs: string[] = []): 
     detected.push("Expo");
   }
 
-  // Flutter
-  if (hasFramework("Flutter.framework")) {
+  // Flutter (iOS uses Flutter.framework, macOS uses FlutterMacOS.framework)
+  if (hasAnyFramework("Flutter.framework", "FlutterMacOS.framework")) {
     detected.push("Flutter");
   }
 
