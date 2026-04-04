@@ -914,8 +914,9 @@ async function analyseBinaryFile(
 
 // ── App framework detection ────────────────────────────────────────
 
-function detectAppFramework(appBundlePath: string): string | undefined {
+function detectAppFrameworks(appBundlePath: string, linkedLibs: string[] = []): string[] {
   const frameworksDir = path.join(appBundlePath, "Frameworks");
+  const detected: string[] = [];
 
   const hasFramework = (name: string): boolean => {
     try {
@@ -933,42 +934,121 @@ function detectAppFramework(appBundlePath: string): string | undefined {
     }
   };
 
-  // React Native: main.jsbundle or hermes framework
+  const hasAnyFramework = (...names: string[]): boolean =>
+    names.some(hasFramework);
+
+  /** Check if the binary links against a system framework by name */
+  const linksFramework = (name: string): boolean =>
+    linkedLibs.some((lib) => lib.includes(`/${name}.framework/`));
+
+  // ── Cross-platform frameworks ──
+
+  // React Native
   if (
     hasFile("main.jsbundle") ||
-    hasFramework("hermes.framework") ||
-    hasFramework("React.framework") ||
-    hasFramework("ReactNative.framework")
+    hasAnyFramework("hermes.framework", "React.framework", "ReactNative.framework")
   ) {
-    return "React Native";
+    detected.push("React Native");
+  }
+
+  // Expo (built on React Native)
+  if (hasAnyFramework("ExpoModulesCore.framework", "Expo.framework")) {
+    detected.push("Expo");
   }
 
   // Flutter
   if (hasFramework("Flutter.framework")) {
-    return "Flutter";
+    detected.push("Flutter");
   }
 
-  // Cordova / Capacitor (www directory with index.html)
-  if (hasFile("www/index.html")) {
-    return "Cordova/Capacitor";
+  // Cordova
+  if (hasFile("www/index.html") && !hasFramework("Capacitor.framework")) {
+    detected.push("Cordova");
   }
 
-  // Unity
-  if (hasFramework("UnityFramework.framework")) {
-    return "Unity";
+  // Capacitor
+  if (hasFramework("Capacitor.framework") || hasFramework("CapacitorBridge.framework")) {
+    detected.push("Capacitor");
   }
 
   // .NET MAUI / Xamarin
-  if (hasFramework("Xamarin.iOS.framework") || hasFramework("Mono.framework")) {
-    return "Xamarin/.NET MAUI";
+  if (hasAnyFramework("Xamarin.iOS.framework", "Mono.framework")) {
+    detected.push("Xamarin/.NET MAUI");
+  }
+
+  // Kotlin Multiplatform
+  if (hasAnyFramework("shared.framework") && hasFramework("KotlinRuntime.framework")) {
+    detected.push("Kotlin Multiplatform");
+  }
+
+  // NativeScript
+  if (hasAnyFramework("NativeScript.framework", "TNSRuntime.framework")) {
+    detected.push("NativeScript");
+  }
+
+  // Titanium / Appcelerator
+  if (hasAnyFramework("TitaniumKit.framework", "Titanium.framework")) {
+    detected.push("Titanium");
+  }
+
+  // Qt
+  if (hasAnyFramework("QtCore.framework", "Qt.framework")) {
+    detected.push("Qt");
   }
 
   // Electron (very rare on iOS, but included for completeness)
   if (hasFramework("Electron Framework.framework")) {
-    return "Electron";
+    detected.push("Electron");
   }
 
-  return undefined; // Native
+  // ── Game engines ──
+
+  // Unity
+  if (hasFramework("UnityFramework.framework")) {
+    detected.push("Unity");
+  }
+
+  // Unreal Engine
+  if (hasAnyFramework("UE4.framework", "UnrealEngine.framework") || hasFile("UE4CommandLine.txt") || hasFile("uecommandline.txt")) {
+    detected.push("Unreal Engine");
+  }
+
+  // Godot
+  if (hasFile("godot_ios.pck")) {
+    detected.push("Godot");
+  }
+
+  // Cocos2d
+  if (hasAnyFramework("cocos2d.framework", "cocos2d_libs.framework")) {
+    detected.push("Cocos2d");
+  }
+
+  // GameMaker
+  if (hasFile("game.ios") || hasFile("data.win")) {
+    detected.push("GameMaker");
+  }
+
+  // Corona / Solar2D
+  if (hasAnyFramework("CoronaKit.framework", "Corona.framework")) {
+    detected.push("Solar2D");
+  }
+
+  // ── Linked system frameworks (not bundled, detected via load commands) ──
+
+  const systemFrameworks: string[] = [
+    // UI layer
+    "SwiftUI", "UIKit", "AppKit",
+    // Graphics & games
+    "RealityKit", "ARKit", "SceneKit", "SpriteKit", "Metal", "GameKit"
+  ];
+
+  for (const framework of systemFrameworks) {
+    if (linksFramework(framework)) {
+      detected.push(framework);
+    }
+  }
+
+  return detected;
 }
 
 // ── Bundle file reading for security scanning ─────────────────────
@@ -1153,8 +1233,9 @@ export async function analyseIPA(
     }
   }
 
-  // Step 13: Detect app framework
-  const appFramework = detectAppFramework(appBundlePath);
+  // Step 13: Detect app frameworks
+  const libNames = binaryResult.libraries.map((l) => l.name);
+  const appFrameworks = detectAppFrameworks(appBundlePath, libNames);
 
   // Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
   progressCallback("Scanning bundle files...", 80);
@@ -1237,7 +1318,7 @@ export async function analyseIPA(
       uuid: binaryResult.uuid ?? undefined,
       teamId: binaryResult.teamId ?? undefined,
       infoPlist: infoPlistData,
-      appFramework,
+      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
     },
     strings: binaryResult.strings,
     headers: {

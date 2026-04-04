@@ -279,8 +279,8 @@ export interface AnalysisResult {
     teamId?: string;
     infoPlist?: { [key: string]: PlistValue };
     debControl?: DEBControlInfo;
-    /** Detected app framework (React Native, Flutter, etc.) — undefined means native */
-    appFramework?: string;
+    /** Detected app frameworks (React Native, Flutter, etc.) — undefined means native */
+    appFrameworks?: string[];
   };
   hooks: HookInfo;
   strings: StringEntry[];

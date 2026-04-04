@@ -2072,6 +2072,12 @@ body.platform-darwin .app-title-row {
   color: #d29922;
 }
 
+.ov-badge-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .ov-hardening-row {
   display: flex;
   align-items: center;

@@ -129,7 +129,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
     const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
     const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
 
-    const appFramework = (data as any).appFramework as string | undefined;
+    const appFrameworks = (data as any).appFrameworks as string[] | undefined;
 
     const summaryItems: HTMLElement[] = [
       buildKV("Bundle ID", String(bundleId)),
@@ -142,11 +142,15 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
       buildKV("UUID", String(uuid)),
     ];
 
-    // Show app framework if non-native
-    if (appFramework) {
+    // Show detected frameworks
+    if (appFrameworks && appFrameworks.length > 0) {
       const fwRow = el("div", "ov-kv");
-      fwRow.appendChild(el("span", "ov-kv-label", "Framework"));
-      fwRow.appendChild(buildBadge(appFramework, "yellow"));
+      fwRow.appendChild(el("span", "ov-kv-label", appFrameworks.length > 1 ? "Frameworks" : "Framework"));
+      const badgeWrap = el("span", "ov-badge-group");
+      for (const fw of appFrameworks) {
+        badgeWrap.appendChild(buildBadge(fw, "yellow"));
+      }
+      fwRow.appendChild(badgeWrap);
       summaryItems.push(fwRow);
     }
 

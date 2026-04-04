@@ -14,7 +14,7 @@ export class SearchBar {
   private errorEl: HTMLElement | null = null;
   private timerId: ReturnType<typeof setTimeout> | null = null;
   private regexMode = false;
-  private caseSensitive = true;
+  private caseSensitive = false;
 
   private static DEBOUNCE_MS = 200;
   private static DEBOUNCE_REGEX_MS = 400;
@@ -52,7 +52,7 @@ export class SearchBar {
 
     // Case-sensitive toggle
     const caseBtn = document.createElement("button");
-    caseBtn.className = "sb-case-btn sb-case-active";
+    caseBtn.className = "sb-case-btn";
     caseBtn.textContent = "Aa";
     caseBtn.title = "Toggle case sensitivity (on = faster)";
     caseBtn.addEventListener("click", () => this.toggleCase());
