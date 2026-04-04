@@ -446,6 +446,23 @@ export function renderClasses(container: HTMLElement, data: any): void {
   wrapper.appendChild(sidebar);
 
   // ── Panel resize drag logic ──
+  /** Minimum width the middle (methods) panel is allowed to shrink to. */
+  const MIN_MIDDLE = 360;
+
+  /**
+   * Compute the maximum width a side panel may occupy right now,
+   * ensuring the methods pane always keeps at least MIN_MIDDLE px.
+   */
+  function panelMax(side: "left" | "right"): number {
+    const containerW = wrapper.getBoundingClientRect().width;
+    const sidebarOpen = sidebar.classList.contains("cls-sidebar--open");
+    const siblingW = side === "left"
+      ? (sidebarOpen ? sidebar.getBoundingClientRect().width : 0)
+      : leftPanel.getBoundingClientRect().width;
+    // ~10px accounts for the resize handles
+    return Math.max(180, containerW - siblingW - MIN_MIDDLE - 10);
+  }
+
   function initPanelResize(
     handle: HTMLElement,
     getTargetEl: () => HTMLElement,
@@ -453,12 +470,12 @@ export function renderClasses(container: HTMLElement, data: any): void {
   ): void {
     const min = options.min ?? 180;
 
-    // Restore saved width
-    const saved = loadWidths(options.storageKey);
-    if (saved?.width) {
-      const el = getTargetEl();
-      el.style.width = saved.width;
-      if (options.side === "right") el.style.minWidth = saved.width;
+    // Restore saved width (skip sidebar — restored on open in renderSidebar)
+    if (options.side === "left") {
+      const saved = loadWidths(options.storageKey);
+      if (saved?.width) {
+        getTargetEl().style.width = saved.width;
+      }
     }
 
     handle.addEventListener("mousedown", (e) => {
@@ -466,15 +483,15 @@ export function renderClasses(container: HTMLElement, data: any): void {
       const el = getTargetEl();
       const startX = e.clientX;
       const startW = el.getBoundingClientRect().width;
+      const max = panelMax(options.side);
       const prevSelect = document.body.style.userSelect;
       document.body.style.userSelect = "none";
       handle.classList.add("cls-resize-handle--active");
 
       const onMove = (ev: MouseEvent): void => {
         const delta = ev.clientX - startX;
-        const newW = options.side === "left"
-          ? Math.max(min, startW + delta)
-          : Math.max(min, startW - delta);
+        const raw = options.side === "left" ? startW + delta : startW - delta;
+        const newW = Math.max(min, Math.min(max, raw));
         el.style.width = `${newW}px`;
         if (options.side === "right") el.style.minWidth = `${newW}px`;
       };
@@ -665,11 +682,19 @@ export function renderClasses(container: HTMLElement, data: any): void {
 
     if (!selectedMethod || !selectedClass) {
       sidebar.classList.remove("cls-sidebar--open");
+      sidebar.style.width = "";
+      sidebar.style.minWidth = "";
       rightHandle.style.display = "none";
       return;
     }
 
     sidebar.classList.add("cls-sidebar--open");
+    // Restore persisted width when opening
+    const saved = loadWidths("panels:classes:sidebar");
+    if (saved?.width) {
+      sidebar.style.width = saved.width;
+      sidebar.style.minWidth = saved.width;
+    }
     rightHandle.style.display = "";
 
     const inner = document.createElement("div");
@@ -688,7 +713,10 @@ export function renderClasses(container: HTMLElement, data: any): void {
     closeBtn.addEventListener("click", () => {
       selectedMethod = null;
       sidebar.classList.remove("cls-sidebar--open");
+      sidebar.style.width = "";
+      sidebar.style.minWidth = "";
       sidebar.innerHTML = "";
+      rightHandle.style.display = "none";
       renderDetail();
     });
     inner.appendChild(closeBtn);
