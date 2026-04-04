@@ -474,6 +474,11 @@ async function startAnalysis(filePath: string): Promise<void> {
 
   try {
     const result = await window.api.analyseFile(filePath);
+    if (!result) {
+      // Error already shown via analysis-error event
+      setState("empty");
+      return;
+    }
     analysisResult = result;
     loadedTabs.add("overview"); // Overview is included in the full result
     setState("content");

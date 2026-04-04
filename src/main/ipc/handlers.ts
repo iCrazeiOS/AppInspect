@@ -61,7 +61,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
-      throw err;
+      return null;
     }
   });
 
@@ -82,7 +82,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
-      throw err;
+      return null;
     }
   });
 
@@ -99,7 +99,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
-      throw err;
+      return null;
     }
   });
 
@@ -152,7 +152,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
-      throw err;
+      return null;
     }
   });
 
@@ -192,7 +192,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { message });
-      throw err;
+      return { success: false };
     }
   });
 
@@ -239,9 +239,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       }
 
       return result.filePaths[0] ?? null;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+    } catch {
       return null;
     }
   });
