@@ -512,6 +512,25 @@ export function renderClasses(container: HTMLElement, data: any): void {
   initPanelResize(leftHandle, () => leftPanel, { side: "left", storageKey: "panels:classes:left" });
   initPanelResize(rightHandle, () => sidebar, { side: "right", storageKey: "panels:classes:sidebar" });
 
+  // Re-clamp panels when the container resizes (e.g. window resize)
+  new ResizeObserver(() => {
+    const leftMax = panelMax("left");
+    const leftW = leftPanel.getBoundingClientRect().width;
+    if (leftW > leftMax) {
+      leftPanel.style.width = `${leftMax}px`;
+    }
+
+    if (sidebar.classList.contains("cls-sidebar--open")) {
+      const rightMax = panelMax("right");
+      const sidebarW = sidebar.getBoundingClientRect().width;
+      if (sidebarW > rightMax) {
+        const w = `${rightMax}px`;
+        sidebar.style.width = w;
+        sidebar.style.minWidth = w;
+      }
+    }
+  }).observe(wrapper);
+
   /** Get filtered methods for the current view */
   function getFilteredMethods(): { className: string; method: ObjCMethod }[] {
     let matcher: ((s: string) => boolean) | null = null;
@@ -689,11 +708,15 @@ export function renderClasses(container: HTMLElement, data: any): void {
     }
 
     sidebar.classList.add("cls-sidebar--open");
-    // Restore persisted width when opening
+    // Restore persisted width when opening, clamped to available space
     const saved = loadWidths("panels:classes:sidebar");
     if (saved?.width) {
-      sidebar.style.width = saved.width;
-      sidebar.style.minWidth = saved.width;
+      const max = panelMax("right");
+      const parsed = parseInt(saved.width, 10);
+      const clamped = Number.isFinite(parsed) ? Math.min(parsed, max) : parsed;
+      const w = `${clamped}px`;
+      sidebar.style.width = w;
+      sidebar.style.minWidth = w;
     }
     rightHandle.style.display = "";
 
