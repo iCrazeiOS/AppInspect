@@ -18,28 +18,30 @@ File type is detected automatically by magic bytes.
 
 | Tab | Description |
 |-----|-------------|
-| **Overview** | Mach-O header summary, binary hardening status (PIE, ARC, stack canaries, encryption, stripped), build version, UUID, team ID |
+| **Overview** | Mach-O header summary, binary hardening status (PIE, ARC, stack canaries, encryption, stripped), build version, UUID, team ID, detected frameworks |
 | **Strings** | All embedded strings with section attribution and file offsets |
 | **Headers** | Mach-O header fields, fat architecture list, full load command dump |
 | **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags |
 | **Symbols** | Exported, imported, and local symbols with addresses |
-| **Classes** | ObjC class names, instance and class methods with decoded type signatures, protocols |
+| **Classes** | ObjC class names, instance and class methods with decoded type signatures, protocols, Logos hook generation |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Info.plist** | Full Info.plist contents (IPA only) |
 | **Hooks** | Jailbreak hook framework detection — Substrate, Libhooker, fishhook, Substitute, ObjC swizzling (Mach-O/DEB only) |
-| **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment |
-| **Files** | Bundle file tree with sizes (IPA/DEB) |
+| **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment, bundle file scanning (JS bundles, configs) |
+| **Files** | Bundle file tree with sizes, context menu (copy path, open file, show in explorer/finder), double-click to open (IPA/DEB) |
 
 ### Other capabilities
 
 - **Multi-binary switching** — select between main app, frameworks, extensions, or multiple dylibs in a DEB
 - **Fat binary architecture selector** — choose which slice to analyse in universal binaries
 - **FairPlay encryption detection** — warns when a binary is still encrypted (App Store builds)
-- **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings
+- **App framework detection** — identifies cross-platform frameworks (React Native, Expo, Flutter, Cordova, Capacitor, Xamarin/.NET MAUI, Kotlin Multiplatform, NativeScript, Titanium, Qt, Electron) and game engines (Unity, Unreal Engine, Godot, Cocos2d, GameMaker, Solar2D), plus linked system frameworks (SwiftUI, UIKit, ARKit, Metal, SceneKit, SpriteKit, RealityKit, GameKit, AppKit)
+- **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings and scans bundle files (JS bundles, JSON configs, plists)
 - **Function attribution** — security findings show which function references the flagged string (arm64 xref analysis, runs lazily only when needed)
-- **JSON export** — export all analysis data or individual tabs
+- **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
 - **Drag-and-drop** — drop files onto the window to start analysis
-- **Search** — per-tab search with regex support (Ctrl+F / Cmd+F)
+- **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
+- **Settings** — configurable options including multi-binary scanning
 - **Copy on double-click** — double-click any table cell to copy its contents
 
 ## Setup & Building

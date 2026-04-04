@@ -7,6 +7,7 @@
 
 import { ipcMain, dialog, BrowserWindow, shell } from "electron";
 import { writeFileSync } from "fs";
+import path from "path";
 import type { TabName } from "../../shared/ipc-types";
 import {
   analyseIPA,
@@ -161,8 +162,16 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
       const jsonString = exportAnalysis(cached, args.tabs);
 
+      // Build filename from app name or input file
+      const appName = cached.overview?.ipa?.appName;
+      const inputFile = cached.overview?.filePath;
+      const baseName = appName
+        ?? (inputFile ? path.basename(inputFile, path.extname(inputFile)) : null)
+        ?? "appinspect";
+      const defaultPath = `${baseName}-export.json`;
+
       const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        defaultPath: "appinspect-export.json",
+        defaultPath,
         filters: [{ name: "JSON", extensions: ["json"] }],
       });
 
