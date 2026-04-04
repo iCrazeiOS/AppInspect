@@ -34,7 +34,7 @@ export function addAllBinariesToggle(
 
   const btn = document.createElement("button");
   btn.textContent = "All";
-  btn.title = "Search across all frameworks and binaries";
+  btn.title = "Search across all binaries and frameworks";
   btn.addEventListener("click", () => {
     state.active = !state.active;
     btn.classList.toggle("sb-extra-toggle--active", state.active);
