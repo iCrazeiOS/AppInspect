@@ -30,6 +30,7 @@ export class DataTable {
 
   private rafId = 0;
   private boundOnScroll: () => void;
+  private resizing = false;
 
   /** Optional initial row cap — when set and no filter is active, only show this many rows */
   private initialCap: number | null = null;
@@ -131,14 +132,37 @@ export class DataTable {
   }
 
   private startResize(colIndex: number, headerCell: HTMLElement, e: MouseEvent): void {
+    this.resizing = true;
     const startX = e.clientX;
-    // If the column has no explicit pixel width yet, capture its rendered width
     const startWidth = headerCell.getBoundingClientRect().width;
+
+    // Freeze all non-last columns to their current pixel widths so that
+    // resizing one column doesn't cause flex/% neighbours to reflow.
+    const headerCells = this.headerRow ? Array.from(this.headerRow.children) as HTMLElement[] : [];
+    const lastCol = this.columns.length - 1;
+    for (let i = 0; i < this.columns.length; i++) {
+      if (i === lastCol) continue; // last column stays flex
+      const hc = headerCells[i];
+      if (hc && !this.columns[i].width?.endsWith("px")) {
+        const px = `${Math.round(hc.getBoundingClientRect().width)}px`;
+        this.columns[i].width = px;
+        hc.style.width = px;
+        hc.style.flex = "";
+      }
+    }
+    // Ensure last column is flex
+    const lastHc = headerCells[lastCol];
+    if (lastHc) {
+      this.columns[lastCol].width = undefined;
+      lastHc.style.width = "";
+      lastHc.style.flex = "1";
+    }
+    // Apply frozen widths to visible data rows too
+    this.renderVisibleRows();
 
     const handle = headerCell.querySelector(".dt-resize-handle") as HTMLElement | null;
     handle?.classList.add("dt-resizing");
 
-    // Prevent text selection during drag
     const prevSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
 
@@ -147,11 +171,9 @@ export class DataTable {
       const newWidth = Math.max(50, startWidth + delta);
       const widthStr = `${Math.round(newWidth)}px`;
 
-      // Update header cell
       headerCell.style.width = widthStr;
       headerCell.style.flex = "";
 
-      // Update all visible data cells in the same column
       if (this.rowContainer) {
         const rows = this.rowContainer.children;
         for (let r = 0; r < rows.length; r++) {
@@ -173,9 +195,10 @@ export class DataTable {
       const delta = ev.clientX - startX;
       const newWidth = Math.max(50, startWidth + delta);
       this.columns[colIndex].width = `${Math.round(newWidth)}px`;
-
-      // Re-render visible rows so virtual scroll picks up the persisted width
       this.renderVisibleRows();
+
+      // Suppress the click event that fires after mouseup on the header cell
+      setTimeout(() => { this.resizing = false; }, 0);
     };
 
     document.addEventListener("mousemove", onMouseMove);
@@ -183,6 +206,7 @@ export class DataTable {
   }
 
   private handleSort(key: string): void {
+    if (this.resizing) return;
     if (this.sortKey === key) {
       this.sortAsc = !this.sortAsc;
     } else {
