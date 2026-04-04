@@ -1,6 +1,6 @@
 # AppInspect
 
-A desktop app for analysing iOS binaries. Open an IPA, DEB, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
+A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
 Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
@@ -9,6 +9,7 @@ Built with Electron and TypeScript. All analysis runs locally, offline, with no 
 ### File format support
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
+- **macOS .app** — supports macOS app bundles (`Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (64-bit, fat/universal)
 
@@ -25,6 +26,7 @@ File type is detected automatically by magic bytes.
 | **Symbols** | Exported, imported, and local symbols with addresses |
 | **Classes** | ObjC class names, instance and class methods with decoded type signatures, protocols, Logos hook generation |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
+| **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
 | **Info.plist** | Full Info.plist contents (IPA only) |
 | **Hooks** | Jailbreak hook framework detection — Substrate, Libhooker, fishhook, Substitute, ObjC swizzling (Mach-O/DEB only) |
 | **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment, bundle file scanning (JS bundles, configs) |
