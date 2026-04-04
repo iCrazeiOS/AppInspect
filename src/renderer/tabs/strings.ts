@@ -10,7 +10,7 @@ import { saveSearchState, getSearchState, registerSearchBar } from "../search-st
 
 interface StringEntry {
   value: string;
-  source: string;
+  sectionSource: string;
   offset: number;
 }
 
@@ -58,7 +58,7 @@ export function renderStrings(container: HTMLElement, data: unknown): void {
   // Convert raw entries to table row format
   const binaryRows = binaryEntries.map((e) => ({
     value: e.value,
-    source: e.source ?? "",
+    source: e.sectionSource ?? "",
     offsetHex: "0x" + (e.offset >>> 0).toString(16).padStart(4, "0"),
     _offset: typeof e.offset === "number" ? e.offset : 0,
   }));
