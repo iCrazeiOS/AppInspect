@@ -128,7 +128,7 @@ export function renderSecurity(container: HTMLElement, data: any): void {
   for (const sev of ["critical", "warning", "info"] as const) {
     const btn = document.createElement("button");
     btn.className = `sec-filter-btn sec-filter-btn--${sev} sec-filter-btn--active`;
-    btn.textContent = SEVERITY_LABELS[sev];
+    btn.textContent = SEVERITY_LABELS[sev]!;
     btn.addEventListener("click", () => {
       if (activeFilters.has(sev)) {
         activeFilters.delete(sev);

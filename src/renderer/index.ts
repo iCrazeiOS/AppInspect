@@ -174,7 +174,7 @@ function switchTab(tabId: string): void {
 
 async function loadTabData(tabId: string): Promise<void> {
   try {
-    const tabData = await window.api.getTabData(tabId);
+    const tabData = await window.api.getTabData(tabId as import("../shared/ipc-types").TabName);
     loadedTabs.add(tabId);
 
     const panel = document.getElementById(`tab-${tabId}`);
@@ -271,7 +271,7 @@ function populateBinarySelector(binaries: BinaryInfo[]): void {
   }
 
   for (let i = 0; i < binaries.length; i++) {
-    const bin = binaries[i];
+    const bin = binaries[i]!;
     const opt = document.createElement("option");
     opt.value = String(i);
     opt.textContent = `${bin.name}  [${binaryTypeBadge(bin.type)}]`;
@@ -357,7 +357,7 @@ async function handleBinaryChange(): Promise<void> {
 
     // If we matched a non-default arch, re-analyse with that arch
     if (matchedIdx > 0 && newArchs?.[matchedIdx]) {
-      const arch = newArchs[matchedIdx];
+      const arch = newArchs[matchedIdx]!;
       const archResult = await window.api.analyseBinary(selectedIndex, arch.cputype, arch.cpusubtype);
       analysisResult = archResult;
       clearAllTabContent();
@@ -422,7 +422,7 @@ function populateArchSelector(fatArchs: FatArchInfo[]): void {
   }
 
   for (let i = 0; i < fatArchs.length; i++) {
-    const arch = fatArchs[i];
+    const arch = fatArchs[i]!;
     const opt = document.createElement("option");
     opt.value = String(i);
     opt.textContent = `${cpuLabel(arch.cputype, arch.cpusubtype)}  (${(arch.size / 1024).toFixed(0)} KB)`;
@@ -582,7 +582,7 @@ document.addEventListener("drop", (e: DragEvent) => {
   console.log("[AppInspect] Drop event, files:", files?.length, "file[0]:", files?.[0]);
   if (!files || files.length === 0) return;
 
-  const file = files[0];
+  const file = files[0]!;
   const filePath = window.api.getPathForFile(file);
   console.log("[AppInspect] Dropped file path:", filePath);
 

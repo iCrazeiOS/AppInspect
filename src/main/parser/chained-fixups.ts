@@ -214,7 +214,7 @@ function walkChain(
       const next = Number((raw >> 51n) & 0xFFFn); // bits 51-62
 
       const symbolName =
-        ordinal < imports.length ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
+        ordinal < imports.length ? imports[ordinal]!.symbolName : `<unknown_ordinal_${ordinal}>`;
 
       bindMap.set(currentOffset, { ordinal, symbolName, addend });
 
@@ -278,7 +278,7 @@ function walkChainArm64e(
         const ordinal = Number(raw & 0xFFFFn);
         const next = Number((raw >> 51n) & 0x7FFn);
         const symbolName = ordinal < imports.length
-          ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
+          ? imports[ordinal]!.symbolName : `<unknown_ordinal_${ordinal}>`;
         bindMap.set(currentOffset, { ordinal, symbolName, addend: 0n });
         if (next === 0) break;
         currentOffset += next * STRIDE_ARM64E;
@@ -291,7 +291,7 @@ function walkChainArm64e(
         const addend = (addendRaw & 0x40000n) !== 0n
           ? addendRaw - 0x80000n : addendRaw;
         const symbolName = ordinal < imports.length
-          ? imports[ordinal].symbolName : `<unknown_ordinal_${ordinal}>`;
+          ? imports[ordinal]!.symbolName : `<unknown_ordinal_${ordinal}>`;
         bindMap.set(currentOffset, { ordinal, symbolName, addend });
         if (next === 0) break;
         currentOffset += next * STRIDE_ARM64E;
@@ -378,7 +378,7 @@ export function buildFixupMap(
 
   // 4. For each segment with fixups, walk the chains
   for (let segIdx = 0; segIdx < segCount; segIdx++) {
-    const segInfoOff = segInfoOffsets[segIdx];
+    const segInfoOff = segInfoOffsets[segIdx]!;
     if (segInfoOff === 0) continue; // No fixups in this segment
 
     const startsInSegOffset = startsInImageOffset + segInfoOff;
@@ -400,7 +400,7 @@ export function buildFixupMap(
     }
 
     for (let pageIdx = 0; pageIdx < startsInSeg.page_count; pageIdx++) {
-      const pageStart = startsInSeg.page_starts[pageIdx];
+      const pageStart = startsInSeg.page_starts[pageIdx]!;
 
       // Skip pages with no fixups
       if (pageStart === DYLD_CHAINED_PTR_START_NONE) continue;

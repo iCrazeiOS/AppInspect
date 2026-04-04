@@ -118,7 +118,7 @@ export class DataTable {
     this.headerRow.innerHTML = "";
 
     for (let ci = 0; ci < this.columns.length; ci++) {
-      const col = this.columns[ci];
+      const col = this.columns[ci]!;
       const cell = document.createElement("div");
       cell.className = "dt-hcell";
       if (col.width) cell.style.width = col.width;
@@ -166,9 +166,9 @@ export class DataTable {
     for (let i = 0; i < this.columns.length; i++) {
       if (i === lastCol) continue; // last column stays flex
       const hc = headerCells[i];
-      if (hc && !this.columns[i].width?.endsWith("px")) {
+      if (hc && !this.columns[i]!.width?.endsWith("px")) {
         const px = `${Math.round(hc.getBoundingClientRect().width)}px`;
-        this.columns[i].width = px;
+        this.columns[i]!.width = px;
         hc.style.width = px;
         hc.style.flex = "";
       }
@@ -176,7 +176,7 @@ export class DataTable {
     // Ensure last column is flex
     const lastHc = headerCells[lastCol];
     if (lastHc) {
-      this.columns[lastCol].width = undefined;
+      this.columns[lastCol]!.width = undefined;
       lastHc.style.width = "";
       lastHc.style.flex = "1";
     }
@@ -210,7 +210,7 @@ export class DataTable {
       if (this.rowContainer) {
         const rows = this.rowContainer.children;
         for (let r = 0; r < rows.length; r++) {
-          const cell = rows[r].children[colIndex] as HTMLElement | undefined;
+          const cell = rows[r]!.children[colIndex] as HTMLElement | undefined;
           if (cell) {
             cell.style.width = widthStr;
             cell.style.flex = "";
@@ -226,7 +226,7 @@ export class DataTable {
       handle?.classList.remove("dt-resizing");
 
       const newWidth = clampWidth(ev.clientX - startX);
-      this.columns[colIndex].width = `${Math.round(newWidth)}px`;
+      this.columns[colIndex]!.width = `${Math.round(newWidth)}px`;
       this.persistWidths();
       this.renderVisibleRows();
 

@@ -179,9 +179,9 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
   let ch = enc[pos];
 
   // Skip qualifiers: r(const) n(in) N(inout) o(out) O(bycopy) R(byref) V(oneway)
-  while (pos < enc.length && "rnNoORV".includes(enc[pos])) {
+  while (pos < enc.length && "rnNoORV".includes(enc[pos]!)) {
     pos++;
-    ch = enc[pos];
+    ch = enc[pos]!;
   }
 
   if (ch === "^") {
@@ -226,11 +226,11 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
   if (ch === "b") {
     // Bitfield: bN
     let next = pos + 1;
-    while (next < enc.length && enc[next] >= "0" && enc[next] <= "9") next++;
+    while (next < enc.length && enc[next]! >= "0" && enc[next]! <= "9") next++;
     return { type: "bitfield", next };
   }
 
-  const mapped = TYPE_MAP[ch];
+  const mapped = TYPE_MAP[ch!];
   if (mapped) return { type: mapped, next: pos + 1 };
 
   return { type: String(ch), next: pos + 1 };
@@ -240,7 +240,7 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
  * Skip a stack offset number in the encoding string.
  */
 function skipOffset(enc: string, pos: number): number {
-  while (pos < enc.length && ((enc[pos] >= "0" && enc[pos] <= "9") || enc[pos] === "-")) pos++;
+  while (pos < enc.length && ((enc[pos]! >= "0" && enc[pos]! <= "9") || enc[pos] === "-")) pos++;
   return pos;
 }
 
