@@ -160,15 +160,25 @@ export class DataTable {
     // Apply frozen widths to visible data rows too
     this.renderVisibleRows();
 
+    // Compute max width: total header width minus 50px per other column
+    const totalWidth = this.headerRow?.getBoundingClientRect().width ?? Infinity;
+    let otherColumnsMin = 0;
+    for (let i = 0; i < this.columns.length; i++) {
+      if (i !== colIndex) otherColumnsMin += 50;
+    }
+    const maxWidth = totalWidth - otherColumnsMin;
+
     const handle = headerCell.querySelector(".dt-resize-handle") as HTMLElement | null;
     handle?.classList.add("dt-resizing");
 
     const prevSelect = document.body.style.userSelect;
     document.body.style.userSelect = "none";
 
+    const clampWidth = (delta: number): number =>
+      Math.max(50, Math.min(maxWidth, startWidth + delta));
+
     const onMouseMove = (ev: MouseEvent): void => {
-      const delta = ev.clientX - startX;
-      const newWidth = Math.max(50, startWidth + delta);
+      const newWidth = clampWidth(ev.clientX - startX);
       const widthStr = `${Math.round(newWidth)}px`;
 
       headerCell.style.width = widthStr;
@@ -192,8 +202,7 @@ export class DataTable {
       document.body.style.userSelect = prevSelect;
       handle?.classList.remove("dt-resizing");
 
-      const delta = ev.clientX - startX;
-      const newWidth = Math.max(50, startWidth + delta);
+      const newWidth = clampWidth(ev.clientX - startX);
       this.columns[colIndex].width = `${Math.round(newWidth)}px`;
       this.renderVisibleRows();
 
