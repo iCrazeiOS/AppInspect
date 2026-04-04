@@ -21,6 +21,8 @@ import { readCString } from "./load-commands";
 export interface ObjCMethod {
   selector: string;
   signature: string;
+  /** @internal Set for metaclass (class-level) methods during parsing; used by enrichment. */
+  _isClassMethod?: boolean;
 }
 
 export interface ObjCClass {
@@ -70,26 +72,33 @@ function resolveSharedCachePointer(
   segments: Segment64[],
 ): bigint {
   // For arm64e shared cache extracted binaries, pointers have PAC/auth bits
-  // in the upper bytes. The actual target is in the lower 36 bits (sufficient
-  // to address the shared cache region when combined with a base offset).
-  const target = raw & 0xFFFFFFFFFn; // lower 36 bits
-  if (target === 0n) return 0n;
+  // in the upper bytes. The actual target offset may be in the lower 36 bits
+  // (non-auth) or lower 32 bits (auth, where bits 32-47 hold PAC metadata).
+  // Try both masks to handle both cases.
+  const targets = [
+    raw & 0xFFFFFFFFFn, // lower 36 bits (non-auth / general case)
+    raw & 0xFFFFFFFFn,  // lower 32 bits (auth pointers with PAC in bits 32-47)
+  ];
 
-  // Use cached base if already found
-  if (slideBaseComputed && cachedSlideBase !== null) {
-    const candidate = target + cachedSlideBase;
-    if (vmaddrToFileOffset(candidate, segments) !== null) {
-      return candidate;
+  for (const target of targets) {
+    if (target === 0n) continue;
+
+    // Use cached base if already found
+    if (slideBaseComputed && cachedSlideBase !== null) {
+      const candidate = target + cachedSlideBase;
+      if (vmaddrToFileOffset(candidate, segments) !== null) {
+        return candidate;
+      }
     }
-  }
 
-  // Probe common shared cache base addresses
-  for (const base of [0x180000000n, 0x200000000n, 0x100000000n, 0x0n]) {
-    const c = target + base;
-    if (vmaddrToFileOffset(c, segments) !== null) {
-      cachedSlideBase = base;
-      slideBaseComputed = true;
-      return c;
+    // Probe common shared cache base addresses
+    for (const base of [0x180000000n, 0x200000000n, 0x100000000n, 0x0n]) {
+      const c = target + base;
+      if (vmaddrToFileOffset(c, segments) !== null) {
+        cachedSlideBase = base;
+        slideBaseComputed = true;
+        return c;
+      }
     }
   }
 
@@ -146,6 +155,21 @@ const TYPE_MAP: Record<string, string> = {
 };
 
 /**
+ * Find the matching closing delimiter for nested bracket-like pairs.
+ * Handles {}, (), and [] with proper nesting.
+ */
+function findMatchingClose(enc: string, pos: number, open: string, close: string): number {
+  let depth = 1;
+  let i = pos + 1;
+  while (i < enc.length && depth > 0) {
+    if (enc[i] === open) depth++;
+    else if (enc[i] === close) depth--;
+    i++;
+  }
+  return depth === 0 ? i - 1 : -1;
+}
+
+/**
  * Decode a single ObjC type encoding token starting at `pos`.
  * Returns the decoded type string and the new position after the token.
  */
@@ -177,11 +201,11 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
   }
 
   if (ch === "{") {
-    // Struct: {Name=...} — extract just the name
+    // Struct: {Name=...} — extract just the name, handle nested braces
     const eq = enc.indexOf("=", pos);
-    const close = enc.indexOf("}", pos);
-    if (eq !== -1 && eq < close) {
-      return { type: enc.slice(pos + 1, eq), next: close + 1 };
+    const close = findMatchingClose(enc, pos, "{", "}");
+    if (eq !== -1 && (close === -1 || eq < close)) {
+      return { type: enc.slice(pos + 1, eq), next: close !== -1 ? close + 1 : pos + 1 };
     }
     if (close !== -1) {
       return { type: enc.slice(pos + 1, close), next: close + 1 };
@@ -190,12 +214,12 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
   }
 
   if (ch === "(") {
-    const close = enc.indexOf(")", pos);
+    const close = findMatchingClose(enc, pos, "(", ")");
     return { type: "union", next: close !== -1 ? close + 1 : pos + 1 };
   }
 
   if (ch === "[") {
-    const close = enc.indexOf("]", pos);
+    const close = findMatchingClose(enc, pos, "[", "]");
     return { type: "array", next: close !== -1 ? close + 1 : pos + 1 };
   }
 
@@ -398,6 +422,7 @@ function parseMethodList(
       methods.push({
         selector: name,
         signature: name.length > 0 ? buildMethodSignature(name, typeEncoding, isInstance) : typeEncoding,
+        ...(!isInstance && { _isClassMethod: true }),
       });
     }
   } else {
@@ -431,6 +456,7 @@ function parseMethodList(
       methods.push({
         selector: name,
         signature: buildMethodSignature(name, typeEncoding, isInstance),
+        ...(!isInstance && { _isClassMethod: true }),
       });
     }
   }

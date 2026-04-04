@@ -690,9 +690,20 @@ async function analyseBinaryFile(
         if (!symMethods) continue;
 
         const symInstanceMethods = symMethods.filter((m) => m.prefix === "-");
+        const symClassMethods = symMethods.filter((m) => m.prefix === "+");
 
         // Group unnamed method entries by arg count (from type encoding)
         // Type encoding args = total decoded types - 3 (return, self, _cmd)
+        const skipNested = (enc: string, pos: number, open: string, close: string): number => {
+          let depth = 1;
+          let i = pos + 1;
+          while (i < enc.length && depth > 0) {
+            if (enc[i] === open) depth++;
+            else if (enc[i] === close) depth--;
+            i++;
+          }
+          return i;
+        };
         const countArgsFromEncoding = (enc: string): number => {
           let count = 0;
           let pos = 0;
@@ -703,9 +714,9 @@ async function analyseBinaryFile(
             // Skip qualifiers
             if ("rnNoORV".includes(ch)) { pos++; continue; }
             // Count a type
-            if (ch === "{") { const c = enc.indexOf("}", pos); pos = c !== -1 ? c + 1 : pos + 1; }
-            else if (ch === "(") { const c = enc.indexOf(")", pos); pos = c !== -1 ? c + 1 : pos + 1; }
-            else if (ch === "[") { const c = enc.indexOf("]", pos); pos = c !== -1 ? c + 1 : pos + 1; }
+            if (ch === "{") { pos = skipNested(enc, pos, "{", "}"); }
+            else if (ch === "(") { pos = skipNested(enc, pos, "(", ")"); }
+            else if (ch === "[") { pos = skipNested(enc, pos, "[", "]"); }
             else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === "?") { pos += 2; }
             else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === '"') {
               const c = enc.indexOf('"', pos + 2); pos = c !== -1 ? c + 1 : pos + 1;
@@ -717,36 +728,30 @@ async function analyseBinaryFile(
           return Math.max(0, count - 3); // subtract return, self, _cmd
         };
 
-        // Build map: argCount → list of unnamed method entries with their type encoding
-        const byArgCount = new Map<number, { method: typeof cls.methods[0]; enc: string }[]>();
-        for (const method of cls.methods) {
-          if (method.selector !== "") continue;
-          const enc = method.signature; // raw type encoding stored when name was empty
-          const argc = countArgsFromEncoding(enc);
-          if (!byArgCount.has(argc)) byArgCount.set(argc, []);
-          byArgCount.get(argc)!.push({ method, enc });
-        }
+        // Match unnamed method entries against symbols by arg count.
+        // Process instance and class methods separately using the _isClassMethod flag.
+        const matchMethodGroup = (
+          symGroup: typeof symInstanceMethods,
+          isClassMethod: boolean,
+        ) => {
+          const byArgCount = new Map<number, { method: typeof cls.methods[0]; enc: string }[]>();
+          for (const method of cls.methods) {
+            if (method.selector !== "") continue;
+            if (isClassMethod !== !!method._isClassMethod) continue;
+            const enc = method.signature; // raw type encoding stored when name was empty
+            const argc = countArgsFromEncoding(enc);
+            if (!byArgCount.has(argc)) byArgCount.set(argc, []);
+            byArgCount.get(argc)!.push({ method, enc });
+          }
 
-        // Match symbols to method entries by arg count
-        const usedSymbols = new Set<number>();
-        for (const [argc, entries] of byArgCount) {
-          const matchingSyms = symInstanceMethods
-            .map((s, i) => ({ s, i }))
-            .filter(({ s, i }) => !usedSymbols.has(i) && (s.selector.match(/:/g) || []).length === argc);
+          const usedSymbols = new Set<number>();
+          for (const [argc, entries] of byArgCount) {
+            const matchingSyms = symGroup
+              .map((s, i) => ({ s, i }))
+              .filter(({ s, i }) => !usedSymbols.has(i) && (s.selector.match(/:/g) || []).length === argc);
 
-          if (matchingSyms.length === entries.length) {
-            // Unique match — pair them with full type info
-            for (let j = 0; j < entries.length; j++) {
-              const { method, enc } = entries[j]!;
-              const { s, i } = matchingSyms[j]!;
-              method.selector = s.selector;
-              method.signature = buildMethodSignatureFromParts(s.prefix, s.selector, enc);
-              usedSymbols.add(i);
-            }
-          } else {
-            // Ambiguous — more entries than symbols or vice versa.
-            // Assign names and try type info (may be wrong for some).
-            for (let j = 0; j < Math.min(entries.length, matchingSyms.length); j++) {
+            const limit = Math.min(entries.length, matchingSyms.length);
+            for (let j = 0; j < limit; j++) {
               const { method, enc } = entries[j]!;
               const { s, i } = matchingSyms[j]!;
               method.selector = s.selector;
@@ -754,18 +759,24 @@ async function analyseBinaryFile(
               usedSymbols.add(i);
             }
           }
-        }
 
-        // Assign any remaining unmatched symbols to remaining unnamed methods
-        const remainingSyms = symInstanceMethods.filter((_, i) => !usedSymbols.has(i));
-        const remainingMethods = cls.methods.filter((m) => m.selector === "");
-        for (let j = 0; j < Math.min(remainingMethods.length, remainingSyms.length); j++) {
-          remainingMethods[j]!.selector = remainingSyms[j]!.selector;
-          remainingMethods[j]!.signature = `${remainingSyms[j]!.prefix}${remainingSyms[j]!.selector}`;
-        }
+          // Assign any remaining unmatched symbols to remaining unnamed methods in this group
+          const remainingSyms = symGroup.filter((_, i) => !usedSymbols.has(i));
+          const remainingMethods = cls.methods.filter(
+            (m) => m.selector === "" && isClassMethod === !!m._isClassMethod,
+          );
+          for (let j = 0; j < Math.min(remainingMethods.length, remainingSyms.length); j++) {
+            remainingMethods[j]!.selector = remainingSyms[j]!.selector;
+            remainingMethods[j]!.signature = `${remainingSyms[j]!.prefix}${remainingSyms[j]!.selector}`;
+          }
 
-        // Add class methods (+) not in the instance method list
-        const symClassMethods = symMethods.filter((m) => m.prefix === "+");
+          return usedSymbols;
+        };
+
+        matchMethodGroup(symInstanceMethods, false);
+        matchMethodGroup(symClassMethods, true);
+
+        // Add class methods (+) not already matched to a metaclass entry
         for (const cm of symClassMethods) {
           if (!cls.methods.some((m) => m.selector === cm.selector)) {
             cls.methods.push({ selector: cm.selector, signature: `+${cm.selector}` });
