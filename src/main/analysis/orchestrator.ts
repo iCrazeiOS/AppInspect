@@ -83,6 +83,7 @@ interface BinarySearchIndex {
   classes: string[];
   strings: string[];
   symbols: string[];
+  symbolTypes: string[];
   libraries: string[];
 }
 let cachedSearchIndex: Map<number, BinarySearchIndex> | null = null;
@@ -122,10 +123,11 @@ async function ensureSearchIndex(
         classes: result.classes.map((c) => c.name),
         strings: result.strings.map((s) => s.value),
         symbols: result.symbols.map((s) => s.name),
+        symbolTypes: result.symbols.map((s) => s.type),
         libraries: result.libraries.map((l) => l.name),
       });
     } catch {
-      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [], libraries: [] });
+      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [], symbolTypes: [], libraries: [] });
     }
   }
   return cachedSearchIndex;
@@ -136,6 +138,7 @@ export interface CrossBinarySearchResult {
   binaryName: string;
   binaryType: string;
   match: string;
+  symbolType?: string;
 }
 
 export async function searchAllBinaries(
@@ -165,14 +168,18 @@ export async function searchAllBinaries(
   for (const [binaryIndex, entry] of index) {
     const bin = cachedBinaries[binaryIndex];
     if (!bin) continue;
-    for (const value of entry[tab]) {
+    const values = entry[tab];
+    for (let i = 0; i < values.length; i++) {
+      const value = values[i]!;
       if (matcher(value)) {
-        results.push({
+        const result: CrossBinarySearchResult = {
           binaryIndex,
           binaryName: bin.name,
           binaryType: bin.type,
           match: value,
-        });
+        };
+        if (tab === "symbols") result.symbolType = entry.symbolTypes[i];
+        results.push(result);
       }
     }
   }

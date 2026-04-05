@@ -31,6 +31,7 @@ type TypeFilter = "all" | "exported" | "imported" | "local";
 
 const CROSS_BINARY_COLUMNS: Column[] = [
   { key: "name", label: "Symbol Name" },
+  { key: "type", label: "Type", width: "120px" },
   { key: "binary", label: "Binary", width: "280px" },
 ];
 
@@ -124,7 +125,12 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
       for (const [val, b] of typeButtons) {
         b.classList.toggle("filter-chip--active", val === activeType);
       }
-      applyFilters();
+      if (xbin.active) {
+        table.setFilter(activeType === "all" ? null : (row) => row["type"] === activeType);
+        updateCount();
+      } else {
+        applyFilters();
+      }
     });
 
     typeButtons.set(opt.value, btn);
@@ -155,12 +161,13 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
   function applyCrossBinaryResults(): void {
     const xrows = xbin.results.map((r) => ({
       name: r.match,
+      type: r.symbolType ?? "local",
       binary: `${r.binaryName}  [${binaryTypeBadge(r.binaryType)}]`,
     }));
     table.setColumns(CROSS_BINARY_COLUMNS);
     table.setStorageKey("cols:symbols:xbin");
     table.setData(xrows);
-    table.setFilter(null);
+    table.setFilter(activeType === "all" ? null : (row) => row["type"] === activeType);
     updateCount();
   }
 

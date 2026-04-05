@@ -161,6 +161,8 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
       table.setData(mode === "binary" ? binaryRows : localisationRows);
       applyFilters();
     }
+    // Hide filter chips in cross-binary mode (they don't apply)
+    chipBar.classList.toggle("hidden", xbin.active);
     const t = searchBar.getValue();
     searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
   });
@@ -249,6 +251,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
     }
 
     chipBar.classList.toggle("hidden",
+      xbin.active ||
       (mode === "binary" && sections.length === 0) ||
       (mode === "localisation" && languages.length === 0));
   }

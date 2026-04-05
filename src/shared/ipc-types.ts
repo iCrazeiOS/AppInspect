@@ -103,6 +103,8 @@ export interface CrossBinarySearchResult {
   binaryName: string;
   binaryType: string;
   match: string;
+  /** Symbol type (exported/imported/local) — only present for symbols tab results. */
+  symbolType?: string;
 }
 
 export type SearchableTab = 'classes' | 'strings' | 'symbols' | 'libraries';
