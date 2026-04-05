@@ -93,6 +93,7 @@ function removeActiveMenu(): void {
     activeMenu.remove();
     activeMenu = null;
   }
+  document.querySelector(".ft-row-focus")?.classList.remove("ft-row-focus");
 }
 
 let platformName: string | null = null;
@@ -103,8 +104,10 @@ function getFolderLabel(): string {
   return "Show in Explorer";
 }
 
-function showContextMenu(x: number, y: number, entry: FileEntry): void {
+function showContextMenu(x: number, y: number, entry: FileEntry, row: HTMLElement): void {
   removeActiveMenu();
+
+  row.classList.add("ft-row-focus");
 
   const menu = document.createElement("div");
   menu.className = "ft-ctx-menu";
@@ -262,7 +265,7 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
     // Context menu
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      showContextMenu(e.clientX, e.clientY, entry);
+      showContextMenu(e.clientX, e.clientY, entry, row);
     });
 
     // Double-click to open file

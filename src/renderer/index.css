@@ -1477,7 +1477,8 @@ body.platform-darwin .app-title-row {
   white-space: nowrap;
 }
 
-.ft-row:hover {
+.ft-row:hover,
+.ft-row-focus {
   background-color: rgba(88, 166, 255, 0.06);
 }
 
