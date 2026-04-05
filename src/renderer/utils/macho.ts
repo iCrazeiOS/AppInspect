@@ -48,6 +48,25 @@ export function decodeCpuType(cputype: number): string {
   return CPU_TYPE_NAMES[cputype] ?? `Unknown (${cputype})`;
 }
 
+/** Returns a human-readable name for a CPU subtype, or null if unknown. */
+export function cpuSubtypeName(cputype: number, cpusubtype: number): string | null {
+  const sub = cpusubtype & 0x00ffffff;
+  if (cputype === 12) { // ARM
+    if (sub === 6) return "ARMv6";
+    if (sub === 9) return "ARMv7";
+    if (sub === 11) return "ARMv7s";
+    if (sub === 12) return "ARMv7k";
+  }
+  if (cputype === 0x0100000c) { // ARM64
+    if (sub === 1) return "ARM64v8";
+    if (sub === 2) return "ARM64e";
+  }
+  if (cputype === 0x01000007) { // x86_64
+    if (sub === 8) return "x86_64 (Haswell)";
+  }
+  return null;
+}
+
 export function decodeFileType(filetype: number): string {
   return FILE_TYPE_NAMES[filetype] ?? `Unknown (${filetype})`;
 }

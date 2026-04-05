@@ -14,7 +14,7 @@ import { renderEntitlements } from "./tabs/entitlements";
 import { renderPlist } from "./tabs/plist";
 import { renderHooks } from "./tabs/hooks";
 import { showToast } from "./components/toast";
-import { CPU_TYPE_NAMES } from "./utils/macho";
+import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 import type { AppSettings } from "../shared/types";
 
 // ── Types ──
@@ -397,8 +397,8 @@ function cpuLabel(cputype: number, cpusubtype: number): string {
   if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return base;
 
   // Named subtypes
-  if (cputype === 0x0100000c && sub === 2) return "ARM64e";
-  if (cputype === 0x01000007 && sub === 8) return "x86_64 (Haswell)";
+  const name = cpuSubtypeName(cputype, cpusubtype);
+  if (name) return name;
 
   return `${base} (sub ${sub})`;
 }

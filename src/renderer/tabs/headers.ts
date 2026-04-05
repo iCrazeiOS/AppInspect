@@ -6,7 +6,7 @@ import type { MachOHeader, LoadCommand, Segment, Section } from "../../shared/ty
 import type { AnalysisResult } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
-import { decodeCpuType, decodeFileType, hexStr } from "../utils/macho";
+import { decodeCpuType, decodeFileType, hexStr, cpuSubtypeName } from "../utils/macho";
 
 type HeadersData = AnalysisResult["headers"];
 
@@ -70,18 +70,11 @@ const LC_NAMES: Record<number, string> = {
 };
 
 function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
-  // Mask off CPU_SUBTYPE_LIB64 (bit 31)
   const sub = cpusubtype & 0x00ffffff;
-  if (cputype === 0x0100000c) { // ARM64
-    if (sub === 0) return "ALL";
-    if (sub === 1) return "ARM64v8";
-    if (sub === 2) return "ARM64E";
-  }
-  if (cputype === 0x01000007) { // x86_64
-    if (sub === 3) return "ALL";
-    if (sub === 8) return "Haswell";
-  }
+  const name = cpuSubtypeName(cputype, cpusubtype);
+  if (name) return name;
   if (sub === 0) return "ALL";
+  if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return "ALL";
   return String(sub);
 }
 
