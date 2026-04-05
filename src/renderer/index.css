@@ -45,8 +45,8 @@ html, body {
 /* ── Titlebar ── */
 .titlebar {
   width: 100%;
-  height: 36px;
-  min-height: 36px;
+  height: 37px;
+  min-height: 37px;
   -webkit-app-region: drag;
   background-color: var(--surface);
   border-bottom: 1px solid var(--border);
