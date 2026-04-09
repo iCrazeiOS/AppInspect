@@ -238,24 +238,45 @@ function discoverDEBBinaries(dataDir: string): DEBBinaryInfo[] {
 
 export async function extractDEB(
   debPath: string,
+  destDir?: string,
 ): Promise<DEBExtractionResult | DEBExtractionError> {
   try {
     const buf = fs.readFileSync(debPath);
     const members = parseARMembers(buf);
 
-    const tempDir = path.join(os.tmpdir(), `appinspect-deb-${Date.now()}`);
+    const tempDir = destDir ?? path.join(os.tmpdir(), `appinspect-deb-${Date.now()}`);
     fs.mkdirSync(tempDir, { recursive: true });
 
-    // Write each member to disk
-    for (const member of members) {
-      const outPath = path.join(tempDir, member.name);
-      fs.writeFileSync(
-        outPath,
-        buf.subarray(member.offset, member.offset + member.size),
-      );
+    // Check if a previous extraction already populated this directory
+    const dataDir = path.join(tempDir, "data");
+    const alreadyExtracted = fs.existsSync(dataDir) && fs.readdirSync(dataDir).length > 0;
+
+    if (!alreadyExtracted) {
+      // Write each member to disk
+      for (const member of members) {
+        const outPath = path.join(tempDir, member.name);
+        fs.writeFileSync(
+          outPath,
+          buf.subarray(member.offset, member.offset + member.size),
+        );
+      }
+
+      // Extract data archive
+      const dataMember = members.find((m) => m.name.startsWith("data.tar"));
+      if (!dataMember) {
+        return { success: false, error: "No data.tar member found in .deb archive" };
+      }
+
+      const dataTarPath = path.join(tempDir, dataMember.name);
+      try {
+        await extractTar(dataTarPath, dataDir);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { success: false, error: `Failed to extract data archive: ${msg}` };
+      }
     }
 
-    // Parse control file
+    // Parse control file (fast — always re-read so metadata stays fresh)
     const controlMember = members.find((m) => m.name.startsWith("control.tar"));
     let control: DEBControlInfo = {
       package: "",
@@ -266,7 +287,14 @@ export async function extractDEB(
     };
 
     if (controlMember) {
+      // Write the control tar if it's not on disk yet
       const controlTarPath = path.join(tempDir, controlMember.name);
+      if (!fs.existsSync(controlTarPath)) {
+        fs.writeFileSync(
+          controlTarPath,
+          buf.subarray(controlMember.offset, controlMember.offset + controlMember.size),
+        );
+      }
       const controlDir = path.join(tempDir, "control-extracted");
       try {
         await extractTar(controlTarPath, controlDir);
@@ -286,21 +314,6 @@ export async function extractDEB(
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[DEB] Failed to parse control: ${msg}`);
       }
-    }
-
-    // Extract data archive
-    const dataMember = members.find((m) => m.name.startsWith("data.tar"));
-    if (!dataMember) {
-      return { success: false, error: "No data.tar member found in .deb archive" };
-    }
-
-    const dataTarPath = path.join(tempDir, dataMember.name);
-    const dataDir = path.join(tempDir, "data");
-    try {
-      await extractTar(dataTarPath, dataDir);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { success: false, error: `Failed to extract data archive: ${msg}` };
     }
 
     // Discover binaries

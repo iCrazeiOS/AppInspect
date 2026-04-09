@@ -5,6 +5,7 @@
  * Reports progress via a callback. Gracefully continues when individual parsers fail.
  */
 
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -68,17 +69,34 @@ import {
 const yieldToEventLoop = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
 
-// ── Cached state ────────────────────────────────────────────────────
+// ── Extraction cache ───────────────────────────────────────────────
 
-let cachedResult: AnalysisResult | null = null;
-let cachedExtractedDir: string | null = null;
-let cachedAppBundlePath: string | null = null;
-let cachedBinaries: BinaryInfo[] = [];
-let cachedInfoPlist: Record<string, unknown> = {};
-let cachedSourceType: SourceType = "ipa";
-let cachedFilePath: string = "";
-let cachedActiveBinaryName: string = "";
-// Per-binary lightweight index for cross-binary search
+const CACHE_BASE = path.join(os.homedir(), ".appinspect", "cache");
+
+/**
+ * Deterministic cache directory for an extracted archive.
+ * Key is derived from file path + size + mtime so modified files get a fresh dir.
+ */
+function getCacheDir(filePath: string): string {
+  const stat = fs.statSync(filePath);
+  const key = crypto
+    .createHash("md5")
+    .update(`${filePath}\0${stat.size}\0${stat.mtimeMs}`)
+    .digest("hex");
+  return path.join(CACHE_BASE, key);
+}
+
+/** True when a cache dir exists and has content from a previous extraction. */
+function isCacheValid(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// ── Per-binary search index type ───────────────────────────────────
+
 interface BinarySearchIndex {
   classes: string[];
   strings: string[];
@@ -86,52 +104,8 @@ interface BinarySearchIndex {
   symbolTypes: string[];
   libraries: string[];
 }
-let cachedSearchIndex: Map<number, BinarySearchIndex> | null = null;
 
 export type SearchableTab = "classes" | "strings" | "symbols" | "libraries";
-
-export function getCachedResult(): AnalysisResult | null {
-  return cachedResult;
-}
-
-export function getActiveBinaryName(): string {
-  return cachedActiveBinaryName;
-}
-
-export function getCachedBinariesCount(): number {
-  return cachedBinaries.length;
-}
-
-// ── Cross-binary search (classes, strings, symbols) ────────────────
-
-async function ensureSearchIndex(
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<Map<number, BinarySearchIndex>> {
-  if (cachedSearchIndex) return cachedSearchIndex;
-
-  cachedSearchIndex = new Map();
-  for (let i = 0; i < cachedBinaries.length; i++) {
-    const bin = cachedBinaries[i]!;
-    progressCallback(
-      `Indexing ${bin.name}...`,
-      Math.round((i / cachedBinaries.length) * 100),
-    );
-    await yieldToEventLoop();
-    try {
-      const result = await analyseBinaryFile(bin.path, () => {}, 0);
-      cachedSearchIndex.set(i, {
-        classes: result.classes.map((c) => c.name),
-        strings: result.strings.map((s) => s.value),
-        symbols: result.symbols.map((s) => s.name),
-        symbolTypes: result.symbols.map((s) => s.type),
-        libraries: result.libraries.map((l) => l.name),
-      });
-    } catch {
-      cachedSearchIndex.set(i, { classes: [], strings: [], symbols: [], symbolTypes: [], libraries: [] });
-    }
-  }
-  return cachedSearchIndex;
-}
 
 export interface CrossBinarySearchResult {
   binaryIndex: number;
@@ -139,52 +113,6 @@ export interface CrossBinarySearchResult {
   binaryType: string;
   match: string;
   symbolType?: string;
-}
-
-export async function searchAllBinaries(
-  query: string,
-  tab: SearchableTab,
-  progressCallback: (phase: string, percent: number) => void,
-  isRegex?: boolean,
-  caseSensitive?: boolean,
-): Promise<CrossBinarySearchResult[]> {
-  if (cachedBinaries.length === 0 || !query) return [];
-
-  const index = await ensureSearchIndex(progressCallback);
-  const results: CrossBinarySearchResult[] = [];
-
-  let matcher: (value: string) => boolean;
-  if (isRegex) {
-    const flags = caseSensitive ? "" : "i";
-    const re = new RegExp(query, flags);
-    matcher = (value) => re.test(value);
-  } else if (caseSensitive) {
-    matcher = (value) => value.includes(query);
-  } else {
-    const lowerQuery = query.toLowerCase();
-    matcher = (value) => value.toLowerCase().includes(lowerQuery);
-  }
-
-  for (const [binaryIndex, entry] of index) {
-    const bin = cachedBinaries[binaryIndex];
-    if (!bin) continue;
-    const values = entry[tab];
-    for (let i = 0; i < values.length; i++) {
-      const value = values[i]!;
-      if (matcher(value)) {
-        const result: CrossBinarySearchResult = {
-          binaryIndex,
-          binaryName: bin.name,
-          binaryType: bin.type,
-          match: value,
-        };
-        if (tab === "symbols") result.symbolType = entry.symbolTypes[i];
-        results.push(result);
-      }
-    }
-  }
-
-  return results;
 }
 
 // ── File tree builder ───────────────────────────────────────────────
@@ -1360,261 +1288,814 @@ function extractLocalisationStrings(rootPath: string): LocalisationString[] {
   return results;
 }
 
-// ── Main orchestrator ───────────────────────────────────────────────
+// ── Analysis session ───────────────────────────────────────────────
 
-export async function analyseIPA(
-  ipaPath: string,
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<AnalysisResult> {
-  const errors: string[] = [];
+/**
+ * Isolated analysis session.
+ *
+ * Each instance holds its own state (parsed result, extracted directory,
+ * discovered binaries, search index, etc.) so multiple analyses can run
+ * concurrently without interfering with each other.
+ */
+export class AnalysisSession {
+  // ── State ──────────────────────────────────────────────────────────
+  private result: AnalysisResult | null = null;
+  private extractedDir: string | null = null;
+  private appBundlePath: string | null = null;
+  private binaries: BinaryInfo[] = [];
+  private infoPlist: Record<string, unknown> = {};
+  private sourceType: SourceType = "ipa";
+  private filePath: string = "";
+  private activeBinaryName: string = "";
+  private searchIndex: Map<number, BinarySearchIndex> | null = null;
 
-  // Step 1: Extract IPA
-  progressCallback("Extracting IPA...", 0);
-  const tempDir = path.join(os.tmpdir(), `appinspect-${Date.now()}`);
-  const extraction = await extractIPA(ipaPath, tempDir);
+  // ── Getters ────────────────────────────────────────────────────────
 
-  if (!extraction.success) {
-    throw new Error((extraction as { success: false; error: string }).error);
+  /** Return the cached analysis result, or null if no file has been analysed. */
+  getResult(): AnalysisResult | null {
+    return this.result;
   }
 
-  cachedExtractedDir = tempDir;
-  cachedSourceType = "ipa";
-  cachedFilePath = ipaPath;
-
-  // Step 2: Discover app bundle and binaries
-  progressCallback("Discovering binaries...", 15);
-  await yieldToEventLoop();
-  const appBundlePath = discoverAppBundle(tempDir);
-  if (!appBundlePath) {
-    throw new Error("No .app bundle found in IPA Payload directory");
-  }
-  cachedAppBundlePath = appBundlePath;
-
-  const binaries = discoverBinaries(appBundlePath);
-  cachedBinaries = binaries;
-  cachedSearchIndex = null;
-
-  if (binaries.length === 0) {
-    throw new Error("No binaries found in app bundle");
+  /** Return the name of the currently active binary (e.g. the main executable). */
+  getActiveBinaryName(): string {
+    return this.activeBinaryName;
   }
 
-  // Step 3: Parse Info.plist + mobileprovision
-  progressCallback("Parsing plists...", 20);
-  let infoPlistData: Record<string, PlistValue> = {};
-  try {
-    const plistResult = parseInfoPlist(appBundlePath);
-    if (plistResult && plistResult.ok) {
-      infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-    } else if (plistResult && !plistResult.ok) {
-      errors.push(`Info.plist: ${plistResult.error}`);
+  /** Return how many binaries were discovered in the loaded container. */
+  getBinariesCount(): number {
+    return this.binaries.length;
+  }
+
+  // ── Cross-binary search ────────────────────────────────────────────
+
+  /** Build (or return cached) lightweight per-binary search index. */
+  private async ensureSearchIndex(
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<Map<number, BinarySearchIndex>> {
+    if (this.searchIndex) return this.searchIndex;
+
+    this.searchIndex = new Map();
+    for (let i = 0; i < this.binaries.length; i++) {
+      const bin = this.binaries[i]!;
+      progressCallback(
+        `Indexing ${bin.name}...`,
+        Math.round((i / this.binaries.length) * 100),
+      );
+      await yieldToEventLoop();
+      try {
+        const result = await analyseBinaryFile(bin.path, () => {}, 0);
+        this.searchIndex.set(i, {
+          classes: result.classes.map((c) => c.name),
+          strings: result.strings.map((s) => s.value),
+          symbols: result.symbols.map((s) => s.name),
+          symbolTypes: result.symbols.map((s) => s.type),
+          libraries: result.libraries.map((l) => l.name),
+        });
+      } catch {
+        this.searchIndex.set(i, { classes: [], strings: [], symbols: [], symbolTypes: [], libraries: [] });
+      }
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Info.plist error: ${msg}`);
+    return this.searchIndex;
   }
-  cachedInfoPlist = infoPlistData;
 
-  // Mobileprovision entitlements (supplementary)
-  try {
-    const mpResult = parseMobileprovision(appBundlePath);
-    if (mpResult && mpResult.ok && mpResult.data.Entitlements) {
-      // These will be merged if code-signature entitlements are empty
+  /** Search across all binaries in the container for a query string. */
+  async searchAllBinaries(
+    query: string,
+    tab: SearchableTab,
+    progressCallback: (phase: string, percent: number) => void,
+    isRegex?: boolean,
+    caseSensitive?: boolean,
+  ): Promise<CrossBinarySearchResult[]> {
+    if (this.binaries.length === 0 || !query) return [];
+
+    const index = await this.ensureSearchIndex(progressCallback);
+    const results: CrossBinarySearchResult[] = [];
+
+    let matcher: (value: string) => boolean;
+    if (isRegex) {
+      const flags = caseSensitive ? "" : "i";
+      const re = new RegExp(query, flags);
+      matcher = (value) => re.test(value);
+    } else if (caseSensitive) {
+      matcher = (value) => value.includes(query);
+    } else {
+      const lowerQuery = query.toLowerCase();
+      matcher = (value) => value.toLowerCase().includes(lowerQuery);
     }
-  } catch {
-    // Non-critical
+
+    for (const [binaryIndex, entry] of index) {
+      const bin = this.binaries[binaryIndex];
+      if (!bin) continue;
+      const values = entry[tab];
+      for (let i = 0; i < values.length; i++) {
+        const value = values[i]!;
+        if (matcher(value)) {
+          const result: CrossBinarySearchResult = {
+            binaryIndex,
+            binaryName: bin.name,
+            binaryType: bin.type,
+            match: value,
+          };
+          if (tab === "symbols") result.symbolType = entry.symbolTypes[i];
+          results.push(result);
+        }
+      }
+    }
+
+    return results;
   }
 
-  // Steps 4-12: Analyse main binary (index 0)
-  progressCallback("Reading binary...", 25);
-  const mainBinary = binaries[0]!;
-  cachedActiveBinaryName = mainBinary.name;
-  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
+  // ── Main orchestrator ─────────────────────────────────────────────
 
-  // If code-signature entitlements were empty, try mobileprovision
-  let finalEntitlements = binaryResult.entitlements;
-  if (finalEntitlements.length === 0) {
+  /** Analyse an IPA archive — extract, discover binaries, and parse the main executable. */
+  async analyseIPA(
+    ipaPath: string,
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<AnalysisResult> {
+    const errors: string[] = [];
+
+    // Step 1: Extract IPA (skip if a valid cache exists)
+    const cacheDir = getCacheDir(ipaPath);
+    if (isCacheValid(cacheDir)) {
+      progressCallback("Using cached extraction...", 5);
+    } else {
+      progressCallback("Extracting IPA...", 0);
+      const extraction = await extractIPA(ipaPath, cacheDir);
+      if (!extraction.success) {
+        throw new Error((extraction as { success: false; error: string }).error);
+      }
+    }
+
+    this.extractedDir = cacheDir;
+    this.sourceType = "ipa";
+    this.filePath = ipaPath;
+
+    // Step 2: Discover app bundle and binaries
+    progressCallback("Discovering binaries...", 15);
+    await yieldToEventLoop();
+    const appBundlePath = discoverAppBundle(cacheDir);
+    if (!appBundlePath) {
+      throw new Error("No .app bundle found in IPA Payload directory");
+    }
+    this.appBundlePath = appBundlePath;
+
+    const binaries = discoverBinaries(appBundlePath);
+    this.binaries = binaries;
+    this.searchIndex = null;
+
+    if (binaries.length === 0) {
+      throw new Error("No binaries found in app bundle");
+    }
+
+    // Step 3: Parse Info.plist + mobileprovision
+    progressCallback("Parsing plists...", 20);
+    let infoPlistData: Record<string, PlistValue> = {};
+    try {
+      const plistResult = parseInfoPlist(appBundlePath);
+      if (plistResult && plistResult.ok) {
+        infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+      } else if (plistResult && !plistResult.ok) {
+        errors.push(`Info.plist: ${plistResult.error}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Info.plist error: ${msg}`);
+    }
+    this.infoPlist = infoPlistData;
+
+    // Mobileprovision entitlements (supplementary)
     try {
       const mpResult = parseMobileprovision(appBundlePath);
       if (mpResult && mpResult.ok && mpResult.data.Entitlements) {
-        finalEntitlements = convertEntitlements(mpResult.data.Entitlements);
+        // These will be merged if code-signature entitlements are empty
       }
     } catch {
       // Non-critical
     }
-  }
 
-  // Step 13: Detect app frameworks
-  const libNames = binaryResult.libraries.map((l) => l.name);
-  const appFrameworks = detectAppFrameworks(appBundlePath, libNames);
+    // Steps 4-12: Analyse main binary (index 0)
+    progressCallback("Reading binary...", 25);
+    const mainBinary = binaries[0]!;
+    this.activeBinaryName = mainBinary.name;
+    const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
 
-  // Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
-  progressCallback("Scanning bundle files...", 80);
-  await yieldToEventLoop();
-  let bundleFindings: SecurityFinding[] = [];
-  try {
-    const bundleFiles = readBundleFiles(appBundlePath);
-    if (bundleFiles.length > 0) {
-      bundleFindings = scanBundleFileContents(bundleFiles);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Bundle file scan error: ${msg}`);
-  }
-
-  // Step 14b: Extract localisation strings from .lproj directories
-  let localisationStrings: LocalisationString[] = [];
-  try {
-    localisationStrings = extractLocalisationStrings(appBundlePath);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errors.push(`Localisation extraction error: ${msg}`);
-  }
-
-  // Step 15: Scan additional binaries if setting enabled
-  let extraBinaryFindings: SecurityFinding[] = [];
-  const settings = loadSettings();
-  if (settings.scanAllBinaries && binaries.length > 1) {
-    progressCallback("Scanning additional binaries...", 85);
-    await yieldToEventLoop();
-    for (let i = 1; i < binaries.length; i++) {
+    // If code-signature entitlements were empty, try mobileprovision
+    let finalEntitlements = binaryResult.entitlements;
+    if (finalEntitlements.length === 0) {
       try {
-        const extraResult = await analyseBinaryFile(
-          binaries[i]!.path,
-          () => {}, // silent progress
-          0,
-        );
-        // Tag findings with source binary name
-        for (const finding of extraResult.security.findings) {
-          extraBinaryFindings.push({
-            ...finding,
-            source: binaries[i]!.name,
-          });
+        const mpResult = parseMobileprovision(appBundlePath);
+        if (mpResult && mpResult.ok && mpResult.data.Entitlements) {
+          finalEntitlements = convertEntitlements(mpResult.data.Entitlements);
         }
       } catch {
-        // Non-critical: skip binaries that fail
+        // Non-critical
       }
     }
-  }
 
-  // Merge all security findings
-  const mergedSecurity = {
-    findings: [
-      ...binaryResult.security.findings,
-      ...bundleFindings,
-      ...extraBinaryFindings,
-    ],
-    hardening: binaryResult.security.hardening,
-  };
+    // Step 13: Detect app frameworks
+    const libNames = binaryResult.libraries.map((l) => l.name);
+    const appFrameworks = detectAppFrameworks(appBundlePath, libNames);
 
-  // Step 16: Build file tree (start from the .app bundle directly)
-  progressCallback("Building file tree...", 95);
-  await yieldToEventLoop();
-  const files = buildFileTree(appBundlePath);
+    // Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
+    progressCallback("Scanning bundle files...", 80);
+    await yieldToEventLoop();
+    let bundleFindings: SecurityFinding[] = [];
+    try {
+      const bundleFiles = readBundleFiles(appBundlePath);
+      if (bundleFiles.length > 0) {
+        bundleFindings = scanBundleFileContents(bundleFiles);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Bundle file scan error: ${msg}`);
+    }
 
-  // Assemble final result
-  const appName = path.basename(appBundlePath, ".app");
-  const result: AnalysisResult = {
-    overview: {
-      sourceType: "ipa",
-      filePath: ipaPath,
-      ipa: {
-        bundlePath: appBundlePath,
-        appName,
-        binaries: binaries.map((b) => ({
-          name: b.name,
-          path: b.path,
-          type: b.type,
-          size: (() => {
-            try { return fs.statSync(b.path).size; } catch { return 0; }
-          })(),
-        })),
+    // Step 14b: Extract localisation strings from .lproj directories
+    let localisationStrings: LocalisationString[] = [];
+    try {
+      localisationStrings = extractLocalisationStrings(appBundlePath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Localisation extraction error: ${msg}`);
+    }
+
+    // Step 15: Scan additional binaries if setting enabled
+    let extraBinaryFindings: SecurityFinding[] = [];
+    const settings = loadSettings();
+    if (settings.scanAllBinaries && binaries.length > 1) {
+      progressCallback("Scanning additional binaries...", 85);
+      await yieldToEventLoop();
+      for (let i = 1; i < binaries.length; i++) {
+        try {
+          const extraResult = await analyseBinaryFile(
+            binaries[i]!.path,
+            () => {}, // silent progress
+            0,
+          );
+          // Tag findings with source binary name
+          for (const finding of extraResult.security.findings) {
+            extraBinaryFindings.push({
+              ...finding,
+              source: binaries[i]!.name,
+            });
+          }
+        } catch {
+          // Non-critical: skip binaries that fail
+        }
+      }
+    }
+
+    // Merge all security findings
+    const mergedSecurity = {
+      findings: [
+        ...binaryResult.security.findings,
+        ...bundleFindings,
+        ...extraBinaryFindings,
+      ],
+      hardening: binaryResult.security.hardening,
+    };
+
+    // Step 16: Build file tree (start from the .app bundle directly)
+    progressCallback("Building file tree...", 95);
+    await yieldToEventLoop();
+    const files = buildFileTree(appBundlePath);
+
+    // Assemble final result
+    const appName = path.basename(appBundlePath, ".app");
+    const result: AnalysisResult = {
+      overview: {
+        sourceType: "ipa",
+        filePath: ipaPath,
+        ipa: {
+          bundlePath: appBundlePath,
+          appName,
+          binaries: binaries.map((b) => ({
+            name: b.name,
+            path: b.path,
+            type: b.type,
+            size: (() => {
+              try { return fs.statSync(b.path).size; } catch { return 0; }
+            })(),
+          })),
+        },
+        header: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        buildVersion: binaryResult.buildVersion,
+        encryptionInfo: binaryResult.encryptionInfo,
+        hardening: binaryResult.security.hardening,
+        uuid: binaryResult.uuid ?? undefined,
+        teamId: binaryResult.teamId ?? undefined,
+        infoPlist: infoPlistData,
+        appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
       },
-      header: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      buildVersion: binaryResult.buildVersion,
-      encryptionInfo: binaryResult.encryptionInfo,
-      hardening: binaryResult.security.hardening,
-      uuid: binaryResult.uuid ?? undefined,
-      teamId: binaryResult.teamId ?? undefined,
+      strings: binaryResult.strings,
+      localisationStrings,
+      headers: {
+        machO: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        loadCommands: binaryResult.loadCommands,
+      },
+      libraries: binaryResult.libraries,
+      symbols: binaryResult.symbols,
+      classes: binaryResult.classes,
+      protocols: binaryResult.protocols,
+      entitlements: finalEntitlements,
       infoPlist: infoPlistData,
-      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
-    },
-    strings: binaryResult.strings,
-    localisationStrings,
-    headers: {
-      machO: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      loadCommands: binaryResult.loadCommands,
-    },
-    libraries: binaryResult.libraries,
-    symbols: binaryResult.symbols,
-    classes: binaryResult.classes,
-    protocols: binaryResult.protocols,
-    entitlements: finalEntitlements,
-    infoPlist: infoPlistData,
-    security: mergedSecurity,
-    hooks: binaryResult.hooks,
-    files,
-  };
+      security: mergedSecurity,
+      hooks: binaryResult.hooks,
+      files,
+    };
 
-  cachedResult = result;
-  progressCallback("Analysis complete", 100);
-  return result;
-}
-
-// ── Re-analyse a different binary ───────────────────────────────────
-
-export async function analyseBinary(
-  binaryIndex: number,
-  progressCallback: (phase: string, percent: number) => void,
-  cpuType?: number,
-  cpuSubtype?: number,
-): Promise<AnalysisResult> {
-  if (!cachedResult) {
-    throw new Error("No previous analysis. Run analyseFile first.");
+    this.result = result;
+    progressCallback("Analysis complete", 100);
+    return result;
   }
 
-  if (binaryIndex < 0 || binaryIndex >= cachedBinaries.length) {
-    throw new Error(`Binary index ${binaryIndex} out of range (0-${cachedBinaries.length - 1})`);
+  // ── Re-analyse a different binary ─────────────────────────────────
+
+  /** Switch to a different binary within the loaded container and re-analyse it. */
+  async analyseBinary(
+    binaryIndex: number,
+    progressCallback: (phase: string, percent: number) => void,
+    cpuType?: number,
+    cpuSubtype?: number,
+  ): Promise<AnalysisResult> {
+    if (!this.result) {
+      throw new Error("No previous analysis. Run analyseFile first.");
+    }
+
+    if (binaryIndex < 0 || binaryIndex >= this.binaries.length) {
+      throw new Error(`Binary index ${binaryIndex} out of range (0-${this.binaries.length - 1})`);
+    }
+
+    const binary = this.binaries[binaryIndex]!;
+    this.activeBinaryName = binary.name;
+    const binaryResult = await analyseBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
+
+    // Rebuild the result with the new binary data but keep IPA-level info
+    const result: AnalysisResult = {
+      ...this.result,
+      overview: {
+        ...this.result.overview,
+        header: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        buildVersion: binaryResult.buildVersion,
+        encryptionInfo: binaryResult.encryptionInfo,
+        hardening: binaryResult.security.hardening,
+        uuid: binaryResult.uuid ?? undefined,
+        teamId: binaryResult.teamId ?? this.result.overview.teamId,
+      },
+      strings: binaryResult.strings,
+      // localisationStrings kept from this.result via spread
+      headers: {
+        machO: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        loadCommands: binaryResult.loadCommands,
+      },
+      libraries: binaryResult.libraries,
+      symbols: binaryResult.symbols,
+      classes: binaryResult.classes,
+      protocols: binaryResult.protocols,
+      entitlements: binaryResult.entitlements.length > 0
+        ? binaryResult.entitlements
+        : this.result.entitlements,
+      security: binaryResult.security,
+      hooks: binaryResult.hooks,
+    };
+
+    this.result = result;
+    return result;
   }
 
-  const binary = cachedBinaries[binaryIndex]!;
-  cachedActiveBinaryName = binary.name;
-  const binaryResult = await analyseBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
+  // ── Analyse bare Mach-O / dylib ──────────────────────────────────
 
-  // Rebuild the result with the new binary data but keep IPA-level info
-  const result: AnalysisResult = {
-    ...cachedResult,
-    overview: {
-      ...cachedResult.overview,
-      header: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      buildVersion: binaryResult.buildVersion,
-      encryptionInfo: binaryResult.encryptionInfo,
+  /** Analyse a bare Mach-O executable or dylib (no container). */
+  async analyseMachO(
+    filePath: string,
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<AnalysisResult> {
+    this.sourceType = "macho";
+    this.filePath = filePath;
+    this.appBundlePath = null;
+    this.infoPlist = {};
+
+    const fileName = path.basename(filePath);
+    let fileSize = 0;
+    try {
+      fileSize = fs.statSync(filePath).size;
+    } catch { /* ignore */ }
+
+    // Set up single-binary list for binary switching
+    this.binaries = [{
+      name: fileName,
+      path: filePath,
+      type: "main",
+    }];
+    this.searchIndex = null;
+    this.activeBinaryName = fileName;
+
+    progressCallback("Analysing binary...", 10);
+    const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
+
+    const result: AnalysisResult = {
+      overview: {
+        sourceType: "macho",
+        filePath,
+        ipa: {
+          bundlePath: path.dirname(filePath),
+          appName: fileName,
+          binaries: [{
+            name: fileName,
+            path: filePath,
+            type: "main",
+            size: fileSize,
+          }],
+        },
+        header: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        buildVersion: binaryResult.buildVersion,
+        encryptionInfo: binaryResult.encryptionInfo,
+        hardening: binaryResult.security.hardening,
+        uuid: binaryResult.uuid ?? undefined,
+        teamId: binaryResult.teamId ?? undefined,
+      },
+      strings: binaryResult.strings,
+      localisationStrings: [],
+      headers: {
+        machO: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        loadCommands: binaryResult.loadCommands,
+      },
+      libraries: binaryResult.libraries,
+      symbols: binaryResult.symbols,
+      classes: binaryResult.classes,
+      protocols: binaryResult.protocols,
+      entitlements: binaryResult.entitlements,
+      infoPlist: {},
+      security: binaryResult.security,
+      hooks: binaryResult.hooks,
+      files: [],
+    };
+
+    this.result = result;
+    progressCallback("Analysis complete", 100);
+    return result;
+  }
+
+  // ── Analyse DEB package ──────────────────────────────────────────
+
+  /** Analyse a DEB package — extract, parse control metadata, and analyse binaries. */
+  async analyseDEB(
+    debPath: string,
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<AnalysisResult> {
+    this.sourceType = "deb";
+    this.filePath = debPath;
+    this.infoPlist = {};
+
+    // Step 1: Extract DEB (extractor skips if cache dir already has content)
+    const cacheDir = getCacheDir(debPath);
+    progressCallback("Extracting DEB package...", 0);
+    const extraction = await extractDEB(debPath, cacheDir);
+
+    if (!extraction.success) {
+      throw new Error(extraction.error);
+    }
+
+    this.extractedDir = cacheDir;
+    this.appBundlePath = extraction.dataDir;
+
+    // Convert DEB binaries to BinaryInfo for the binary selector
+    this.binaries = extraction.binaries.map((b: DEBBinaryInfo) => ({
+      name: b.name,
+      path: b.path,
+      type: b.type === "tweak" ? "main" as const : "framework" as const,
+    }));
+    this.searchIndex = null;
+
+    if (this.binaries.length === 0) {
+      throw new Error("No Mach-O binaries found in .deb package");
+    }
+
+    // Step 2: Analyse main binary
+    progressCallback("Analysing binary...", 20);
+    const mainBinary = this.binaries[0]!;
+    this.activeBinaryName = mainBinary.name;
+    const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
+
+    // Step 3: Scan additional binaries if setting enabled
+    let debExtraFindings: SecurityFinding[] = [];
+    const debSettings = loadSettings();
+    if (debSettings.scanAllBinaries && this.binaries.length > 1) {
+      progressCallback("Scanning additional binaries...", 80);
+      await yieldToEventLoop();
+      for (let i = 1; i < this.binaries.length; i++) {
+        try {
+          const extraResult = await analyseBinaryFile(
+            this.binaries[i]!.path,
+            () => {},
+            0,
+          );
+          for (const finding of extraResult.security.findings) {
+            debExtraFindings.push({ ...finding, source: this.binaries[i]!.name });
+          }
+        } catch {
+          // Non-critical
+        }
+      }
+    }
+
+    const debMergedSecurity = {
+      findings: [...binaryResult.security.findings, ...debExtraFindings],
       hardening: binaryResult.security.hardening,
-      uuid: binaryResult.uuid ?? undefined,
-      teamId: binaryResult.teamId ?? cachedResult.overview.teamId,
-    },
-    strings: binaryResult.strings,
-    // localisationStrings kept from cachedResult via spread
-    headers: {
-      machO: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      loadCommands: binaryResult.loadCommands,
-    },
-    libraries: binaryResult.libraries,
-    symbols: binaryResult.symbols,
-    classes: binaryResult.classes,
-    protocols: binaryResult.protocols,
-    entitlements: binaryResult.entitlements.length > 0
-      ? binaryResult.entitlements
-      : cachedResult.entitlements,
-    security: binaryResult.security,
-    hooks: binaryResult.hooks,
-  };
+    };
 
-  cachedResult = result;
-  return result;
+    // Step 3b: Extract localisation strings
+    let localisationStrings: LocalisationString[] = [];
+    try {
+      localisationStrings = extractLocalisationStrings(extraction.dataDir);
+    } catch {
+      // Non-critical
+    }
+
+    // Step 4: Build file tree from extracted data
+    progressCallback("Building file tree...", 90);
+    const files = buildFileTree(extraction.dataDir);
+
+    const result: AnalysisResult = {
+      overview: {
+        sourceType: "deb",
+        filePath: debPath,
+        debControl: extraction.control,
+        ipa: {
+          bundlePath: extraction.dataDir,
+          appName: extraction.control.name || path.basename(debPath, ".deb"),
+          binaries: this.binaries.map((b) => ({
+            name: b.name,
+            path: b.path,
+            type: b.type,
+            size: (() => {
+              try { return fs.statSync(b.path).size; } catch { return 0; }
+            })(),
+          })),
+        },
+        header: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        buildVersion: binaryResult.buildVersion,
+        encryptionInfo: binaryResult.encryptionInfo,
+        hardening: binaryResult.security.hardening,
+        uuid: binaryResult.uuid ?? undefined,
+        teamId: binaryResult.teamId ?? undefined,
+      },
+      strings: binaryResult.strings,
+      localisationStrings,
+      headers: {
+        machO: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        loadCommands: binaryResult.loadCommands,
+      },
+      libraries: binaryResult.libraries,
+      symbols: binaryResult.symbols,
+      classes: binaryResult.classes,
+      protocols: binaryResult.protocols,
+      entitlements: binaryResult.entitlements,
+      infoPlist: {},
+      security: debMergedSecurity,
+      hooks: binaryResult.hooks,
+      files,
+    };
+
+    // Enrich hooks with tweak filter plist data (target bundles)
+    try {
+      const mainBinaryName = path.basename(mainBinary.path, ".dylib");
+      // Look for filter plist next to the dylib
+      const filterPlistPath = path.join(path.dirname(mainBinary.path), mainBinaryName + ".plist");
+      if (fs.existsSync(filterPlistPath)) {
+        const filterBuf = fs.readFileSync(filterPlistPath);
+        try {
+          const filterDict = parsePlistBuffer(filterBuf);
+          const filter = filterDict.Filter as Record<string, unknown> | undefined;
+          const bundles = filter?.Bundles as string[] | undefined;
+          if (bundles && bundles.length > 0) {
+            result.hooks.targetBundles = bundles;
+          }
+        } catch {
+          // Non-critical — skip if filter plist can't be parsed
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+
+    this.result = result;
+    progressCallback("Analysis complete", 100);
+    return result;
+  }
+
+  // ── Analyse macOS .app bundle ───────────────────────────────────
+
+  /** Analyse a macOS .app bundle — discover binaries and parse the main executable. */
+  async analyseApp(
+    appPath: string,
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<AnalysisResult> {
+    this.sourceType = "app";
+    this.filePath = appPath;
+
+    // macOS .app bundles use Contents/ structure
+    const isMacOS = isMacOSAppBundle(appPath);
+    this.appBundlePath = appPath;
+
+    // Step 1: Discover binaries
+    progressCallback("Discovering binaries...", 5);
+    await yieldToEventLoop();
+
+    const binaries = isMacOS
+      ? discoverMacOSBinaries(appPath)
+      : discoverBinaries(appPath);
+    this.binaries = binaries;
+    this.searchIndex = null;
+
+    if (binaries.length === 0) {
+      throw new Error("No binaries found in .app bundle");
+    }
+
+    // Step 2: Parse Info.plist
+    progressCallback("Parsing plists...", 10);
+    let infoPlistData: Record<string, PlistValue> = {};
+    const plistDir = isMacOS ? path.join(appPath, "Contents") : appPath;
+    try {
+      const plistResult = parseInfoPlist(plistDir);
+      if (plistResult && plistResult.ok) {
+        infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Try the .app root as fallback
+      try {
+        const plistResult = parseInfoPlist(appPath);
+        if (plistResult && plistResult.ok) {
+          infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+    this.infoPlist = infoPlistData;
+
+    // Steps 3-12: Analyse main binary
+    progressCallback("Reading binary...", 15);
+    const mainBinary = binaries[0]!;
+    this.activeBinaryName = mainBinary.name;
+    const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+
+    // Entitlements from code signature
+    let finalEntitlements = binaryResult.entitlements;
+
+    // Detect app frameworks
+    const bundleRoot = isMacOS ? path.join(appPath, "Contents") : appPath;
+    const libNames = binaryResult.libraries.map((l) => l.name);
+    const appFrameworks = detectAppFrameworks(bundleRoot, libNames);
+
+    // Scan bundle files for secrets
+    progressCallback("Scanning bundle files...", 80);
+    await yieldToEventLoop();
+    let bundleFindings: SecurityFinding[] = [];
+    try {
+      const bundleFiles = readBundleFiles(bundleRoot);
+      if (bundleFiles.length > 0) {
+        bundleFindings = scanBundleFileContents(bundleFiles);
+      }
+    } catch {
+      // Non-critical
+    }
+
+    // Extract localisation strings from .lproj directories
+    let localisationStrings: LocalisationString[] = [];
+    try {
+      localisationStrings = extractLocalisationStrings(bundleRoot);
+    } catch {
+      // Non-critical
+    }
+
+    // Scan additional binaries if enabled
+    let extraBinaryFindings: SecurityFinding[] = [];
+    const settings = loadSettings();
+    if (settings.scanAllBinaries && binaries.length > 1) {
+      progressCallback("Scanning additional binaries...", 85);
+      await yieldToEventLoop();
+      for (let i = 1; i < binaries.length; i++) {
+        try {
+          const extraResult = await analyseBinaryFile(binaries[i]!.path, () => {}, 0);
+          for (const finding of extraResult.security.findings) {
+            extraBinaryFindings.push({ ...finding, source: binaries[i]!.name });
+          }
+        } catch {
+          // Non-critical
+        }
+      }
+    }
+
+    const mergedSecurity = {
+      findings: [...binaryResult.security.findings, ...bundleFindings, ...extraBinaryFindings],
+      hardening: binaryResult.security.hardening,
+    };
+
+    // Build file tree — for macOS apps where the only top-level entry is
+    // "Contents", promote its children to root so users see the useful stuff
+    progressCallback("Building file tree...", 95);
+    await yieldToEventLoop();
+    let files = buildFileTree(appPath);
+    if (
+      isMacOS &&
+      files.length === 1 &&
+      files[0]!.isDirectory &&
+      files[0]!.name === "Contents" &&
+      files[0]!.children
+    ) {
+      files = files[0]!.children;
+    }
+
+    const appName = path.basename(appPath, ".app");
+    const result: AnalysisResult = {
+      overview: {
+        sourceType: "app",
+        filePath: appPath,
+        ipa: {
+          bundlePath: appPath,
+          appName,
+          binaries: binaries.map((b) => ({
+            name: b.name,
+            path: b.path,
+            type: b.type,
+            size: (() => {
+              try { return fs.statSync(b.path).size; } catch { return 0; }
+            })(),
+          })),
+        },
+        header: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        buildVersion: binaryResult.buildVersion,
+        encryptionInfo: binaryResult.encryptionInfo,
+        hardening: binaryResult.security.hardening,
+        uuid: binaryResult.uuid ?? undefined,
+        teamId: binaryResult.teamId ?? undefined,
+        infoPlist: infoPlistData,
+        appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+      },
+      strings: binaryResult.strings,
+      localisationStrings,
+      headers: {
+        machO: binaryResult.header,
+        fatArchs: binaryResult.fatArchs,
+        loadCommands: binaryResult.loadCommands,
+      },
+      libraries: binaryResult.libraries,
+      symbols: binaryResult.symbols,
+      classes: binaryResult.classes,
+      protocols: binaryResult.protocols,
+      entitlements: finalEntitlements,
+      infoPlist: infoPlistData,
+      security: mergedSecurity,
+      hooks: binaryResult.hooks,
+      files,
+    };
+
+    this.result = result;
+    progressCallback("Analysis complete", 100);
+    return result;
+  }
+
+  // ── Unified file analysis entry point ────────────────────────────
+
+  /** Analyse any supported file — auto-detects type and dispatches to the right method. */
+  async analyseFile(
+    filePath: string,
+    progressCallback: (phase: string, percent: number) => void,
+  ): Promise<AnalysisResult> {
+    // Check if it's a .app directory
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory() && filePath.endsWith(".app")) {
+        return this.analyseApp(filePath, progressCallback);
+      }
+    } catch {
+      // Not a directory — continue with file-based detection
+    }
+
+    const fileType = detectFileType(filePath);
+
+    switch (fileType) {
+      case "ipa":
+        return this.analyseIPA(filePath, progressCallback);
+      case "macho":
+        return this.analyseMachO(filePath, progressCallback);
+      case "deb":
+        return this.analyseDEB(filePath, progressCallback);
+      case "app":
+        return this.analyseApp(filePath, progressCallback);
+    }
+  }
 }
 
 // ── File type detection ────────────────────────────────────────────
@@ -1658,427 +2139,3 @@ export function detectFileType(filePath: string): SourceType {
   return "macho";
 }
 
-// ── Analyse bare Mach-O / dylib ────────────────────────────────────
-
-export async function analyseMachO(
-  filePath: string,
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<AnalysisResult> {
-  cachedSourceType = "macho";
-  cachedFilePath = filePath;
-  cachedAppBundlePath = null;
-  cachedInfoPlist = {};
-
-  const fileName = path.basename(filePath);
-  let fileSize = 0;
-  try {
-    fileSize = fs.statSync(filePath).size;
-  } catch { /* ignore */ }
-
-  // Set up single-binary list for binary switching
-  cachedBinaries = [{
-    name: fileName,
-    path: filePath,
-    type: "main",
-  }];
-  cachedSearchIndex = null;
-  cachedActiveBinaryName = fileName;
-
-  progressCallback("Analysing binary...", 10);
-  const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
-
-  const result: AnalysisResult = {
-    overview: {
-      sourceType: "macho",
-      filePath,
-      ipa: {
-        bundlePath: path.dirname(filePath),
-        appName: fileName,
-        binaries: [{
-          name: fileName,
-          path: filePath,
-          type: "main",
-          size: fileSize,
-        }],
-      },
-      header: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      buildVersion: binaryResult.buildVersion,
-      encryptionInfo: binaryResult.encryptionInfo,
-      hardening: binaryResult.security.hardening,
-      uuid: binaryResult.uuid ?? undefined,
-      teamId: binaryResult.teamId ?? undefined,
-    },
-    strings: binaryResult.strings,
-    localisationStrings: [],
-    headers: {
-      machO: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      loadCommands: binaryResult.loadCommands,
-    },
-    libraries: binaryResult.libraries,
-    symbols: binaryResult.symbols,
-    classes: binaryResult.classes,
-    protocols: binaryResult.protocols,
-    entitlements: binaryResult.entitlements,
-    infoPlist: {},
-    security: binaryResult.security,
-    hooks: binaryResult.hooks,
-    files: [],
-  };
-
-  cachedResult = result;
-  progressCallback("Analysis complete", 100);
-  return result;
-}
-
-// ── Analyse DEB package ────────────────────────────────────────────
-
-export async function analyseDEB(
-  debPath: string,
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<AnalysisResult> {
-  cachedSourceType = "deb";
-  cachedFilePath = debPath;
-  cachedInfoPlist = {};
-
-  // Step 1: Extract DEB
-  progressCallback("Extracting DEB package...", 0);
-  const extraction = await extractDEB(debPath);
-
-  if (!extraction.success) {
-    throw new Error(extraction.error);
-  }
-
-  cachedExtractedDir = extraction.extractedDir;
-  cachedAppBundlePath = extraction.dataDir;
-
-  // Convert DEB binaries to BinaryInfo for the binary selector
-  cachedBinaries = extraction.binaries.map((b: DEBBinaryInfo) => ({
-    name: b.name,
-    path: b.path,
-    type: b.type === "tweak" ? "main" as const : "framework" as const,
-  }));
-  cachedSearchIndex = null;
-
-  if (cachedBinaries.length === 0) {
-    throw new Error("No Mach-O binaries found in .deb package");
-  }
-
-  // Step 2: Analyse main binary
-  progressCallback("Analysing binary...", 20);
-  const mainBinary = cachedBinaries[0]!;
-  cachedActiveBinaryName = mainBinary.name;
-  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
-
-  // Step 3: Scan additional binaries if setting enabled
-  let debExtraFindings: SecurityFinding[] = [];
-  const debSettings = loadSettings();
-  if (debSettings.scanAllBinaries && cachedBinaries.length > 1) {
-    progressCallback("Scanning additional binaries...", 80);
-    await yieldToEventLoop();
-    for (let i = 1; i < cachedBinaries.length; i++) {
-      try {
-        const extraResult = await analyseBinaryFile(
-          cachedBinaries[i]!.path,
-          () => {},
-          0,
-        );
-        for (const finding of extraResult.security.findings) {
-          debExtraFindings.push({ ...finding, source: cachedBinaries[i]!.name });
-        }
-      } catch {
-        // Non-critical
-      }
-    }
-  }
-
-  const debMergedSecurity = {
-    findings: [...binaryResult.security.findings, ...debExtraFindings],
-    hardening: binaryResult.security.hardening,
-  };
-
-  // Step 3b: Extract localisation strings
-  let localisationStrings: LocalisationString[] = [];
-  try {
-    localisationStrings = extractLocalisationStrings(extraction.dataDir);
-  } catch {
-    // Non-critical
-  }
-
-  // Step 4: Build file tree from extracted data
-  progressCallback("Building file tree...", 90);
-  const files = buildFileTree(extraction.dataDir);
-
-  const result: AnalysisResult = {
-    overview: {
-      sourceType: "deb",
-      filePath: debPath,
-      debControl: extraction.control,
-      ipa: {
-        bundlePath: extraction.dataDir,
-        appName: extraction.control.name || path.basename(debPath, ".deb"),
-        binaries: cachedBinaries.map((b) => ({
-          name: b.name,
-          path: b.path,
-          type: b.type,
-          size: (() => {
-            try { return fs.statSync(b.path).size; } catch { return 0; }
-          })(),
-        })),
-      },
-      header: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      buildVersion: binaryResult.buildVersion,
-      encryptionInfo: binaryResult.encryptionInfo,
-      hardening: binaryResult.security.hardening,
-      uuid: binaryResult.uuid ?? undefined,
-      teamId: binaryResult.teamId ?? undefined,
-    },
-    strings: binaryResult.strings,
-    localisationStrings,
-    headers: {
-      machO: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      loadCommands: binaryResult.loadCommands,
-    },
-    libraries: binaryResult.libraries,
-    symbols: binaryResult.symbols,
-    classes: binaryResult.classes,
-    protocols: binaryResult.protocols,
-    entitlements: binaryResult.entitlements,
-    infoPlist: {},
-    security: debMergedSecurity,
-    hooks: binaryResult.hooks,
-    files,
-  };
-
-  // Enrich hooks with tweak filter plist data (target bundles)
-  try {
-    const mainBinaryName = path.basename(mainBinary.path, ".dylib");
-    // Look for filter plist next to the dylib
-    const filterPlistPath = path.join(path.dirname(mainBinary.path), mainBinaryName + ".plist");
-    if (fs.existsSync(filterPlistPath)) {
-      const filterBuf = fs.readFileSync(filterPlistPath);
-      try {
-        const filterDict = parsePlistBuffer(filterBuf);
-        const filter = filterDict.Filter as Record<string, unknown> | undefined;
-        const bundles = filter?.Bundles as string[] | undefined;
-        if (bundles && bundles.length > 0) {
-          result.hooks.targetBundles = bundles;
-        }
-      } catch {
-        // Non-critical — skip if filter plist can't be parsed
-      }
-    }
-  } catch {
-    // Non-critical
-  }
-
-  cachedResult = result;
-  progressCallback("Analysis complete", 100);
-  return result;
-}
-
-// ── Analyse macOS .app bundle ─────────────────────────────────────
-
-export async function analyseApp(
-  appPath: string,
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<AnalysisResult> {
-  cachedSourceType = "app";
-  cachedFilePath = appPath;
-
-  // macOS .app bundles use Contents/ structure
-  const isMacOS = isMacOSAppBundle(appPath);
-  cachedAppBundlePath = appPath;
-
-  // Step 1: Discover binaries
-  progressCallback("Discovering binaries...", 5);
-  await yieldToEventLoop();
-
-  const binaries = isMacOS
-    ? discoverMacOSBinaries(appPath)
-    : discoverBinaries(appPath);
-  cachedBinaries = binaries;
-  cachedSearchIndex = null;
-
-  if (binaries.length === 0) {
-    throw new Error("No binaries found in .app bundle");
-  }
-
-  // Step 2: Parse Info.plist
-  progressCallback("Parsing plists...", 10);
-  let infoPlistData: Record<string, PlistValue> = {};
-  const plistDir = isMacOS ? path.join(appPath, "Contents") : appPath;
-  try {
-    const plistResult = parseInfoPlist(plistDir);
-    if (plistResult && plistResult.ok) {
-      infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Try the .app root as fallback
-    try {
-      const plistResult = parseInfoPlist(appPath);
-      if (plistResult && plistResult.ok) {
-        infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-      }
-    } catch {
-      // Non-critical
-    }
-  }
-  cachedInfoPlist = infoPlistData;
-
-  // Steps 3-12: Analyse main binary
-  progressCallback("Reading binary...", 15);
-  const mainBinary = binaries[0]!;
-  cachedActiveBinaryName = mainBinary.name;
-  const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
-
-  // Entitlements from code signature
-  let finalEntitlements = binaryResult.entitlements;
-
-  // Detect app frameworks
-  const bundleRoot = isMacOS ? path.join(appPath, "Contents") : appPath;
-  const libNames = binaryResult.libraries.map((l) => l.name);
-  const appFrameworks = detectAppFrameworks(bundleRoot, libNames);
-
-  // Scan bundle files for secrets
-  progressCallback("Scanning bundle files...", 80);
-  await yieldToEventLoop();
-  let bundleFindings: SecurityFinding[] = [];
-  try {
-    const bundleFiles = readBundleFiles(bundleRoot);
-    if (bundleFiles.length > 0) {
-      bundleFindings = scanBundleFileContents(bundleFiles);
-    }
-  } catch {
-    // Non-critical
-  }
-
-  // Extract localisation strings from .lproj directories
-  let localisationStrings: LocalisationString[] = [];
-  try {
-    localisationStrings = extractLocalisationStrings(bundleRoot);
-  } catch {
-    // Non-critical
-  }
-
-  // Scan additional binaries if enabled
-  let extraBinaryFindings: SecurityFinding[] = [];
-  const settings = loadSettings();
-  if (settings.scanAllBinaries && binaries.length > 1) {
-    progressCallback("Scanning additional binaries...", 85);
-    await yieldToEventLoop();
-    for (let i = 1; i < binaries.length; i++) {
-      try {
-        const extraResult = await analyseBinaryFile(binaries[i]!.path, () => {}, 0);
-        for (const finding of extraResult.security.findings) {
-          extraBinaryFindings.push({ ...finding, source: binaries[i]!.name });
-        }
-      } catch {
-        // Non-critical
-      }
-    }
-  }
-
-  const mergedSecurity = {
-    findings: [...binaryResult.security.findings, ...bundleFindings, ...extraBinaryFindings],
-    hardening: binaryResult.security.hardening,
-  };
-
-  // Build file tree — for macOS apps where the only top-level entry is
-  // "Contents", promote its children to root so users see the useful stuff
-  progressCallback("Building file tree...", 95);
-  await yieldToEventLoop();
-  let files = buildFileTree(appPath);
-  if (
-    isMacOS &&
-    files.length === 1 &&
-    files[0]!.isDirectory &&
-    files[0]!.name === "Contents" &&
-    files[0]!.children
-  ) {
-    files = files[0]!.children;
-  }
-
-  const appName = path.basename(appPath, ".app");
-  const result: AnalysisResult = {
-    overview: {
-      sourceType: "app",
-      filePath: appPath,
-      ipa: {
-        bundlePath: appPath,
-        appName,
-        binaries: binaries.map((b) => ({
-          name: b.name,
-          path: b.path,
-          type: b.type,
-          size: (() => {
-            try { return fs.statSync(b.path).size; } catch { return 0; }
-          })(),
-        })),
-      },
-      header: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      buildVersion: binaryResult.buildVersion,
-      encryptionInfo: binaryResult.encryptionInfo,
-      hardening: binaryResult.security.hardening,
-      uuid: binaryResult.uuid ?? undefined,
-      teamId: binaryResult.teamId ?? undefined,
-      infoPlist: infoPlistData,
-      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
-    },
-    strings: binaryResult.strings,
-    localisationStrings,
-    headers: {
-      machO: binaryResult.header,
-      fatArchs: binaryResult.fatArchs,
-      loadCommands: binaryResult.loadCommands,
-    },
-    libraries: binaryResult.libraries,
-    symbols: binaryResult.symbols,
-    classes: binaryResult.classes,
-    protocols: binaryResult.protocols,
-    entitlements: finalEntitlements,
-    infoPlist: infoPlistData,
-    security: mergedSecurity,
-    hooks: binaryResult.hooks,
-    files,
-  };
-
-  cachedResult = result;
-  progressCallback("Analysis complete", 100);
-  return result;
-}
-
-// ── Unified file analysis entry point ──────────────────────────────
-
-export async function analyseFile(
-  filePath: string,
-  progressCallback: (phase: string, percent: number) => void,
-): Promise<AnalysisResult> {
-  // Check if it's a .app directory
-  try {
-    const stat = fs.statSync(filePath);
-    if (stat.isDirectory() && filePath.endsWith(".app")) {
-      return analyseApp(filePath, progressCallback);
-    }
-  } catch {
-    // Not a directory — continue with file-based detection
-  }
-
-  const fileType = detectFileType(filePath);
-
-  switch (fileType) {
-    case "ipa":
-      return analyseIPA(filePath, progressCallback);
-    case "macho":
-      return analyseMachO(filePath, progressCallback);
-    case "deb":
-      return analyseDEB(filePath, progressCallback);
-    case "app":
-      return analyseApp(filePath, progressCallback);
-  }
-}

@@ -9,14 +9,7 @@ import { ipcMain, dialog, BrowserWindow, shell } from "electron";
 import { writeFileSync } from "fs";
 import path from "path";
 import type { TabName } from "../../shared/ipc-types";
-import {
-  analyseIPA,
-  analyseFile,
-  analyseBinary,
-  getCachedResult,
-  getActiveBinaryName,
-  searchAllBinaries,
-} from "../analysis/orchestrator";
+import { AnalysisSession } from "../analysis/orchestrator";
 import type { SearchableTab } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
 import { loadSettings, saveSettings } from "../settings";
@@ -45,11 +38,13 @@ function sanitizeBigInts<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj, bigintReplacer)) as T;
 }
 
+const session = new AnalysisSession();
+
 export function registerIPCHandlers(win: BrowserWindow): void {
   // ── analyse-ipa ──
   ipcMain.handle("analyse-ipa", async (_event, args: { path: string }) => {
     try {
-      const result = await analyseIPA(args.path, (phase, percent) => {
+      const result = await session.analyseIPA(args.path, (phase, percent) => {
         win.webContents.send("update-progress", {
           phase,
           percent,
@@ -70,7 +65,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── analyse-file (unified: IPA, Mach-O, or DEB) ──
   ipcMain.handle("analyse-file", async (_event, args: { path: string }) => {
     try {
-      const result = await analyseFile(args.path, (phase, percent) => {
+      const result = await session.analyseFile(args.path, (phase, percent) => {
         win.webContents.send("update-progress", {
           phase,
           percent,
@@ -91,7 +86,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── analyse-binary ──
   ipcMain.handle("analyse-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
     try {
-      const result = await analyseBinary(args.binaryIndex, (phase, percent) => {
+      const result = await session.analyseBinary(args.binaryIndex, (phase, percent) => {
         win.webContents.send("update-progress", { phase, percent, message: phase });
       }, args.cpuType, args.cpuSubtype);
 
@@ -108,7 +103,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── get-tab-data ──
   ipcMain.handle("get-tab-data", async (_event, args: { tab: TabName; binaryIndex?: number }) => {
     try {
-      const cached = getCachedResult();
+      const cached = session.getResult();
       if (!cached) {
         throw new Error("No analysis result available");
       }
@@ -161,7 +156,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── search-all-binaries ──
   ipcMain.handle("search-all-binaries", async (_event, args: { query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean }) => {
     try {
-      return await searchAllBinaries(
+      return await session.searchAllBinaries(
         args.query,
         args.tab,
         (phase, percent) => {
@@ -180,7 +175,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   // ── export-json ──
   ipcMain.handle("export-json", async (_event, args: { tabs?: TabName[] }) => {
     try {
-      const cached = getCachedResult();
+      const cached = session.getResult();
       if (!cached) {
         throw new Error("No analysis result available");
       }
@@ -193,7 +188,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       const inputName = appName
         ?? (inputFile ? path.basename(inputFile, path.extname(inputFile)) : null)
         ?? "appinspect";
-      const binaryName = getActiveBinaryName();
+      const binaryName = session.getActiveBinaryName();
       const needsBinarySuffix = binaryName && binaryName !== appName && binaryName !== inputName;
       const defaultPath = needsBinarySuffix
         ? `${inputName}-${binaryName}-export.json`

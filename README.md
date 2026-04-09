@@ -78,6 +78,7 @@ bun run build:main       # Main process (TypeScript → dist/main/)
 bun run build:preload    # Preload script (TypeScript → dist/preload/)
 bun run build:renderer   # Renderer bundle (TypeScript → dist/renderer/)
 bun run build:css        # Copy stylesheets to dist/renderer/
+bun run build:mcp        # MCP server (TypeScript → dist/mcp/)
 ```
 
 ### Package for distribution
@@ -92,6 +93,94 @@ bun run dist:linux      # Linux (AppImage + deb)
 
 Output goes to `release/`. Uses [electron-builder](https://www.electron.build/) with configuration in the `"build"` field of `package.json`.
 
+## MCP Server
+
+AppInspect includes a standalone [Model Context Protocol](https://modelcontextprotocol.io) server that exposes the full analysis engine to AI agents. No GUI or Electron needed — it runs as a plain process over stdio.
+
+### Setup
+
+```bash
+bun install
+bun run build:mcp
+```
+
+### Configure your MCP client
+
+Add the server to your client's MCP configuration.
+
+#### Claude Code
+
+Add to `.mcp.json` in a project root (project-scoped) or `~/.claude.json` (global):
+```json
+{
+  "mcpServers": {
+    "appinspect": {
+      "command": "bun",
+      "args": ["/absolute/path/to/AppInspect/dist/mcp/server.js"]
+    }
+  }
+}
+```
+
+**Claude Desktop** (`claude_desktop_config.json`), **Cursor**, **VS Code** — same `command` + `args` shape in their respective MCP settings.
+
+#### OpenCode
+
+Add to `~/.config/opencode/opencode.json` (or `opencode.json` in a project root):
+```json
+{
+  "mcp": {
+    "appinspect": {
+      "type": "local",
+      "command": ["bun", "/absolute/path/to/AppInspect/dist/mcp/server.js"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Verify with `opencode mcp list` — the server should show as **connected**.
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, or .app). Must be called first. |
+| `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
+| `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
+| `search` | Cross-binary search across all binaries in the loaded container |
+| `switch_binary` | Switch to a different binary (framework/extension) within the container |
+
+**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`
+
+All query tools (`get_overview`, `get_section`, `search`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
+
+### Example workflow
+
+1. Agent calls `analyse_file` with a path to an IPA → gets an overview summary
+2. Agent calls `get_section` with `section: "security"` → sees security findings
+3. Agent calls `get_section` with `section: "strings", filter: "api.example.com"` → finds matching strings
+4. Agent calls `search` with `query: "UIWebView", tab: "classes"` → searches across all binaries
+
+### Parallel analysis
+
+Multiple files can be analysed concurrently (e.g. by subagents). Each `analyse_file` call creates an isolated session keyed by file path. Query tools target the correct session via the optional `path` parameter:
+
+```
+Subagent A: analyse_file({ path: "/tmp/App1.ipa" })
+Subagent B: analyse_file({ path: "/tmp/App2.ipa" })
+Subagent A: get_section({ section: "security", path: "/tmp/App1.ipa" })
+Subagent B: get_section({ section: "symbols", path: "/tmp/App2.ipa" })
+```
+
+### Notes
+
+- All analysis runs locally, offline, with no network requests
+- The app does not need to be open — the MCP server is fully standalone
+- Large sections (strings, symbols, classes, libraries) support pagination via `offset` and `limit` (default: 200 items) and text filtering via `filter`
+- Extracted IPA/DEB content is cached in `~/.appinspect/cache/` so re-analysing the same file skips extraction
+- Settings are shared with the desktop app (`~/.appinspect/appinspect-settings.json`), with sensible defaults if no settings file exists
+
 ## Project structure
 
 ```
@@ -104,6 +193,7 @@ src/
     parser/          # Mach-O parsing (headers, load commands, strings,
                      #   symbols, ObjC metadata, code signatures, xrefs,
                      #   chained fixups, plists)
+  mcp/               # Standalone MCP server (no Electron dependency)
   preload/           # Electron preload bridge
   renderer/          # UI
     components/      # Reusable UI components (tables, search, JSON tree, toast)
@@ -119,3 +209,4 @@ src/
 - **Bun** — bundler and package manager
 - **fflate** — ZIP decompression (IPA extraction)
 - **bplist-parser** / **plist** — binary and XML plist parsing
+- **@modelcontextprotocol/sdk** — MCP server for AI agent integration
