@@ -386,6 +386,30 @@ export class HexViewer {
     bar.appendChild(matchPrev);
 
     this.matchInfoEl = el("span", "hv-match-count");
+    this.matchInfoEl.title = "Click to jump to result #";
+    this.matchInfoEl.addEventListener("click", () => {
+      if (this.matches.length === 0) return;
+      const jumpInput = el("input", "hv-match-jump") as HTMLInputElement;
+      jumpInput.type = "text";
+      jumpInput.value = String(this.currentMatchIndex + 1);
+      jumpInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          const n = parseInt(jumpInput.value, 10);
+          if (!isNaN(n)) {
+            const clamped = Math.max(1, Math.min(n, this.matches.length));
+            this.goToMatch(clamped - 1);
+          }
+          this.updateMatchInfo();
+        } else if (e.key === "Escape") {
+          this.updateMatchInfo();
+        }
+      });
+      jumpInput.addEventListener("blur", () => this.updateMatchInfo());
+      this.matchInfoEl!.textContent = "";
+      this.matchInfoEl!.appendChild(jumpInput);
+      jumpInput.select();
+      jumpInput.focus();
+    });
     bar.appendChild(this.matchInfoEl);
 
     const matchNext = el("button", "hv-nav-btn hv-match-nav", "\u203A");

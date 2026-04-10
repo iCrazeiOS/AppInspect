@@ -3323,6 +3323,20 @@ body.platform-darwin .app-title-row {
   white-space: nowrap;
   flex-shrink: 0;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  cursor: pointer;
+}
+
+.hv-match-jump {
+  width: 50px;
+  padding: 1px 4px;
+  font-size: 12px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--text);
+  text-align: center;
+  outline: none;
 }
 
 .hv-match-count--error {
