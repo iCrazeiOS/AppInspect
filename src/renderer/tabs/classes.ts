@@ -68,8 +68,8 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     return;
   }
 
-  const allClasses = classesData.classes ?? [];
-  const allProtocols = classesData.protocols ?? [];
+  const allClasses = [...(classesData.classes ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const allProtocols = [...(classesData.protocols ?? [])].sort((a, b) => a.localeCompare(b));
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
   let selectedMethod: ObjCMethod | null = null;
@@ -706,11 +706,14 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       if (selectedClass.protocols && selectedClass.protocols.length > 0) {
         const protoLine = document.createElement("div");
         protoLine.className = "cls-detail-protos";
-        protoLine.innerHTML = `<span class="cls-detail-protos-label">Conforms to:</span> `;
-        for (let i = 0; i < selectedClass.protocols.length; i++) {
+        const label = document.createElement("span");
+        label.className = "cls-detail-protos-label";
+        label.textContent = "Conforms to:";
+        protoLine.appendChild(label);
+        for (const proto of selectedClass.protocols) {
           const badge = document.createElement("span");
           badge.className = "cls-proto-badge";
-          badge.textContent = selectedClass.protocols[i]!;
+          badge.textContent = proto;
           protoLine.appendChild(badge);
         }
         detailHeader.appendChild(protoLine);

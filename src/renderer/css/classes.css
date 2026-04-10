@@ -331,7 +331,8 @@
 
 .cls-detail-protos-label {
   font-weight: 600;
-  margin-right: 2px;
+  color: var(--text-muted);
+  margin-right: 4px;
 }
 
 .cls-proto-badge {
