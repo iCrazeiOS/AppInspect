@@ -5,10 +5,8 @@
  * Reports progress via a callback. Gracefully continues when individual parsers fail.
  */
 
-import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import * as os from "os";
 
 import type {
   AnalysisResult,
@@ -27,8 +25,6 @@ import type {
   SecurityFinding,
   LoadCommand as SharedLoadCommand,
   PlistValue,
-  Section,
-  Segment,
   SourceType,
   HookInfo,
   LibraryGraphData,
@@ -47,116 +43,45 @@ import type { BinaryInfo } from "../ipa/extractor";
 import { parseFatHeader, parseMachOHeader, CPU_TYPE_ARM64 } from "../parser/macho";
 import type { MachOFile } from "../parser/macho";
 import { parseLoadCommands } from "../parser/load-commands";
-import type { LoadCommandsResult, Segment64, Section64 } from "../parser/load-commands";
+import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { buildFixupMap } from "../parser/chained-fixups";
 import { extractStrings } from "../parser/strings";
 import type { StringEntry as ParserStringEntry } from "../parser/strings";
 import { parseSymbolTable } from "../parser/symbols";
 import type { Symbol as ParserSymbol } from "../parser/symbols";
-import { extractObjCMetadata, buildMethodSignature } from "../parser/objc";
+import { extractObjCMetadata } from "../parser/objc";
 import { parseCodeSignature } from "../parser/codesign";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
-import { runSecurityScan, getBinaryHardening, scanBundleFileContents, isScannableExtension } from "./security";
-import type { BundleFileEntry } from "./security";
+import { runSecurityScan, getBinaryHardening, scanBundleFileContents } from "./security";
 import { loadSettings } from "../settings";
 import { parseFunctionStarts, buildStringXrefMap, formatFunctionName } from "../parser/xrefs";
 import { extractDEB } from "../deb/extractor";
 import type { DEBBinaryInfo } from "../deb/extractor";
+import { MACHO_MAGICS } from "../parser/macho";
+
+// ── Extracted modules ─────────────────────────────────────────────
+import { getCacheDir, isCacheValid, pruneCache } from "./cache";
+import { detectHooks } from "./hook-detection";
+import { detectAppFrameworks } from "./framework-detection";
+import { readBundleFiles, extractLocalisationStrings } from "./bundle-files";
 import {
-  MACHO_MAGICS,
-} from "../parser/macho";
+  buildMethodSignatureFromParts,
+  convertLoadCommands,
+  convertSymbols,
+  convertStrings,
+  convertEntitlements,
+  convertLibraries,
+} from "./conversion";
+import { classifyLib, libBasename, isTweakDep } from "./library-graph";
+
+// Re-export for external consumers (main/index.ts, mcp/server.ts, handlers.ts)
+export { pruneCache };
 
 // ── Event loop yield ───────────────────────────────────────────────
 
 /** Yield to the event loop so the UI stays responsive during heavy parsing. */
 const yieldToEventLoop = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
-
-// ── Extraction cache ───────────────────────────────────────────────
-
-const CACHE_BASE = path.join(os.homedir(), ".appinspect", "cache");
-
-/**
- * Deterministic cache directory for an extracted archive.
- * Key is derived from file path + size + mtime so modified files get a fresh dir.
- */
-function getCacheDir(filePath: string): string {
-  const stat = fs.statSync(filePath);
-  const key = crypto
-    .createHash("md5")
-    .update(`${filePath}\0${stat.size}\0${stat.mtimeMs}`)
-    .digest("hex");
-  return path.join(CACHE_BASE, key);
-}
-
-/** True when a cache dir exists and has content from a previous extraction.
- *  Touches the directory mtime on hit so pruneCache() uses last-accessed age. */
-function isCacheValid(dir: string): boolean {
-  try {
-    if (fs.readdirSync(dir).length > 0) {
-      const now = new Date();
-      fs.utimesSync(dir, now, now);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Remove cache entries older than `maxAgeDays` days.
- * Runs best-effort — errors on individual entries are silently ignored.
- */
-export function pruneCache(maxAgeDays = 7): void {
-  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-  const now = Date.now();
-
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(CACHE_BASE);
-  } catch {
-    return; // cache dir doesn't exist yet
-  }
-
-  for (const entry of entries) {
-    try {
-      const entryPath = path.join(CACHE_BASE, entry);
-      const stat = fs.statSync(entryPath);
-      if (stat.isDirectory() && now - stat.mtimeMs > maxAgeMs) {
-        fs.rmSync(entryPath, { recursive: true, force: true });
-      }
-    } catch {
-      // best-effort
-    }
-  }
-}
-
-// ── Library graph helpers ─────────────────────────────────────────
-
-function classifyLib(name: string): "system" | "swift" | "embedded" {
-  if (name.startsWith("/usr/lib/swift") || name.includes("libswift")) return "swift";
-  if (name.startsWith("/") || name.startsWith("@rpath/libswift")) return "system";
-  return "embedded";
-}
-
-function libBasename(fullPath: string): string {
-  const parts = fullPath.split("/");
-  let name = parts[parts.length - 1] ?? fullPath;
-  if (fullPath.includes(".framework")) {
-    const pre = fullPath.split(".framework")[0]!.split("/");
-    name = pre[pre.length - 1] ?? name;
-  }
-  return name;
-}
-
-/** Hooking framework library names that indicate a jailbreak tweak */
-const TWEAK_DEPS = ["substrate", "ellekit", "libhooker", "substitute"];
-
-function isTweakDep(libName: string): boolean {
-  const lower = libName.toLowerCase();
-  return TWEAK_DEPS.some((d) => lower.includes(d));
-}
 
 // ── Per-binary search index type ───────────────────────────────────
 
@@ -225,241 +150,6 @@ export function buildFileTree(dirPath: string): FileEntry[] {
   } catch {
     return [];
   }
-}
-
-/** Build signature from prefix (-/+), selector, and raw type encoding using the full ObjC type parser. */
-function buildMethodSignatureFromParts(prefix: string, selector: string, typeEncoding: string): string {
-  if (!typeEncoding) return `${prefix}${selector}`;
-  return buildMethodSignature(selector, typeEncoding, prefix === "-");
-}
-
-// ── Section / Segment conversion helpers ────────────────────────────
-
-function convertSection(s: Section64): Section {
-  return {
-    sectname: s.sectname,
-    segname: s.segname,
-    addr: s.addr,
-    size: s.size,
-    offset: s.offset,
-    align: s.align,
-    reloff: s.reloff,
-    nreloc: s.nreloc,
-    flags: s.flags,
-    reserved1: s.reserved1,
-    reserved2: s.reserved2,
-    reserved3: s.reserved3,
-  };
-}
-
-function convertSegment(s: Segment64): Segment {
-  return {
-    name: s.segname,
-    vmaddr: s.vmaddr,
-    vmsize: s.vmsize,
-    fileoff: Number(s.fileoff),
-    filesize: Number(s.filesize),
-    sections: s.sections.map(convertSection),
-    maxprot: s.maxprot,
-    initprot: s.initprot,
-    flags: s.flags,
-  };
-}
-
-/**
- * Convert internal parser load commands to the shared LoadCommand type
- * used in the AnalysisResult. Strips bigint values.
- */
-function convertLoadCommands(lcResult: LoadCommandsResult): SharedLoadCommand[] {
-  const result: SharedLoadCommand[] = [];
-
-  for (const seg of lcResult.segments) {
-    result.push({
-      type: "segment",
-      cmd: seg.cmd,
-      cmdsize: seg.cmdsize,
-      segment: convertSegment(seg),
-    });
-  }
-
-  for (const lib of lcResult.libraries) {
-    result.push({
-      type: "dylib",
-      cmd: lib.cmd,
-      cmdsize: lib.cmdsize,
-      library: {
-        name: lib.name,
-        currentVersion: lib.currentVersion,
-        compatVersion: lib.compatVersion,
-        weak: lib.weak,
-      },
-    });
-  }
-
-  if (lcResult.symtabInfo) {
-    result.push({
-      type: "symtab",
-      cmd: lcResult.symtabInfo.cmd,
-      cmdsize: lcResult.symtabInfo.cmdsize,
-      symtab: {
-        symoff: lcResult.symtabInfo.symoff,
-        nsyms: lcResult.symtabInfo.nsyms,
-        stroff: lcResult.symtabInfo.stroff,
-        strsize: lcResult.symtabInfo.strsize,
-      },
-    });
-  }
-
-  if (lcResult.encryption) {
-    result.push({
-      type: "encryption_info",
-      cmd: lcResult.encryption.cmd,
-      cmdsize: lcResult.encryption.cmdsize,
-      encryption: {
-        cryptoff: lcResult.encryption.cryptoff,
-        cryptsize: lcResult.encryption.cryptsize,
-        cryptid: lcResult.encryption.cryptid,
-      },
-    });
-  }
-
-  if (lcResult.buildVersion) {
-    result.push({
-      type: "build_version",
-      cmd: lcResult.buildVersion.cmd,
-      cmdsize: lcResult.buildVersion.cmdsize,
-      buildVersion: {
-        platform: lcResult.buildVersion.platform,
-        minos: lcResult.buildVersion.minos,
-        sdk: lcResult.buildVersion.sdk,
-        ntools: lcResult.buildVersion.ntools,
-      },
-    });
-  }
-
-  // Add remaining generic load commands that weren't already covered
-  for (const lc of lcResult.loadCommands) {
-    const cmd = lc.cmd;
-    // Skip commands we already converted above
-    if ("segname" in lc || "name" in lc || "symoff" in lc || "cryptoff" in lc || "platform" in lc) {
-      continue;
-    }
-    result.push({
-      type: "generic",
-      cmd,
-      cmdsize: lc.cmdsize,
-      cmdName: `LC_0x${cmd.toString(16)}`,
-    });
-  }
-
-  return result;
-}
-
-function convertSymbols(symbols: ParserSymbol[]): SymbolEntry[] {
-  return symbols.map((s) => ({
-    name: s.name,
-    address: s.address,
-    type: s.type,
-    sectionIndex: s.sectionIndex,
-  }));
-}
-
-function convertStrings(strings: ParserStringEntry[]): StringEntry[] {
-  return strings.map((s) => ({
-    value: s.value,
-    sectionSource: s.sources.join(", "),
-    offset: s.offset,
-  }));
-}
-
-function convertEntitlements(
-  raw: Record<string, unknown> | null
-): Entitlement[] {
-  if (!raw) return [];
-  return Object.entries(raw).map(([key, value]) => ({
-    key,
-    value: value as PlistValue,
-  }));
-}
-
-// ── Hook detection ─────────────────────────────────────────────────
-
-/** Known hook framework symbols → framework name */
-const HOOK_SYMBOLS: Record<string, string> = {
-  "_MSHookMessageEx": "Substrate",
-  "_MSHookFunction": "Substrate",
-  "_MSHookClassPair": "Substrate",
-  "_MSGetImageByName": "Substrate",
-  "_MSFindSymbol": "Substrate",
-  "_LHHookMessageEx": "Libhooker",
-  "_LHHookFunction": "Libhooker",
-  "_LHOpenImage": "Libhooker",
-  "_LBHookMessage": "Libhooker",
-  "_rebind_symbols": "fishhook",
-  "_rebind_symbols_image": "fishhook",
-  "_substitute_hook_functions": "Substitute",
-  "_SubHookMessageEx": "Substitute",
-  // ObjC runtime swizzling APIs (used by compiled Logos/Theos tweaks)
-  "_class_replaceMethod": "ObjC Runtime",
-  "_method_setImplementation": "ObjC Runtime",
-  "_method_exchangeImplementations": "ObjC Runtime",
-};
-
-/** System class prefixes (unlikely to be defined by a tweak) */
-const SYSTEM_CLASS_PREFIXES = [
-  "UI", "NS", "CA", "CK", "AV", "MF", "WK", "SK", "SB", "SF",
-  "MP", "PH", "CL", "MK", "SC", "GK", "HK", "CN", "EK", "AS",
-  "CT", "NW", "ST", "TI", "AB", "MB", "LS", "BS", "FBS", "RBS",
-  "CSP", "SSB", "SFL", "SPT", "NCN", "BLT", "WiFi", "CarPlay",
-  "Spring", "Web", "WAK", "DOM",
-];
-
-function detectHooks(
-  symbols: SymbolEntry[],
-  classes: ObjCClass[],
-  strings: StringEntry[],
-): HookInfo {
-  const frameworks = new Set<string>();
-  const hookSymbols: string[] = [];
-  const hookedClasses = new Set<string>();
-
-  // 1. Check imported symbols for hook framework functions
-  for (const sym of symbols) {
-    if (sym.type !== "imported") continue;
-    const framework = HOOK_SYMBOLS[sym.name];
-    if (framework) {
-      frameworks.add(framework);
-      hookSymbols.push(sym.name);
-    }
-  }
-
-  // 2. Find system classes referenced by the binary.
-  //    Only when a hook framework is present — regular apps also reference
-  //    system classes via objc_getClass for normal usage.
-  if (frameworks.size > 0) {
-    const tweakClassNames = new Set(classes.map((c) => c.name));
-
-    for (const str of strings) {
-      const val = str.value;
-      if (val.length < 3 || val.length > 80 || !/^[A-Z]/.test(val)) continue;
-      if (/[\s@#$%^&*(){}[\]|\\<>,]/.test(val)) continue;
-      if (tweakClassNames.has(val)) continue;
-
-      for (const prefix of SYSTEM_CLASS_PREFIXES) {
-        if (val.startsWith(prefix) && val.length > prefix.length && /^[A-Z]/.test(val[prefix.length]!)) {
-          hookedClasses.add(val);
-          break;
-        }
-      }
-    }
-  }
-
-  return {
-    frameworks: [...frameworks],
-    targetBundles: [],
-    hookedClasses: [...hookedClasses].sort(),
-    hookSymbols,
-  };
 }
 
 // ── Binary analysis (steps 4-12) ────────────────────────────────────
@@ -607,13 +297,7 @@ async function analyseBinaryFile(
       machoFile.littleEndian,
     );
     sharedLoadCommands = convertLoadCommands(lcResult);
-
-    libraries = lcResult.libraries.map((lib) => ({
-      name: lib.name,
-      currentVersion: lib.currentVersion,
-      compatVersion: lib.compatVersion,
-      weak: lib.weak,
-    }));
+    libraries = convertLibraries(lcResult);
 
     if (lcResult.buildVersion) {
       buildVersion = {
@@ -1001,355 +685,6 @@ async function analyseBinaryFile(
     hooks,
     errors,
   };
-}
-
-// ── App framework detection ────────────────────────────────────────
-
-function detectAppFrameworks(appBundlePath: string, linkedLibs: string[] = []): string[] {
-  const frameworksDir = path.join(appBundlePath, "Frameworks");
-  const detected: string[] = [];
-
-  const hasFramework = (name: string): boolean => {
-    try {
-      return fs.existsSync(path.join(frameworksDir, name));
-    } catch {
-      return false;
-    }
-  };
-
-  const hasFile = (relPath: string): boolean => {
-    try {
-      return fs.existsSync(path.join(appBundlePath, relPath));
-    } catch {
-      return false;
-    }
-  };
-
-  const hasAnyFramework = (...names: string[]): boolean =>
-    names.some(hasFramework);
-
-  /** Check if the binary links against a system framework by name */
-  const linksFramework = (name: string): boolean =>
-    linkedLibs.some((lib) => lib.includes(`/${name}.framework/`));
-
-  // ── Cross-platform frameworks ──
-
-  // React Native
-  if (
-    hasFile("main.jsbundle") ||
-    hasAnyFramework("hermes.framework", "React.framework", "ReactNative.framework")
-  ) {
-    detected.push("React Native");
-  }
-
-  // Expo (built on React Native)
-  if (hasAnyFramework("ExpoModulesCore.framework", "Expo.framework")) {
-    detected.push("Expo");
-  }
-
-  // Flutter (iOS uses Flutter.framework, macOS uses FlutterMacOS.framework)
-  if (hasAnyFramework("Flutter.framework", "FlutterMacOS.framework")) {
-    detected.push("Flutter");
-  }
-
-  // Cordova
-  if (hasFile("www/index.html") && !hasFramework("Capacitor.framework")) {
-    detected.push("Cordova");
-  }
-
-  // Capacitor
-  if (hasFramework("Capacitor.framework") || hasFramework("CapacitorBridge.framework")) {
-    detected.push("Capacitor");
-  }
-
-  // .NET MAUI / Xamarin
-  if (hasAnyFramework("Xamarin.iOS.framework", "Mono.framework")) {
-    detected.push("Xamarin/.NET MAUI");
-  }
-
-  // Kotlin Multiplatform
-  if (hasAnyFramework("shared.framework") && hasFramework("KotlinRuntime.framework")) {
-    detected.push("Kotlin Multiplatform");
-  }
-
-  // NativeScript
-  if (hasAnyFramework("NativeScript.framework", "TNSRuntime.framework")) {
-    detected.push("NativeScript");
-  }
-
-  // Titanium / Appcelerator
-  if (hasAnyFramework("TitaniumKit.framework", "Titanium.framework")) {
-    detected.push("Titanium");
-  }
-
-  // Qt
-  if (hasAnyFramework("QtCore.framework", "Qt.framework")) {
-    detected.push("Qt");
-  }
-
-  // Electron (very rare on iOS, but included for completeness)
-  if (hasFramework("Electron Framework.framework")) {
-    detected.push("Electron");
-  }
-
-  // ── Game engines ──
-
-  // Unity
-  if (hasFramework("UnityFramework.framework")) {
-    detected.push("Unity");
-  }
-
-  // Unreal Engine
-  if (hasAnyFramework("UE4.framework", "UnrealEngine.framework") || hasFile("UE4CommandLine.txt") || hasFile("uecommandline.txt")) {
-    detected.push("Unreal Engine");
-  }
-
-  // Godot
-  if (hasFile("godot_ios.pck")) {
-    detected.push("Godot");
-  }
-
-  // Cocos2d
-  if (hasAnyFramework("cocos2d.framework", "cocos2d_libs.framework")) {
-    detected.push("Cocos2d");
-  }
-
-  // GameMaker
-  if (hasFile("game.ios") || hasFile("data.win")) {
-    detected.push("GameMaker");
-  }
-
-  // Corona / Solar2D
-  if (hasAnyFramework("CoronaKit.framework", "Corona.framework")) {
-    detected.push("Solar2D");
-  }
-
-  // ── Linked system frameworks (not bundled, detected via load commands) ──
-
-  const systemFrameworks: string[] = [
-    // UI layer
-    "SwiftUI", "UIKit", "AppKit",
-    // Graphics & games
-    "RealityKit", "ARKit", "SceneKit", "SpriteKit", "Metal", "GameKit"
-  ];
-
-  for (const framework of systemFrameworks) {
-    if (linksFramework(framework)) {
-      detected.push(framework);
-    }
-  }
-
-  return detected;
-}
-
-// ── Bundle file reading for security scanning ─────────────────────
-
-function getBundleSizeLimits(): { maxTotal: number; maxSingle: number } {
-  const settings = loadSettings();
-  return {
-    maxTotal: settings.maxBundleSizeMB * 1024 * 1024,
-    maxSingle: settings.maxFileSizeMB * 1024 * 1024,
-  };
-}
-
-/**
- * Try to parse a plist (binary or XML) into a JSON text representation
- * so it can be scanned for secrets. Returns null if parsing fails.
- */
-function tryParsePlistToJson(buf: Buffer): string | null {
-  try {
-    const parsed = parsePlistBuffer(buf);
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Check if a file appears to be binary (has null bytes in the first 512 bytes).
- * Plists are handled separately via tryParsePlistToJson.
- */
-function hasBinaryContent(buf: Buffer): boolean {
-  const checkLen = Math.min(buf.length, 512);
-  for (let i = 0; i < checkLen; i++) {
-    if (buf[i] === 0) return true;
-  }
-  return false;
-}
-
-function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
-  const files: BundleFileEntry[] = [];
-  let totalSize = 0;
-  const { maxTotal, maxSingle } = getBundleSizeLimits();
-
-  function walk(dir: string): void {
-    if (totalSize >= maxTotal) return;
-
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (totalSize >= maxTotal) break;
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip known binary-only directories
-        if (entry.name === "Frameworks" || entry.name === "PlugIns" || entry.name === "_CodeSignature") {
-          continue;
-        }
-        walk(fullPath);
-        continue;
-      }
-
-      if (!entry.isFile()) continue;
-
-      const ext = path.extname(entry.name);
-      if (!isScannableExtension(ext)) continue;
-
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.size === 0 || stat.size > maxSingle) continue;
-
-        const rawBuf = fs.readFileSync(fullPath);
-        let content: string;
-
-        // Try parsing plists (.plist, .strings can be binary or XML plist format)
-        const plistText = tryParsePlistToJson(rawBuf);
-        if (plistText !== null) {
-          content = plistText;
-        } else if (hasBinaryContent(rawBuf)) {
-          // Skip other binary files (compiled nibs embedded with wrong extension, etc.)
-          continue;
-        } else {
-          content = rawBuf.toString("utf-8");
-        }
-
-        const relativePath = path.relative(appBundlePath, fullPath).replace(/\\/g, "/");
-        files.push({ relativePath, content });
-        totalSize += stat.size;
-      } catch {
-        // Skip unreadable files
-      }
-    }
-  }
-
-  walk(appBundlePath);
-  return files;
-}
-
-// ── Localisation string extraction ──────────────────────────────────
-
-/**
- * Parse a .strings file content (binary plist, XML plist, or old-style format)
- * into key-value pairs.
- */
-function parseStringsFile(buf: Buffer): Record<string, string> {
-  const result: Record<string, string> = {};
-
-  // Try binary or XML plist first
-  try {
-    const parsed = parsePlistBuffer(buf);
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === "string") result[k] = v;
-    }
-    return result;
-  } catch {
-    // Fall through to old-style format
-  }
-
-  const text = buf.toString("utf-8");
-
-  // Old-style .strings format: "key" = "value";
-  const regex = /"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    const key = match[1]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
-    const value = match[2]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
-    result[key] = value;
-  }
-
-  return result;
-}
-
-/**
- * Walk the app bundle for .lproj directories and extract localisation strings
- * from all .strings files within them.
- */
-function extractLocalisationStrings(rootPath: string): LocalisationString[] {
-  const results: LocalisationString[] = [];
-  const { maxTotal, maxSingle } = getBundleSizeLimits();
-  let totalSize = 0;
-
-  function readStringsFile(fullPath: string, language: string): void {
-    try {
-      const stat = fs.statSync(fullPath);
-      if (stat.size === 0 || stat.size > maxSingle) return;
-
-      const buf = fs.readFileSync(fullPath);
-      totalSize += stat.size;
-
-      const pairs = parseStringsFile(buf);
-      const relativePath = path.relative(rootPath, fullPath).replace(/\\/g, "/");
-
-      for (const [key, value] of Object.entries(pairs)) {
-        results.push({ key, value, file: relativePath, language });
-      }
-    } catch {
-      // Skip unreadable files
-    }
-  }
-
-  function walk(dir: string): void {
-    if (totalSize >= maxTotal) return;
-
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (totalSize >= maxTotal) break;
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip heavy binary-only dirs
-        if (entry.name === "_CodeSignature") continue;
-
-        if (entry.name.endsWith(".lproj")) {
-          // Process all .strings files in this lproj
-          const language = entry.name.replace(/\.lproj$/, "");
-          let files: fs.Dirent[];
-          try {
-            files = fs.readdirSync(fullPath, { withFileTypes: true });
-          } catch {
-            continue;
-          }
-          for (const file of files) {
-            if (file.isFile() && file.name.endsWith(".strings")) {
-              readStringsFile(path.join(fullPath, file.name), language);
-            }
-          }
-        } else {
-          walk(fullPath);
-        }
-        continue;
-      }
-
-      // Standalone .strings files outside .lproj (no language)
-      if (entry.isFile() && entry.name.endsWith(".strings")) {
-        readStringsFile(fullPath, "");
-      }
-    }
-  }
-
-  walk(rootPath);
-  return results;
 }
 
 // ── Analysis session ───────────────────────────────────────────────
@@ -2313,4 +1648,3 @@ export function detectFileType(filePath: string): SourceType {
   // Default to macho for extensionless files (common for executables)
   return "macho";
 }
-
