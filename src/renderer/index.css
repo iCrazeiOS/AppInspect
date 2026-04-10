@@ -3292,8 +3292,11 @@ body.platform-darwin .app-title-row {
   border-radius: 3px;
   color: var(--accent);
   font-size: 11px;
+  font-family: var(--font-stack);
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 3px 0;
+  width: 38px;
+  text-align: center;
   cursor: pointer;
   transition: background-color 100ms ease;
   white-space: nowrap;
