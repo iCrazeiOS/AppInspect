@@ -29,6 +29,7 @@ const DEFAULT_BYTES_PER_ROW = 16;
 const ROW_HEIGHT = 20;
 const CHUNK_SIZE = 65536; // 64 KB per IPC fetch
 const BUFFER_ROWS = 30;  // extra rows rendered above/below viewport
+const MAX_SPACER_PX = 10_000_000; // browsers cap scrollHeight around 33M; stay well under
 
 // Row width in `ch` units for a given bytesPerRow:
 //   offset(9) + hex(N*3) + gaps(floor((N-1)/8)*1.5) + ascii_margin(2) + ascii(N) + padding(~4)
@@ -84,6 +85,7 @@ export class HexViewer {
 
   private bytesPerRow = DEFAULT_BYTES_PER_ROW;
   private totalRows: number;
+  private spacerHeight = 0; // actual pixel height of spacer (may be scaled)
   private rafId = 0;
   private boundOnScroll: () => void;
   private boundOnResize: () => void;
@@ -125,7 +127,7 @@ export class HexViewer {
     // Virtual scroll container
     this.scrollContainer = el("div", "hv-content");
     this.spacer = el("div", "hv-spacer");
-    this.spacer.style.height = `${this.totalRows * ROW_HEIGHT}px`;
+    this.updateSpacerHeight();
     this.rowContainer = el("div", "hv-rows");
     this.scrollContainer.appendChild(this.spacer);
     this.scrollContainer.appendChild(this.rowContainer);
@@ -160,6 +162,36 @@ export class HexViewer {
     this.matchInfoEl = null;
     this.chunks.clear();
     this.pendingChunks.clear();
+  }
+
+  // ── Scroll scaling ──
+
+  /** Compute and apply the spacer height, capping at MAX_SPACER_PX for large regions. */
+  private updateSpacerHeight(): void {
+    const natural = this.totalRows * ROW_HEIGHT;
+    this.spacerHeight = Math.min(natural, MAX_SPACER_PX);
+    if (this.spacer) this.spacer.style.height = `${this.spacerHeight}px`;
+  }
+
+  /** Map scrollTop → first visible row, accounting for scaling. */
+  private scrollTopToRow(scrollTop: number): number {
+    const natural = this.totalRows * ROW_HEIGHT;
+    if (natural <= MAX_SPACER_PX) {
+      return Math.floor(scrollTop / ROW_HEIGHT);
+    }
+    // Scaled: scrollTop / spacerHeight gives a 0..1 fraction
+    const frac = this.spacerHeight > 0 ? scrollTop / this.spacerHeight : 0;
+    return Math.floor(frac * this.totalRows);
+  }
+
+  /** Map a row index → pixel position within the spacer. */
+  private rowToScrollTop(row: number): number {
+    const natural = this.totalRows * ROW_HEIGHT;
+    if (natural <= MAX_SPACER_PX) {
+      return row * ROW_HEIGHT;
+    }
+    const frac = this.totalRows > 0 ? row / this.totalRows : 0;
+    return Math.floor(frac * this.spacerHeight);
   }
 
   // ── Dynamic width ──
@@ -200,10 +232,7 @@ export class HexViewer {
     this.bytesPerRow = best;
     this.totalRows = Math.ceil(this.opts.regionSize / this.bytesPerRow);
 
-    // Update spacer height
-    if (this.spacer) {
-      this.spacer.style.height = `${this.totalRows * ROW_HEIGHT}px`;
-    }
+    this.updateSpacerHeight();
 
     // Rebuild column header
     if (this.headerWrap) {
@@ -425,7 +454,7 @@ export class HexViewer {
     const scrollTop = sc.scrollTop;
     const viewHeight = sc.clientHeight;
 
-    const firstVisible = Math.floor(scrollTop / ROW_HEIGHT);
+    const firstVisible = this.scrollTopToRow(scrollTop);
     const visibleCount = Math.ceil(viewHeight / ROW_HEIGHT);
 
     const start = Math.max(0, firstVisible - BUFFER_ROWS);
@@ -441,8 +470,8 @@ export class HexViewer {
     // Ensure data for visible rows is loaded
     this.ensureChunksLoaded(start, end);
 
-    // Position row container
-    rc.style.top = `${start * ROW_HEIGHT}px`;
+    // Position row container at the pixel offset for the start row
+    rc.style.top = `${this.rowToScrollTop(start)}px`;
     rc.innerHTML = "";
 
     for (let row = start; row < end; row++) {
@@ -570,7 +599,7 @@ export class HexViewer {
 
   private scrollToRow(row: number): void {
     if (!this.scrollContainer) return;
-    const targetTop = row * ROW_HEIGHT;
+    const targetTop = this.rowToScrollTop(row);
     const viewHeight = this.scrollContainer.clientHeight;
     // Center the row in the viewport
     this.scrollContainer.scrollTop = Math.max(0, targetTop - viewHeight / 2);
@@ -594,7 +623,7 @@ export class HexViewer {
       return;
     }
     // Find which region the top visible row falls in
-    const firstRow = Math.floor(sc.scrollTop / ROW_HEIGHT);
+    const firstRow = this.scrollTopToRow(sc.scrollTop);
     const visibleFileOffset = this.opts.regionOffset + firstRow * this.bytesPerRow;
     let current: HexRegion | undefined;
     for (const r of regions) {
