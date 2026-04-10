@@ -12,6 +12,7 @@ function createWindow(): BrowserWindow {
 		height: 800,
 		minWidth: 800,
 		minHeight: 500,
+		show: false,
 		backgroundColor: "#0d1117",
 		titleBarStyle: "hidden",
 		trafficLightPosition: process.platform === "darwin" ? { x: 14, y: 14 } : undefined,
@@ -31,7 +32,11 @@ function createWindow(): BrowserWindow {
 	});
 
 	win.loadFile(path.join(APP_ROOT, "src/renderer/index.html"));
-	win.maximize();
+
+	win.once("ready-to-show", () => {
+		win.maximize();
+		win.show();
+	});
 
 	if (process.platform === "darwin") {
 		win.webContents.on("dom-ready", () => {
