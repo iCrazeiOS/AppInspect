@@ -11,6 +11,7 @@
 
 // ── Load Command Constants ────────────────────────────────────────────
 
+export const LC_SEGMENT = 0x1;
 export const LC_SYMTAB = 0x2;
 export const LC_DYSYMTAB = 0xb;
 export const LC_LOAD_DYLIB = 0xc;
@@ -19,6 +20,7 @@ export const LC_CODE_SIGNATURE = 0x1d;
 export const LC_SEGMENT_64 = 0x19;
 export const LC_FUNCTION_STARTS = 0x26;
 export const LC_SOURCE_VERSION = 0x2a;
+export const LC_ENCRYPTION_INFO = 0x21;
 export const LC_ENCRYPTION_INFO_64 = 0x2c;
 export const LC_BUILD_VERSION = 0x32;
 export const LC_MAIN = 0x80000028;
@@ -245,6 +247,34 @@ function parseSection64(
 
 // Section64 struct size: 16+16+8+8+4+4+4+4+4+4+4+4 = 80 bytes
 const SECTION_64_SIZE = 80;
+// Section (32-bit) struct size: 16+16+4+4+4+4+4+4+4+4+4 = 68 bytes
+const SECTION_32_SIZE = 68;
+// Segment command sizes (header only, before sections)
+const SEGMENT_COMMAND_32_SIZE = 56;
+const SEGMENT_COMMAND_64_SIZE = 72;
+
+// ── Section32 Parser ──────────────────────────────────────────────────
+
+function parseSection32(
+  view: DataView,
+  offset: number,
+  le: boolean,
+): Section64 {
+  return {
+    sectname: readCString(view, offset, 16),
+    segname: readCString(view, offset + 16, 16),
+    addr: BigInt(view.getUint32(offset + 32, le)),
+    size: BigInt(view.getUint32(offset + 36, le)),
+    offset: view.getUint32(offset + 40, le),
+    align: view.getUint32(offset + 44, le),
+    reloff: view.getUint32(offset + 48, le),
+    nreloc: view.getUint32(offset + 52, le),
+    flags: view.getUint32(offset + 56, le),
+    reserved1: view.getUint32(offset + 60, le),
+    reserved2: view.getUint32(offset + 64, le),
+    reserved3: 0, // Not present in 32-bit section
+  };
+}
 
 // ── Main Parser ───────────────────────────────────────────────────────
 
@@ -252,10 +282,11 @@ const SECTION_64_SIZE = 80;
  * Parse all load commands starting at `offset` within `buffer`.
  *
  * @param buffer      The raw file buffer
- * @param offset      Byte offset where load commands begin (header offset + 32)
- * @param ncmds       Number of load commands (from mach_header_64.ncmds)
+ * @param offset      Byte offset where load commands begin (header offset + 32 for 64-bit, +28 for 32-bit)
+ * @param ncmds       Number of load commands (from mach_header.ncmds)
  * @param sizeofcmds  Total byte size of all load commands
  * @param littleEndian Endianness detected from magic
+ * @param is64Bit     Whether this is a 64-bit Mach-O (affects segment/section parsing)
  */
 export function parseLoadCommands(
   buffer: ArrayBuffer,
@@ -263,6 +294,7 @@ export function parseLoadCommands(
   ncmds: number,
   sizeofcmds: number,
   littleEndian: boolean,
+  is64Bit: boolean = true,
 ): LoadCommandsResult {
   const view = new DataView(buffer);
   const le = littleEndian;
@@ -296,6 +328,45 @@ export function parseLoadCommands(
     let parsed: LoadCommand;
 
     switch (cmd) {
+      case LC_SEGMENT: {
+        // 32-bit segment command
+        const segname = readCString(view, cursor + 8, 16);
+        const vmaddr = BigInt(view.getUint32(cursor + 24, le));
+        const vmsize = BigInt(view.getUint32(cursor + 28, le));
+        const fileoff = BigInt(view.getUint32(cursor + 32, le));
+        const filesize = BigInt(view.getUint32(cursor + 36, le));
+        const maxprot = view.getInt32(cursor + 40, le);
+        const initprot = view.getInt32(cursor + 44, le);
+        const nsects = view.getUint32(cursor + 48, le);
+        const flags = view.getUint32(cursor + 52, le);
+
+        const sections: Section64[] = [];
+        // Sections start at cursor + 56 (segment_command header size)
+        let sectOffset = cursor + SEGMENT_COMMAND_32_SIZE;
+        for (let s = 0; s < nsects; s++) {
+          sections.push(parseSection32(view, sectOffset, le));
+          sectOffset += SECTION_32_SIZE;
+        }
+
+        const seg: Segment64 = {
+          cmd,
+          cmdsize,
+          segname,
+          vmaddr,
+          vmsize,
+          fileoff,
+          filesize,
+          maxprot,
+          initprot,
+          nsects,
+          flags,
+          sections,
+        };
+        result.segments.push(seg);
+        parsed = seg;
+        break;
+      }
+
       case LC_SEGMENT_64: {
         const segname = readCString(view, cursor + 8, 16);
         const vmaddr = view.getBigUint64(cursor + 24, le);
@@ -309,7 +380,7 @@ export function parseLoadCommands(
 
         const sections: Section64[] = [];
         // Sections start at cursor + 72 (segment_command_64 header size)
-        let sectOffset = cursor + 72;
+        let sectOffset = cursor + SEGMENT_COMMAND_64_SIZE;
         for (let s = 0; s < nsects; s++) {
           sections.push(parseSection64(view, sectOffset, le));
           sectOffset += SECTION_64_SIZE;
@@ -355,7 +426,9 @@ export function parseLoadCommands(
         break;
       }
 
+      case LC_ENCRYPTION_INFO:
       case LC_ENCRYPTION_INFO_64: {
+        // Both 32-bit and 64-bit encryption info have the same structure
         const enc: EncryptionInfo64 = {
           cmd,
           cmdsize,

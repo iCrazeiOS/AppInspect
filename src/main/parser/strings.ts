@@ -39,6 +39,16 @@ const NULL_TERM_SECTIONS: Array<{ segname: string; sectname: string }> = [
 
 const CFSTRING_SEGMENTS = ["__DATA", "__DATA_CONST"];
 
+// CFString struct sizes:
+// 64-bit: isa(8) + flags(8) + data_ptr(8) + length(8) = 32 bytes
+// 32-bit: isa(4) + flags(4) + data_ptr(4) + length(4) = 16 bytes
+const CFSTRING_SIZE_64 = 32;
+const CFSTRING_SIZE_32 = 16;
+const CFSTRING_DATA_OFFSET_64 = 16;
+const CFSTRING_DATA_OFFSET_32 = 8;
+const CFSTRING_LENGTH_OFFSET_64 = 24;
+const CFSTRING_LENGTH_OFFSET_32 = 12;
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -164,8 +174,9 @@ function parseUTF16Strings(
 /**
  * Parse CFString structs from __DATA.__cfstring or __DATA_CONST.__cfstring.
  *
- * Each entry is 32 bytes:
- *   isa (8) + flags (8) + data_ptr (8) + length (8)
+ * Entry sizes:
+ *   64-bit: isa (8) + flags (8) + data_ptr (8) + length (8) = 32 bytes
+ *   32-bit: isa (4) + flags (4) + data_ptr (4) + length (4) = 16 bytes
  *
  * data_ptr may be a chained fixup pointer — check rebaseMap for its file offset.
  * If the resolved vmaddr is found, convert to file offset and read `length` bytes.
@@ -177,6 +188,7 @@ function parseCFStrings(
   rebaseMap: Map<number, bigint>,
   littleEndian: boolean,
   minLen: number,
+  is64Bit: boolean = true,
 ): Array<{ value: string; offset: number }> {
   const results: Array<{ value: string; offset: number }> = [];
   const view = new DataView(buffer);
@@ -185,19 +197,24 @@ function parseCFStrings(
   const le = littleEndian;
 
   const sectionEnd = section.offset + Number(section.size);
-  const CFSTRING_STRUCT_SIZE = 32;
+  const structSize = is64Bit ? CFSTRING_SIZE_64 : CFSTRING_SIZE_32;
+  const dataPtrOffset = is64Bit ? CFSTRING_DATA_OFFSET_64 : CFSTRING_DATA_OFFSET_32;
+  const lengthOffset = is64Bit ? CFSTRING_LENGTH_OFFSET_64 : CFSTRING_LENGTH_OFFSET_32;
+  const ptrSize = is64Bit ? 8 : 4;
 
   for (
     let structOff = section.offset;
-    structOff + CFSTRING_STRUCT_SIZE <= sectionEnd;
-    structOff += CFSTRING_STRUCT_SIZE
+    structOff + structSize <= sectionEnd;
+    structOff += structSize
   ) {
-    const dataPtrFieldOffset = structOff + 16;
-    const lengthFieldOffset = structOff + 24;
+    const dataPtrFieldOffset = structOff + dataPtrOffset;
+    const lengthFieldOffset = structOff + lengthOffset;
 
     // Read the length field
-    if (lengthFieldOffset + 8 > buffer.byteLength) break;
-    const length = Number(view.getBigUint64(lengthFieldOffset, le));
+    if (lengthFieldOffset + ptrSize > buffer.byteLength) break;
+    const length = is64Bit
+      ? Number(view.getBigUint64(lengthFieldOffset, le))
+      : view.getUint32(lengthFieldOffset, le);
 
     if (length < minLen || length > 0x100000) continue; // sanity cap at 1MB
 
@@ -210,8 +227,10 @@ function parseCFStrings(
     }
 
     // Fallback: read the raw pointer value and try to interpret as vmaddr
-    if (fileOffset === null && dataPtrFieldOffset + 8 <= buffer.byteLength) {
-      const rawPtr = view.getBigUint64(dataPtrFieldOffset, le);
+    if (fileOffset === null && dataPtrFieldOffset + ptrSize <= buffer.byteLength) {
+      const rawPtr = is64Bit
+        ? view.getBigUint64(dataPtrFieldOffset, le)
+        : BigInt(view.getUint32(dataPtrFieldOffset, le));
       if (rawPtr > 0n) {
         fileOffset = vmaddrToFileOffset(rawPtr, segments);
       }
@@ -242,6 +261,7 @@ function parseCFStrings(
  * @param segments     Parsed LC_SEGMENT_64 entries
  * @param rebaseMap    Chained fixups rebase map (file offset -> resolved vmaddr)
  * @param littleEndian Byte order
+ * @param is64Bit      Whether this is a 64-bit binary (affects CFString struct size)
  * @returns Deduplicated array of StringEntry
  */
 export function extractStrings(
@@ -250,6 +270,7 @@ export function extractStrings(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   littleEndian: boolean,
+  is64Bit: boolean = true,
 ): StringEntry[] {
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
@@ -322,6 +343,7 @@ export function extractStrings(
         rebaseMap,
         littleEndian,
         MIN_LEN,
+        is64Bit,
       );
       addEntries(entries, "__cfstring");
     }

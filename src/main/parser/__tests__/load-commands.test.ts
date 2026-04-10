@@ -7,9 +7,11 @@ import {
   parseLoadCommands,
   readCString,
   readVersion,
+  LC_SEGMENT,
   LC_SEGMENT_64,
   LC_LOAD_DYLIB,
   LC_LOAD_WEAK_DYLIB,
+  LC_ENCRYPTION_INFO,
   LC_ENCRYPTION_INFO_64,
   LC_UUID,
   LC_SYMTAB,
@@ -36,6 +38,69 @@ function writeCString(view: DataView, offset: number, str: string, maxLen: numbe
   for (let i = 0; i < maxLen; i++) {
     view.setUint8(offset + i, i < str.length ? str.charCodeAt(i) : 0);
   }
+}
+
+/** Build a single LC_SEGMENT (32-bit) with N sections, returning its byte array. */
+function buildSegment32(opts: {
+  segname: string;
+  vmaddr: number;
+  vmsize: number;
+  fileoff: number;
+  filesize: number;
+  maxprot: number;
+  initprot: number;
+  flags: number;
+  sections: Array<{
+    sectname: string;
+    segname: string;
+    addr: number;
+    size: number;
+    offset: number;
+    align: number;
+    reloff: number;
+    nreloc: number;
+    flags: number;
+    reserved1: number;
+    reserved2: number;
+  }>;
+}): ArrayBuffer {
+  const nsects = opts.sections.length;
+  // LC_SEGMENT: 56 bytes header + 68 bytes per section
+  const cmdsize = 56 + nsects * 68;
+  const buf = new ArrayBuffer(cmdsize);
+  const view = new DataView(buf);
+  const le = true;
+
+  view.setUint32(0, LC_SEGMENT, le);
+  view.setUint32(4, cmdsize, le);
+  writeCString(view, 8, opts.segname, 16);
+  view.setUint32(24, opts.vmaddr, le);
+  view.setUint32(28, opts.vmsize, le);
+  view.setUint32(32, opts.fileoff, le);
+  view.setUint32(36, opts.filesize, le);
+  view.setInt32(40, opts.maxprot, le);
+  view.setInt32(44, opts.initprot, le);
+  view.setUint32(48, nsects, le);
+  view.setUint32(52, opts.flags, le);
+
+  let off = 56;
+  for (const sec of opts.sections) {
+    writeCString(view, off, sec.sectname, 16);
+    writeCString(view, off + 16, sec.segname, 16);
+    view.setUint32(off + 32, sec.addr, le);
+    view.setUint32(off + 36, sec.size, le);
+    view.setUint32(off + 40, sec.offset, le);
+    view.setUint32(off + 44, sec.align, le);
+    view.setUint32(off + 48, sec.reloff, le);
+    view.setUint32(off + 52, sec.nreloc, le);
+    view.setUint32(off + 56, sec.flags, le);
+    view.setUint32(off + 60, sec.reserved1, le);
+    view.setUint32(off + 64, sec.reserved2, le);
+    // Note: section_32 has no reserved3 field (68 bytes total, not 80)
+    off += 68;
+  }
+
+  return buf;
 }
 
 /** Build a single LC_SEGMENT_64 with N sections, returning its byte array. */
@@ -143,6 +208,22 @@ function buildEncryptionInfo64(cryptoff: number, cryptsize: number, cryptid: num
   return buf;
 }
 
+/** Build LC_ENCRYPTION_INFO (32-bit). */
+function buildEncryptionInfo32(cryptoff: number, cryptsize: number, cryptid: number): ArrayBuffer {
+  const cmdsize = 20; // cmd(4) + cmdsize(4) + cryptoff(4) + cryptsize(4) + cryptid(4)
+  const buf = new ArrayBuffer(cmdsize);
+  const view = new DataView(buf);
+  const le = true;
+
+  view.setUint32(0, LC_ENCRYPTION_INFO, le);
+  view.setUint32(4, cmdsize, le);
+  view.setUint32(8, cryptoff, le);
+  view.setUint32(12, cryptsize, le);
+  view.setUint32(16, cryptid, le);
+
+  return buf;
+}
+
 /** Build LC_UUID. */
 function buildUUID(uuidBytes: number[]): ArrayBuffer {
   const cmdsize = 24; // cmd(4) + cmdsize(4) + uuid(16)
@@ -213,11 +294,18 @@ function concat(...buffers: ArrayBuffer[]): ArrayBuffer {
   return out;
 }
 
-/** Run parseLoadCommands on a concatenated buffer of load commands. */
+/** Run parseLoadCommands on a concatenated buffer of load commands (64-bit). */
 function parse(buffers: ArrayBuffer[]) {
   const combined = concat(...buffers);
   const ncmds = buffers.length;
-  return parseLoadCommands(combined, 0, ncmds, combined.byteLength, true);
+  return parseLoadCommands(combined, 0, ncmds, combined.byteLength, true, true);
+}
+
+/** Run parseLoadCommands on a concatenated buffer of load commands (32-bit). */
+function parse32(buffers: ArrayBuffer[]) {
+  const combined = concat(...buffers);
+  const ncmds = buffers.length;
+  return parseLoadCommands(combined, 0, ncmds, combined.byteLength, true, false);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -522,5 +610,119 @@ describe("parseLoadCommands", () => {
     expect(result.libraries).toHaveLength(1);
     expect(result.uuid).not.toBeNull();
     expect(result.codeSignatureInfo).not.toBeNull();
+  });
+
+  // ── 32-bit Load Command Tests ───────────────────────────────────────
+
+  it("parses LC_SEGMENT (32-bit) with 2 sections", () => {
+    const seg = buildSegment32({
+      segname: "__TEXT",
+      vmaddr: 0x1000,
+      vmsize: 0x4000,
+      fileoff: 0,
+      filesize: 0x4000,
+      maxprot: 5,
+      initprot: 5,
+      flags: 0,
+      sections: [
+        {
+          sectname: "__text",
+          segname: "__TEXT",
+          addr: 0x2000,
+          size: 0x1000,
+          offset: 0x1000,
+          align: 4,
+          reloff: 0,
+          nreloc: 0,
+          flags: 0x80000400,
+          reserved1: 0,
+          reserved2: 0,
+        },
+        {
+          sectname: "__stubs",
+          segname: "__TEXT",
+          addr: 0x3000,
+          size: 0x60,
+          offset: 0x2000,
+          align: 2,
+          reloff: 0,
+          nreloc: 0,
+          flags: 0x80000408,
+          reserved1: 0,
+          reserved2: 6,
+        },
+      ],
+    });
+
+    const result = parse32([seg]);
+
+    expect(result.segments).toHaveLength(1);
+    const s = result.segments[0]!;
+    expect(s.segname).toBe("__TEXT");
+    expect(s.vmaddr).toBe(0x1000n);
+    expect(s.vmsize).toBe(0x4000n);
+    expect(s.fileoff).toBe(0n);
+    expect(s.filesize).toBe(0x4000n);
+    expect(s.maxprot).toBe(5);
+    expect(s.initprot).toBe(5);
+    expect(s.nsects).toBe(2);
+    expect(s.sections).toHaveLength(2);
+
+    // First section
+    expect(s.sections[0]!.sectname).toBe("__text");
+    expect(s.sections[0]!.segname).toBe("__TEXT");
+    expect(s.sections[0]!.addr).toBe(0x2000n);
+    expect(s.sections[0]!.size).toBe(0x1000n);
+    expect(s.sections[0]!.offset).toBe(0x1000);
+    expect(s.sections[0]!.flags).toBe(0x80000400);
+    // 32-bit sections don't have reserved3
+    expect(s.sections[0]!.reserved3).toBe(0);
+
+    // Second section
+    expect(s.sections[1]!.sectname).toBe("__stubs");
+    expect(s.sections[1]!.addr).toBe(0x3000n);
+    expect(s.sections[1]!.size).toBe(0x60n);
+    expect(s.sections[1]!.reserved2).toBe(6);
+  });
+
+  it("parses LC_ENCRYPTION_INFO (32-bit)", () => {
+    const enc = buildEncryptionInfo32(0x4000, 0x10000, 1);
+    const result = parse32([enc]);
+
+    expect(result.encryption).not.toBeNull();
+    expect(result.encryption!.cryptoff).toBe(0x4000);
+    expect(result.encryption!.cryptsize).toBe(0x10000);
+    expect(result.encryption!.cryptid).toBe(1);
+  });
+
+  it("parses mixed 32-bit load commands in sequence", () => {
+    const seg = buildSegment32({
+      segname: "__TEXT",
+      vmaddr: 0x1000,
+      vmsize: 0x4000,
+      fileoff: 0,
+      filesize: 0x4000,
+      maxprot: 5,
+      initprot: 5,
+      flags: 0,
+      sections: [],
+    });
+    const dylib = buildDylibCommand({
+      name: "/usr/lib/libc.dylib",
+      currentVersion: (1 << 16) | (0 << 8) | 0,
+      compatVersion: (1 << 16) | (0 << 8) | 0,
+    });
+    const uuid = buildUUID([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    const enc = buildEncryptionInfo32(0x4000, 0x8000, 0);
+
+    const result = parse32([seg, dylib, uuid, enc]);
+
+    expect(result.loadCommands).toHaveLength(4);
+    expect(result.segments).toHaveLength(1);
+    expect(result.segments[0]!.vmaddr).toBe(0x1000n);
+    expect(result.libraries).toHaveLength(1);
+    expect(result.uuid).not.toBeNull();
+    expect(result.encryption).not.toBeNull();
+    expect(result.encryption!.cryptid).toBe(0);
   });
 });

@@ -26,7 +26,7 @@ function dvFrom(bytes: number[]): DataView {
  *   n_desc  (int16)
  *   n_value (uint64)
  */
-function buildSymtabBuffer(
+function buildSymtabBuffer64(
   entries: Array<{
     n_strx: number;
     n_type: number;
@@ -63,6 +63,64 @@ function buildSymtabBuffer(
     view.setUint8(base + 5, e.n_sect);
     view.setInt16(base + 6, e.n_desc, true);
     view.setBigUint64(base + 8, e.n_value, true);
+  }
+
+  // Write string table
+  const u8 = new Uint8Array(buf);
+  for (let i = 0; i < strBytes.length; i++) {
+    u8[stroff + i] = strBytes[i]!;
+  }
+
+  return { buffer: buf, symtabInfo: { symoff, nsyms, stroff, strsize } };
+}
+
+/** Alias for backward compatibility */
+const buildSymtabBuffer = buildSymtabBuffer64;
+
+/**
+ * Build an ArrayBuffer containing nlist (32-bit) entries + a string table.
+ *
+ * Each nlist = 12 bytes (little-endian):
+ *   n_strx  (uint32)  — byte offset into string table
+ *   n_type  (uint8)
+ *   n_sect  (uint8)
+ *   n_desc  (int16)
+ *   n_value (uint32)
+ */
+function buildSymtabBuffer32(
+  entries: Array<{
+    n_strx: number;
+    n_type: number;
+    n_sect: number;
+    n_desc: number;
+    n_value: number;
+  }>,
+  stringTable: string[],
+): { buffer: ArrayBuffer; symtabInfo: SymtabInfo } {
+  const strBytes: number[] = [0];
+  for (const s of stringTable) {
+    for (let i = 0; i < s.length; i++) strBytes.push(s.charCodeAt(i));
+    strBytes.push(0);
+  }
+
+  const symoff = 0;
+  const nsyms = entries.length;
+  const stroff = nsyms * 12; // 12 bytes per nlist (32-bit)
+  const strsize = strBytes.length;
+
+  const totalSize = stroff + strsize;
+  const buf = new ArrayBuffer(totalSize);
+  const view = new DataView(buf);
+
+  // Write nlist entries (32-bit)
+  for (let i = 0; i < nsyms; i++) {
+    const base = i * 12;
+    const e = entries[i]!;
+    view.setUint32(base, e.n_strx, true);
+    view.setUint8(base + 4, e.n_type);
+    view.setUint8(base + 5, e.n_sect);
+    view.setInt16(base + 6, e.n_desc, true);
+    view.setUint32(base + 8, e.n_value, true);
   }
 
   // Write string table
@@ -314,5 +372,74 @@ describe("parseExportTrie", () => {
     expect(byName.get("_g")!.address).toBe(200n);
     expect(byName.get("_f")!.type).toBe("exported");
     expect(byName.get("_g")!.type).toBe("exported");
+  });
+});
+
+// ── 32-bit Symbol Table Tests ─────────────────────────────────────────
+
+describe("parseSymbolTable (32-bit)", () => {
+  it("parses nlist (32-bit) with 4-byte n_value", () => {
+    const { buffer, symtabInfo } = buildSymtabBuffer32(
+      [{ n_strx: 1, n_type: 0x0f, n_sect: 1, n_desc: 0, n_value: 0x1000 }],
+      ["_main"],
+    );
+    const symbols = parseSymbolTable(buffer, symtabInfo, true, false);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe("_main");
+    expect(symbols[0]!.type).toBe("exported");
+    expect(symbols[0]!.address).toBe(0x1000n);
+    expect(symbols[0]!.sectionIndex).toBe(1);
+  });
+
+  it("classifies imported symbol (32-bit)", () => {
+    const { buffer, symtabInfo } = buildSymtabBuffer32(
+      [{ n_strx: 1, n_type: 0x01, n_sect: 0, n_desc: 0, n_value: 0 }],
+      ["_objc_msgSend"],
+    );
+    const symbols = parseSymbolTable(buffer, symtabInfo, true, false);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe("_objc_msgSend");
+    expect(symbols[0]!.type).toBe("imported");
+  });
+
+  it("classifies local symbol (32-bit)", () => {
+    const { buffer, symtabInfo } = buildSymtabBuffer32(
+      [{ n_strx: 1, n_type: 0x0e, n_sect: 2, n_desc: 0, n_value: 0x2000 }],
+      ["_helper"],
+    );
+    const symbols = parseSymbolTable(buffer, symtabInfo, true, false);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.name).toBe("_helper");
+    expect(symbols[0]!.type).toBe("local");
+  });
+
+  it("skips STABS debug symbols (32-bit)", () => {
+    const { buffer, symtabInfo } = buildSymtabBuffer32(
+      [
+        { n_strx: 1, n_type: 0x24, n_sect: 1, n_desc: 0, n_value: 0x1000 },
+        { n_strx: 1, n_type: 0x0f, n_sect: 1, n_desc: 0, n_value: 0x2000 },
+      ],
+      ["_func"],
+    );
+    const symbols = parseSymbolTable(buffer, symtabInfo, true, false);
+    expect(symbols).toHaveLength(1);
+    expect(symbols[0]!.address).toBe(0x2000n);
+    expect(symbols[0]!.type).toBe("exported");
+  });
+
+  it("parses multiple symbols of different types (32-bit)", () => {
+    const { buffer, symtabInfo } = buildSymtabBuffer32(
+      [
+        { n_strx: 1, n_type: 0x0f, n_sect: 1, n_desc: 0, n_value: 0x1000 },  // exported
+        { n_strx: 7, n_type: 0x01, n_sect: 0, n_desc: 0, n_value: 0 },       // imported
+        { n_strx: 15, n_type: 0x0e, n_sect: 2, n_desc: 0, n_value: 0x3000 }, // local
+      ],
+      ["_start", "_scanf", "_private"],
+    );
+    const symbols = parseSymbolTable(buffer, symtabInfo, true, false);
+    expect(symbols).toHaveLength(3);
+    expect(symbols[0]!.type).toBe("exported");
+    expect(symbols[1]!.type).toBe("imported");
+    expect(symbols[2]!.type).toBe("local");
   });
 });

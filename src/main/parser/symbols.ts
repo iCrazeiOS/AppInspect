@@ -27,6 +27,7 @@ export interface SymtabInfo {
 
 // ── Constants ─────────────────────────────────────────────────────────
 
+const NLIST_32_SIZE = 12; // n_strx(4) + n_type(1) + n_sect(1) + n_desc(2) + n_value(4)
 const NLIST_64_SIZE = 16; // n_strx(4) + n_type(1) + n_sect(1) + n_desc(2) + n_value(8)
 const N_EXT = 0x01;
 const N_TYPE_MASK = 0x0e;
@@ -79,18 +80,20 @@ function readStringFromTable(
 // ── Symbol Table Parser ───────────────────────────────────────────────
 
 /**
- * Parse the LC_SYMTAB symbol table: reads nlist_64 entries and their
+ * Parse the LC_SYMTAB symbol table: reads nlist/nlist_64 entries and their
  * associated string table names. Skips STABS debug symbols.
  *
  * @param buffer       The full Mach-O file buffer
  * @param symtabInfo   Offsets / sizes from the LC_SYMTAB load command
  * @param littleEndian Endianness of the binary
+ * @param is64Bit      Whether this is a 64-bit Mach-O (nlist_64 vs nlist)
  * @returns            Array of parsed Symbol entries (no STABS)
  */
 export function parseSymbolTable(
   buffer: ArrayBuffer,
   symtabInfo: SymtabInfo | null,
   littleEndian: boolean,
+  is64Bit: boolean = true,
 ): Symbol[] {
   if (!symtabInfo) return [];
 
@@ -100,18 +103,21 @@ export function parseSymbolTable(
   const view = new DataView(buffer);
   const le = littleEndian;
   const symbols: Symbol[] = [];
+  const entrySize = is64Bit ? NLIST_64_SIZE : NLIST_32_SIZE;
 
   for (let i = 0; i < nsyms; i++) {
-    const entryOffset = symoff + i * NLIST_64_SIZE;
+    const entryOffset = symoff + i * entrySize;
 
     // Bounds check
-    if (entryOffset + NLIST_64_SIZE > buffer.byteLength) break;
+    if (entryOffset + entrySize > buffer.byteLength) break;
 
     const n_strx = view.getUint32(entryOffset, le);
     const n_type = view.getUint8(entryOffset + 4);
     const n_sect = view.getUint8(entryOffset + 5);
     const n_desc = view.getInt16(entryOffset + 6, le);
-    const n_value = view.getBigUint64(entryOffset + 8, le);
+    const n_value = is64Bit
+      ? view.getBigUint64(entryOffset + 8, le)
+      : BigInt(view.getUint32(entryOffset + 8, le));
 
     // Skip STABS debug symbols
     if ((n_type & N_STAB_MASK) !== 0) continue;

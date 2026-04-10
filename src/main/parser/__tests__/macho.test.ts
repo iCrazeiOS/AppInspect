@@ -2,9 +2,11 @@ import { describe, expect, it } from "bun:test";
 import {
   parseFatHeader,
   parseMachOHeader,
+  MH_MAGIC,
   MH_MAGIC_64,
   MH_CIGAM_64,
   FAT_MAGIC,
+  CPU_TYPE_ARM,
   CPU_TYPE_ARM64,
   CPU_TYPE_X86_64,
   MH_EXECUTE,
@@ -155,22 +157,28 @@ describe("parseMachOHeader", () => {
     expect(result.data.header.cputype).toBe(CPU_TYPE_ARM64);
   });
 
-  it("should return error for 32-bit Mach-O (little-endian)", () => {
+  it("should parse 32-bit Mach-O (little-endian)", () => {
     const buf = buildMachHeader32(true);
     const result = parseMachOHeader(buf, 0);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toContain("32-bit");
-    expect(result.error).toContain("not supported");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.header.magic).toBe(MH_MAGIC);
+    expect(result.data.header.cputype).toBe(CPU_TYPE_ARM);
+    expect(result.data.header.filetype).toBe(MH_EXECUTE);
+    expect(result.data.littleEndian).toBe(true);
+    expect(result.data.is64Bit).toBe(false);
   });
 
-  it("should return error for 32-bit Mach-O (big-endian)", () => {
+  it("should parse 32-bit Mach-O (big-endian)", () => {
     const buf = buildMachHeader32(false);
     const result = parseMachOHeader(buf, 0);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toContain("32-bit");
-    expect(result.error).toContain("not supported");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.header.magic).toBe(MH_MAGIC);
+    expect(result.data.header.cputype).toBe(CPU_TYPE_ARM);
+    expect(result.data.header.filetype).toBe(MH_EXECUTE);
+    expect(result.data.littleEndian).toBe(false);
+    expect(result.data.is64Bit).toBe(false);
   });
 
   it("should return error for invalid magic", () => {

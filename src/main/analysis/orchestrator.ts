@@ -645,6 +645,8 @@ async function analyseBinaryFile(
           rawSymbols,
           machoFile.littleEndian,
           rebaseMap,
+          machoFile.header.cputype,
+          machoFile.is64Bit,
         );
 
         // Annotate findings with function names

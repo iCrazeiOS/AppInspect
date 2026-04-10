@@ -40,6 +40,40 @@ export interface ObjCMetadata {
 /** Mask to strip low 3 flag bits from ObjC data pointers. */
 const POINTER_MASK = ~0x7n;
 
+// ── 32-bit vs 64-bit struct sizes and offsets ────────────────────────
+
+// class_t layout:
+// 64-bit: isa(8) + superclass(8) + cache(8) + vtable(8) + data(8) = 40 bytes
+// 32-bit: isa(4) + superclass(4) + cache(4) + vtable(4) + data(4) = 20 bytes
+const CLASS_T_SIZE_64 = 40;
+const CLASS_T_SIZE_32 = 20;
+const CLASS_T_DATA_OFFSET_64 = 32;  // isa + super + cache + vtable
+const CLASS_T_DATA_OFFSET_32 = 16;
+
+// class_ro_t layout:
+// 64-bit: flags(4) + instanceStart(4) + instanceSize(8) + reserved(4) + ivarLayout(8) + name(8) + baseMethods(8) ...
+// 32-bit: flags(4) + instanceStart(4) + instanceSize(4) + reserved(4) + ivarLayout(4) + name(4) + baseMethods(4) ...
+const CLASS_RO_NAME_OFFSET_64 = 24;       // flags(4) + iStart(4) + iSize(8) + reserved(4) + ivarLayout(8) = 24 to name ptr
+const CLASS_RO_NAME_OFFSET_32 = 20;       // flags(4) + iStart(4) + iSize(4) + reserved(4) + ivarLayout(4) = 20 to name ptr
+const CLASS_RO_METHODS_OFFSET_64 = 32;    // name(8) after name offset
+const CLASS_RO_METHODS_OFFSET_32 = 24;    // name(4) after name offset
+
+// protocol_t layout:
+// 64-bit: isa(8) + mangledName(8) ...
+// 32-bit: isa(4) + mangledName(4) ...
+const PROTOCOL_NAME_OFFSET_64 = 8;
+const PROTOCOL_NAME_OFFSET_32 = 4;
+
+// Absolute method entry size:
+// 64-bit: name_ptr(8) + types_ptr(8) + imp_ptr(8) = 24 bytes
+// 32-bit: name_ptr(4) + types_ptr(4) + imp_ptr(4) = 12 bytes
+const METHOD_ENTRY_SIZE_64 = 24;
+const METHOD_ENTRY_SIZE_32 = 12;
+
+// Pointer sizes
+const POINTER_SIZE_64 = 8;
+const POINTER_SIZE_32 = 4;
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -106,11 +140,11 @@ function resolveSharedCachePointer(
 }
 
 /**
- * Resolve an 8-byte pointer at the given file offset.
+ * Resolve a pointer at the given file offset (8 bytes for 64-bit, 4 bytes for 32-bit).
  *
  * If the rebaseMap contains a resolved value for this file offset, use
- * that (chained fixups). Otherwise read the raw BigUint64 from the
- * buffer. For dyld_shared_cache extracted binaries, attempts slide-base
+ * that (chained fixups). Otherwise read the raw pointer from the buffer.
+ * For dyld_shared_cache extracted binaries, attempts slide-base
  * correction when the raw pointer doesn't resolve to any segment.
  */
 export function resolvePointer(
@@ -119,14 +153,21 @@ export function resolvePointer(
   rebaseMap: Map<number, bigint>,
   littleEndian: boolean,
   segments?: Segment64[],
+  is64Bit: boolean = true,
 ): bigint {
   const resolved = rebaseMap.get(fileOffset);
   if (resolved !== undefined) return resolved;
-  if (fileOffset + 8 > view.byteLength) return 0n;
-  const raw = view.getBigUint64(fileOffset, littleEndian);
+
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  if (fileOffset + ptrSize > view.byteLength) return 0n;
+
+  const raw = is64Bit
+    ? view.getBigUint64(fileOffset, littleEndian)
+    : BigInt(view.getUint32(fileOffset, littleEndian));
 
   // If segments provided and raw pointer doesn't resolve, try shared cache fixup
-  if (segments && raw !== 0n && vmaddrToFileOffset(raw & POINTER_MASK, segments) === null) {
+  // (only relevant for 64-bit, 32-bit binaries don't use shared cache)
+  if (is64Bit && segments && raw !== 0n && vmaddrToFileOffset(raw & POINTER_MASK, segments) === null) {
     return resolveSharedCachePointer(raw, segments);
   }
 
@@ -343,6 +384,7 @@ function parseMethodList(
   le: boolean,
   methodListVmaddr: bigint | null = null,
   isInstance = true,
+  is64Bit = true,
 ): ObjCMethod[] {
   if (
     methodListFileOffset < 0 ||
@@ -361,8 +403,10 @@ function parseMethodList(
 
   const entriesStart = methodListFileOffset + 8;
 
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+
   if (isRelative) {
-    // Relative method entries: 12 bytes each
+    // Relative method entries: 12 bytes each (same for 32 and 64-bit)
     // name_offset(int32) + types_offset(int32) + imp_offset(int32)
     const entrySize = 12;
 
@@ -378,11 +422,11 @@ function parseMethodList(
 
       if (
         selectorRefFileOffset >= 0 &&
-        selectorRefFileOffset + 8 <= view.byteLength
+        selectorRefFileOffset + ptrSize <= view.byteLength
       ) {
         // Normal case: selref is within the file
         const selectorVmaddr = resolvePointer(
-          view, selectorRefFileOffset, rebaseMap, le, segments,
+          view, selectorRefFileOffset, rebaseMap, le, segments, is64Bit,
         );
         if (selectorVmaddr !== 0n) {
           const selectorFileOffset = vmaddrToFileOffset(selectorVmaddr, segments);
@@ -403,7 +447,7 @@ function parseMethodList(
         // within our file. Try looking up the selref in our local selrefs.
         const localSelrefOff = vmaddrToFileOffset(selrefVmaddr, segments);
         if (localSelrefOff !== null) {
-          const selVmaddr = resolvePointer(view, localSelrefOff, rebaseMap, le, segments);
+          const selVmaddr = resolvePointer(view, localSelrefOff, rebaseMap, le, segments, is64Bit);
           if (selVmaddr !== 0n) {
             const selOff = vmaddrToFileOffset(selVmaddr, segments);
             if (selOff !== null) name = readString(view, selOff);
@@ -426,15 +470,16 @@ function parseMethodList(
       });
     }
   } else {
-    // Absolute method entries: 24 bytes each
-    // name_ptr(8) + types_ptr(8) + imp_ptr(8)
-    const entrySize = 24;
+    // Absolute method entries:
+    // 64-bit: name_ptr(8) + types_ptr(8) + imp_ptr(8) = 24 bytes
+    // 32-bit: name_ptr(4) + types_ptr(4) + imp_ptr(4) = 12 bytes
+    const entrySize = is64Bit ? METHOD_ENTRY_SIZE_64 : METHOD_ENTRY_SIZE_32;
 
     for (let i = 0; i < count; i++) {
       const entryOffset = entriesStart + i * entrySize;
-      if (entryOffset + 16 > view.byteLength) break;
+      if (entryOffset + ptrSize * 2 > view.byteLength) break;
 
-      const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments);
+      const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments, is64Bit);
       if (nameVmaddr === 0n) continue;
 
       const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
@@ -443,8 +488,8 @@ function parseMethodList(
       const name = readString(view, nameFileOffset);
       if (name.length === 0) continue;
 
-      // types pointer at offset 8 within the entry
-      const typesVmaddr = resolvePointer(view, entryOffset + 8, rebaseMap, le, segments);
+      // types pointer at offset ptrSize within the entry
+      const typesVmaddr = resolvePointer(view, entryOffset + ptrSize, rebaseMap, le, segments, is64Bit);
       let typeEncoding = "";
       if (typesVmaddr !== 0n) {
         const typesFileOffset = vmaddrToFileOffset(typesVmaddr, segments);
@@ -470,13 +515,13 @@ function parseMethodList(
  * Parse a single class from its class_t file offset.
  * Returns null if the class cannot be parsed.
  *
- * class_t layout (64-bit):
- *   isa(8) + superclass(8) + cache(8) + vtable(8) + data(8) = 40 bytes
+ * class_t layout:
+ *   64-bit: isa(8) + superclass(8) + cache(8) + vtable(8) + data(8) = 40 bytes
+ *   32-bit: isa(4) + superclass(4) + cache(4) + vtable(4) + data(4) = 20 bytes
  *
  * class_ro_t layout:
- *   flags(4) + instanceStart(4) + instanceSize(4) + reserved(4) +
- *   ivarLayout(8) + name(8) + baseMethods(8) + baseProtocols(8) +
- *   ivars(8) + weakIvarLayout(8) + baseProperties(8)
+ *   flags(4) + instanceStart(4) + instanceSize(4/8) + reserved(4) +
+ *   ivarLayout(4/8) + name(4/8) + baseMethods(4/8) + ...
  */
 function parseClass(
   view: DataView,
@@ -484,12 +529,19 @@ function parseClass(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   le: boolean,
+  is64Bit = true,
 ): ObjCClass | null {
-  // Read class_t.data pointer at offset 32
-  if (classFileOffset + 40 > view.byteLength) return null;
+  const classSize = is64Bit ? CLASS_T_SIZE_64 : CLASS_T_SIZE_32;
+  const dataOffset = is64Bit ? CLASS_T_DATA_OFFSET_64 : CLASS_T_DATA_OFFSET_32;
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  const roNameOffset = is64Bit ? CLASS_RO_NAME_OFFSET_64 : CLASS_RO_NAME_OFFSET_32;
+  const roMethodsOffset = is64Bit ? CLASS_RO_METHODS_OFFSET_64 : CLASS_RO_METHODS_OFFSET_32;
 
-  const dataFieldOffset = classFileOffset + 32;
-  let dataVmaddr = resolvePointer(view, dataFieldOffset, rebaseMap, le, segments);
+  // Read class_t.data pointer
+  if (classFileOffset + classSize > view.byteLength) return null;
+
+  const dataFieldOffset = classFileOffset + dataOffset;
+  let dataVmaddr = resolvePointer(view, dataFieldOffset, rebaseMap, le, segments, is64Bit);
   dataVmaddr = dataVmaddr & POINTER_MASK; // strip low 3 flag bits
 
   if (dataVmaddr === 0n) return null;
@@ -497,12 +549,13 @@ function parseClass(
   const roFileOffset = vmaddrToFileOffset(dataVmaddr, segments);
   if (roFileOffset === null) return null;
 
-  // class_ro_t: need at least up to baseMethods (offset 32 + 8 = 40 bytes)
-  if (roFileOffset + 40 > view.byteLength) return null;
+  // class_ro_t: need at least up to baseMethods
+  const minRoSize = roMethodsOffset + ptrSize;
+  if (roFileOffset + minRoSize > view.byteLength) return null;
 
-  // name pointer at offset 24 within class_ro_t
-  const nameFieldOffset = roFileOffset + 24;
-  const nameVmaddr = resolvePointer(view, nameFieldOffset, rebaseMap, le, segments);
+  // name pointer within class_ro_t
+  const nameFieldOffset = roFileOffset + roNameOffset;
+  const nameVmaddr = resolvePointer(view, nameFieldOffset, rebaseMap, le, segments, is64Bit);
   if (nameVmaddr === 0n) return null;
 
   const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
@@ -511,41 +564,42 @@ function parseClass(
   const className = readString(view, nameFileOffset);
   if (className.length === 0) return null;
 
-  // baseMethods pointer at offset 32 within class_ro_t
-  const baseMethodsFieldOffset = roFileOffset + 32;
+  // baseMethods pointer within class_ro_t
+  const baseMethodsFieldOffset = roFileOffset + roMethodsOffset;
   const baseMethodsVmaddr = resolvePointer(
     view,
     baseMethodsFieldOffset,
     rebaseMap,
     le,
     segments,
+    is64Bit,
   );
 
   let methods: ObjCMethod[] = [];
   if (baseMethodsVmaddr !== 0n) {
     const methodsFileOffset = vmaddrToFileOffset(baseMethodsVmaddr, segments);
     if (methodsFileOffset !== null) {
-      methods = parseMethodList(view, methodsFileOffset, segments, rebaseMap, le, baseMethodsVmaddr);
+      methods = parseMethodList(view, methodsFileOffset, segments, rebaseMap, le, baseMethodsVmaddr, true, is64Bit);
     }
   }
 
   // Class methods from metaclass (isa pointer at offset 0)
-  let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments);
+  let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments, is64Bit);
   isaVmaddr = isaVmaddr & POINTER_MASK;
   if (isaVmaddr !== 0n) {
     const metaclassOff = vmaddrToFileOffset(isaVmaddr, segments);
-    if (metaclassOff !== null && metaclassOff + 40 <= view.byteLength) {
-      let metaDataVmaddr = resolvePointer(view, metaclassOff + 32, rebaseMap, le, segments);
+    if (metaclassOff !== null && metaclassOff + classSize <= view.byteLength) {
+      let metaDataVmaddr = resolvePointer(view, metaclassOff + dataOffset, rebaseMap, le, segments, is64Bit);
       metaDataVmaddr = metaDataVmaddr & POINTER_MASK;
       if (metaDataVmaddr !== 0n) {
         const metaRoOff = vmaddrToFileOffset(metaDataVmaddr, segments);
-        if (metaRoOff !== null && metaRoOff + 40 <= view.byteLength) {
-          const metaMethodsVmaddr = resolvePointer(view, metaRoOff + 32, rebaseMap, le, segments);
+        if (metaRoOff !== null && metaRoOff + minRoSize <= view.byteLength) {
+          const metaMethodsVmaddr = resolvePointer(view, metaRoOff + roMethodsOffset, rebaseMap, le, segments, is64Bit);
           if (metaMethodsVmaddr !== 0n) {
             const metaMethodsOff = vmaddrToFileOffset(metaMethodsVmaddr, segments);
             if (metaMethodsOff !== null) {
               const classMethods = parseMethodList(
-                view, metaMethodsOff, segments, rebaseMap, le, metaMethodsVmaddr, false,
+                view, metaMethodsOff, segments, rebaseMap, le, metaMethodsVmaddr, false, is64Bit,
               );
               methods.push(...classMethods);
             }
@@ -563,10 +617,11 @@ function parseClass(
 /**
  * Parse __objc_protolist to extract protocol names.
  *
- * protocol_t layout (simplified, 64-bit):
- *   isa(8) + mangledName(8) + ...
+ * protocol_t layout (simplified):
+ *   64-bit: isa(8) + mangledName(8) + ...
+ *   32-bit: isa(4) + mangledName(4) + ...
  *
- * We only read the name pointer at offset 8.
+ * We only read the name pointer at offset 8 (64-bit) or 4 (32-bit).
  */
 function parseProtocols(
   view: DataView,
@@ -574,35 +629,40 @@ function parseProtocols(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   le: boolean,
+  is64Bit = true,
 ): string[] {
   const protolistSection = findObjCSection(sections, "__objc_protolist");
   if (!protolistSection) return [];
 
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  const protoNameOffset = is64Bit ? PROTOCOL_NAME_OFFSET_64 : PROTOCOL_NAME_OFFSET_32;
+
   const sectionOffset = vmaddrToFileOffset(protolistSection.addr, segments) ?? protolistSection.offset;
   const sectionSize = Number(protolistSection.size);
-  const pointerCount = Math.floor(sectionSize / 8);
+  const pointerCount = Math.floor(sectionSize / ptrSize);
   const protocols: string[] = [];
 
   for (let i = 0; i < pointerCount; i++) {
-    const ptrFileOffset = sectionOffset + i * 8;
-    if (ptrFileOffset + 8 > view.byteLength) break;
+    const ptrFileOffset = sectionOffset + i * ptrSize;
+    if (ptrFileOffset + ptrSize > view.byteLength) break;
 
-    let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments);
+    let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
     protoVmaddr = protoVmaddr & POINTER_MASK;
     if (protoVmaddr === 0n) continue;
 
     const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
     if (protoFileOffset === null) continue;
 
-    // protocol_t.mangledName at offset 8
-    if (protoFileOffset + 16 > view.byteLength) continue;
+    // protocol_t.mangledName at protoNameOffset
+    if (protoFileOffset + protoNameOffset + ptrSize > view.byteLength) continue;
 
     const nameVmaddr = resolvePointer(
       view,
-      protoFileOffset + 8,
+      protoFileOffset + protoNameOffset,
       rebaseMap,
       le,
       segments,
+      is64Bit,
     );
     if (nameVmaddr === 0n) continue;
 
@@ -620,13 +680,14 @@ function parseProtocols(
 
 /**
  * Extract Objective-C class names, method selectors, and protocol names
- * from a Mach-O 64-bit binary.
+ * from a Mach-O binary.
  *
  * @param buffer       The raw Mach-O file buffer
  * @param sections     All Section64 entries from parsed segments
  * @param segments     All Segment64 entries from load commands
  * @param rebaseMap    Chained fixups rebase map (file offset → resolved vmaddr)
  * @param littleEndian Byte order of the binary
+ * @param is64Bit      Whether this is a 64-bit Mach-O (affects pointer sizes and struct offsets)
  */
 export function extractObjCMetadata(
   buffer: ArrayBuffer,
@@ -634,9 +695,11 @@ export function extractObjCMetadata(
   segments: Segment64[],
   rebaseMap: Map<number, bigint>,
   littleEndian: boolean,
+  is64Bit: boolean = true,
 ): ObjCMetadata {
   const view = new DataView(buffer);
   const le = littleEndian;
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
 
   // Reset shared cache slide base detection for each new binary
   cachedSlideBase = null;
@@ -655,15 +718,15 @@ export function extractObjCMetadata(
     // dyld_shared_cache extracted binaries have stale section offsets.
     const sectionOffset = vmaddrToFileOffset(classlistSection.addr, segments) ?? classlistSection.offset;
     const sectionSize = Number(classlistSection.size);
-    const pointerCount = Math.floor(sectionSize / 8);
+    const pointerCount = Math.floor(sectionSize / ptrSize);
 
     // Step 2: For each pointer in __objc_classlist
     for (let i = 0; i < pointerCount; i++) {
-      const ptrFileOffset = sectionOffset + i * 8;
-      if (ptrFileOffset + 8 > view.byteLength) break;
+      const ptrFileOffset = sectionOffset + i * ptrSize;
+      if (ptrFileOffset + ptrSize > view.byteLength) break;
 
       // Resolve the pointer (may be a chained fixup)
-      let classVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments);
+      let classVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
       classVmaddr = classVmaddr & POINTER_MASK; // strip low 3 flag bits
 
       if (classVmaddr === 0n) continue;
@@ -673,7 +736,7 @@ export function extractObjCMetadata(
       if (classFileOffset === null) continue;
 
       // Steps 3-5: Parse the class
-      const cls = parseClass(view, classFileOffset, segments, rebaseMap, le);
+      const cls = parseClass(view, classFileOffset, segments, rebaseMap, le, is64Bit);
       if (cls) {
         result.classes.push(cls);
       }
@@ -681,7 +744,7 @@ export function extractObjCMetadata(
   }
 
   // Step 6: Parse protocols
-  result.protocols = parseProtocols(view, sections, segments, rebaseMap, le);
+  result.protocols = parseProtocols(view, sections, segments, rebaseMap, le, is64Bit);
 
   return result;
 }

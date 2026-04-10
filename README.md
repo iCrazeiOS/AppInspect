@@ -11,7 +11,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
-- **Mach-O / dylib** — analyses bare binaries directly (64-bit, fat/universal)
+- **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
 
 File type is detected automatically by magic bytes.
 
@@ -43,7 +43,7 @@ File type is detected automatically by magic bytes.
 - **FairPlay encryption detection** — warns when a binary is still encrypted (App Store builds)
 - **App framework detection** — identifies cross-platform frameworks (React Native, Expo, Flutter, Cordova, Capacitor, Xamarin/.NET MAUI, Kotlin Multiplatform, NativeScript, Titanium, Qt, Electron) and game engines (Unity, Unreal Engine, Godot, Cocos2d, GameMaker, Solar2D), plus linked system frameworks (SwiftUI, UIKit, ARKit, Metal, SceneKit, SpriteKit, RealityKit, GameKit, AppKit)
 - **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings and scans bundle files (JS bundles, JSON configs, plists)
-- **Function attribution** — security findings show which function references the flagged string (arm64 xref analysis, runs lazily only when needed)
+- **Function attribution** — security findings show which function references the flagged string (xref analysis for ARM64, ARM32/THUMB, x86_64, and x86, runs lazily only when needed)
 - **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
 - **Drag-and-drop** — drop files onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
