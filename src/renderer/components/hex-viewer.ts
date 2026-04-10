@@ -675,7 +675,8 @@ export class HexViewer {
     if (text) {
       this.matchInfoEl.textContent = text;
     } else if (this.matches.length === 0) {
-      this.matchInfoEl.textContent = "";
+      const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
+      this.matchInfoEl.textContent = input?.value.trim() ? "No results" : "";
     } else {
       this.matchInfoEl.textContent = `${this.currentMatchIndex + 1} / ${this.matches.length}`;
     }
