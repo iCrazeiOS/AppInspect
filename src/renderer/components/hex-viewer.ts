@@ -373,6 +373,7 @@ export class HexViewer {
     modeBtn.addEventListener("click", () => {
       this.searchMode = this.searchMode === "hex" ? "text" : "hex";
       modeBtn.textContent = this.searchMode === "hex" ? "Hex" : "Text";
+      caseBtn.style.display = this.searchMode === "hex" ? "none" : "";
       input.placeholder = this.searchMode === "hex"
         ? "Search hex bytes (e.g. CF FA ED FE)"
         : "Search text (e.g. dyld)";
@@ -380,10 +381,11 @@ export class HexViewer {
     });
     bar.appendChild(modeBtn);
 
-    // Case sensitivity toggle (only relevant in text mode)
+    // Case sensitivity toggle (only shown in text mode)
     const caseBtn = el("button", "hv-search-case", "Aa");
-    caseBtn.title = "Toggle case sensitivity";
+    caseBtn.title = "Case sensitive (click to toggle)";
     caseBtn.classList.add("hv-search-case--active");
+    caseBtn.style.display = "none";
     caseBtn.addEventListener("click", () => {
       this.caseSensitive = !this.caseSensitive;
       caseBtn.classList.toggle("hv-search-case--active", this.caseSensitive);
