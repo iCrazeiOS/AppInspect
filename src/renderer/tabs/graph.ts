@@ -305,7 +305,7 @@ class GraphRenderer {
 
   // Event listener cleanup
   private boundMouseMove: (ev: MouseEvent) => void;
-  private boundMouseUp: () => void;
+  private boundMouseUp: (ev: MouseEvent) => void;
   private boundResize: () => void;
 
   constructor(container: HTMLElement, graphData: LibraryGraphData) {
@@ -345,7 +345,7 @@ class GraphRenderer {
     this.positionAll();
 
     this.boundMouseMove = (ev: MouseEvent) => this.onMouseMove(ev);
-    this.boundMouseUp = () => this.onMouseUp();
+    this.boundMouseUp = (ev: MouseEvent) => this.onMouseUp(ev);
     this.boundResize = () => this.fitToView();
     this.bindEvents();
     window.addEventListener("resize", this.boundResize);
@@ -463,9 +463,22 @@ class GraphRenderer {
     }
   }
 
-  private onMouseUp(): void {
+  private onMouseUp(ev: MouseEvent): void {
+    const wasDragging = this.dragNode !== null || this.isPanning;
     this.dragNode = null;
     this.isPanning = false;
+
+    // If we were dragging/panning and the mouse is still over a node,
+    // re-schedule the tooltip (mouseenter won't fire again).
+    if (wasDragging) {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const nodeEl = el?.closest?.(".gr-node");
+      if (nodeEl) {
+        const id = (nodeEl as HTMLElement).dataset["id"];
+        const nd = this.nodes.find((n) => n.id === id);
+        if (nd) this.scheduleTooltip(nd);
+      }
+    }
   }
 
   private bindEvents(): void {
@@ -553,28 +566,29 @@ class GraphRenderer {
       lines.push(`<strong>${nd.label}</strong>`);
       lines.push(`${nd.binaryType ?? "binary"}`);
     } else {
-      lines.push(`<strong>${nd.id}</strong>`);
+      lines.push(`<strong>${nd.id.replace(/\//g, "/<wbr>")}</strong>`);
       if (nd.version) lines.push(`Version: ${nd.version}`);
       lines.push(`Type: ${nd.category ?? "unknown"}${nd.weak ? " (weak)" : ""}`);
     }
     this.tooltip.innerHTML = lines.join("<br>");
     this.tooltip.classList.remove("hidden");
 
-    // Position tooltip near the node in screen coordinates
-    const rect = this.container.getBoundingClientRect();
-    const screenX = nd.x * this.zoom + this.panX;
-    const screenY = nd.y * this.zoom + this.panY;
+    // Position next to the node using its rendered bounding rect.
+    // Use CSSOM property setters — setAttribute("style") is blocked by CSP.
+    const nodeEl = this.nodeEls.get(nd.id);
+    const containerRect = this.container.getBoundingClientRect();
+    if (!nodeEl) return;
+    const nodeRect = nodeEl.getBoundingClientRect();
 
-    const tipX = screenX + nd.radius * this.zoom + 10;
-    const tipY = screenY - 10;
+    const tipX = nodeRect.right - containerRect.left + 10;
+    const tipY = nodeRect.top - containerRect.top;
 
-    // Clamp so the tooltip doesn't overflow the container
-    const maxX = rect.width - 200;
-    const maxY = rect.height - 60;
-    this.tooltip.setAttribute(
-      "style",
-      `left:${Math.max(0, Math.min(tipX, maxX))}px;top:${Math.max(0, Math.min(tipY, maxY))}px`,
-    );
+    const cw = this.container.clientWidth;
+    const ch = this.container.clientHeight;
+    const tw = this.tooltip.offsetWidth;
+    const th = this.tooltip.offsetHeight;
+    this.tooltip.style.left = `${Math.min(tipX, cw - tw - 4)}px`;
+    this.tooltip.style.top = `${Math.max(4, Math.min(tipY, ch - th - 4))}px`;
   }
 
   private selectNode(id: string | null): void {
