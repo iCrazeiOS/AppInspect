@@ -48,7 +48,7 @@ Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mti
 - **Error handling:** result types (`{ ok, data/error }`) for parsers, try-catch with informative messages at boundaries. Parsers continue gracefully on individual failures
 - **BigInt:** used internally for addresses, converted to number/string before IPC serialisation (see `bigintReplacer` in MCP server)
 - **No linter configured** — TypeScript strict mode is the only enforcement
-- Keep implementations minimal. No unnecessary abstractions, helpers, or wrapper functions
+- Keep implementations minimal. No unnecessary abstractions, helpers, or wrapper functions - unless it will sufficiently improve readability, or reduce code duplication
 - Follow existing patterns in the file you're editing
 
 ## TypeScript config
