@@ -291,13 +291,15 @@ async function analyseBinaryFile(
   progressCallback("Parsing load commands...", basePercent + 10);
   let lcResult: LoadCommandsResult | null = null;
   try {
-    const lcOffset = machoFile.offset + 32; // mach_header_64 = 32 bytes
+    const headerSize = machoFile.is64Bit ? 32 : 28;
+    const lcOffset = machoFile.offset + headerSize;
     lcResult = parseLoadCommands(
       buffer,
       lcOffset,
       header.ncmds,
       header.sizeofcmds,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     sharedLoadCommands = convertLoadCommands(lcResult);
     libraries = convertLibraries(lcResult);
@@ -1028,9 +1030,10 @@ export class AnalysisSession {
       if (!headerResult.ok) return [];
 
       const machO = headerResult.data;
-      const lcOffset = machO.offset + 32;
+      const headerSize = machO.is64Bit ? 32 : 28;
+      const lcOffset = machO.offset + headerSize;
       const lcResult = parseLoadCommands(
-        buffer, lcOffset, machO.header.ncmds, machO.header.sizeofcmds, machO.littleEndian,
+        buffer, lcOffset, machO.header.ncmds, machO.header.sizeofcmds, machO.littleEndian, machO.is64Bit,
       );
 
       return lcResult.libraries.map((lib) => ({
