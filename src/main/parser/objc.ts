@@ -57,6 +57,8 @@ const CLASS_RO_NAME_OFFSET_64 = 24;       // flags(4) + iStart(4) + iSize(8) + r
 const CLASS_RO_NAME_OFFSET_32 = 20;       // flags(4) + iStart(4) + iSize(4) + reserved(4) + ivarLayout(4) = 20 to name ptr
 const CLASS_RO_METHODS_OFFSET_64 = 32;    // name(8) after name offset
 const CLASS_RO_METHODS_OFFSET_32 = 24;    // name(4) after name offset
+const CLASS_RO_BASEPROTOCOLS_OFFSET_64 = 40;  // baseMethods(8) after methods offset
+const CLASS_RO_BASEPROTOCOLS_OFFSET_32 = 28;  // baseMethods(4) after methods offset
 
 // protocol_t layout:
 // 64-bit: isa(8) + mangledName(8) ...
@@ -613,6 +615,70 @@ function parseClass(
 }
 
 // ── Protocol Parsing ─────────────────────────────────────────────────
+
+/**
+ * Parse a protocol_list_t structure at a given file offset.
+ * Returns array of protocol names.
+ *
+ * protocol_list_t layout:
+ *   count (pointer-sized for alignment) + [protocol_t* array]
+ */
+function parseProtocolListAt(
+  view: DataView,
+  listFileOffset: number,
+  segments: Segment64[],
+  rebaseMap: Map<number, bigint>,
+  le: boolean,
+  is64Bit: boolean,
+): string[] {
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  const protoNameOffset = is64Bit ? PROTOCOL_NAME_OFFSET_64 : PROTOCOL_NAME_OFFSET_32;
+
+  // Read count (pointer-sized)
+  if (listFileOffset + ptrSize > view.byteLength) return [];
+
+  const count = is64Bit
+    ? Number(view.getBigUint64(listFileOffset, le))
+    : view.getUint32(listFileOffset, le);
+
+  if (count === 0 || count > 10_000) return [];
+
+  const protocols: string[] = [];
+  const arrayStart = listFileOffset + ptrSize;
+
+  for (let i = 0; i < count; i++) {
+    const ptrOffset = arrayStart + i * ptrSize;
+    if (ptrOffset + ptrSize > view.byteLength) break;
+
+    let protoVmaddr = resolvePointer(view, ptrOffset, rebaseMap, le, segments, is64Bit);
+    protoVmaddr = protoVmaddr & POINTER_MASK;
+    if (protoVmaddr === 0n) continue;
+
+    const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
+    if (protoFileOffset === null) continue;
+
+    // protocol_t.mangledName
+    if (protoFileOffset + protoNameOffset + ptrSize > view.byteLength) continue;
+
+    const nameVmaddr = resolvePointer(
+      view,
+      protoFileOffset + protoNameOffset,
+      rebaseMap,
+      le,
+      segments,
+      is64Bit,
+    );
+    if (nameVmaddr === 0n) continue;
+
+    const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
+    if (nameFileOffset === null) continue;
+
+    const name = readString(view, nameFileOffset);
+    if (name.length > 0) protocols.push(name);
+  }
+
+  return protocols;
+}
 
 /**
  * Parse __objc_protolist to extract protocol names.
