@@ -5,3 +5,5 @@ export { JsonTree } from "./json-tree";
 export { Loading } from "./loading";
 export { EmptyState } from "./empty-state";
 export type { EmptyStateOptions } from "./empty-state";
+export { HexViewer } from "./hex-viewer";
+export type { HexViewerOptions } from "./hex-viewer";
