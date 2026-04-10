@@ -433,16 +433,20 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   }
 
   // Protocols collapsible section
+  let protoExpanded = false;
+  let protoHeader: HTMLButtonElement | null = null;
+  let protoList: HTMLDivElement | null = null;
+  const protoItems = new Map<string, HTMLDivElement>();
+
   if (allProtocols.length > 0) {
     const protoSection = document.createElement("div");
     protoSection.className = "cls-proto-section";
 
-    const protoHeader = document.createElement("button");
+    protoHeader = document.createElement("button");
     protoHeader.className = "cls-proto-header";
     protoHeader.textContent = `\u25B6 Protocols (${allProtocols.length})`;
-    let protoExpanded = false;
 
-    const protoList = document.createElement("div");
+    protoList = document.createElement("div");
     protoList.className = "cls-proto-list";
     protoList.style.display = "none";
 
@@ -451,17 +455,40 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       item.className = "cls-proto-item";
       item.textContent = p;
       protoList.appendChild(item);
+      protoItems.set(p, item);
     }
 
     protoHeader.addEventListener("click", () => {
       protoExpanded = !protoExpanded;
-      protoHeader.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} Protocols (${allProtocols.length})`;
-      protoList.style.display = protoExpanded ? "block" : "none";
+      protoHeader!.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} Protocols (${allProtocols.length})`;
+      protoList!.style.display = protoExpanded ? "block" : "none";
     });
 
     protoSection.appendChild(protoHeader);
     protoSection.appendChild(protoList);
     leftPanel.appendChild(protoSection);
+  }
+
+  function scrollToProtocol(name: string): void {
+    if (!protoHeader || !protoList) return;
+    const item = protoItems.get(name);
+    if (!item) return;
+
+    // Expand if collapsed
+    if (!protoExpanded) {
+      protoExpanded = true;
+      protoHeader.textContent = `\u25BC Protocols (${allProtocols.length})`;
+      protoList.style.display = "block";
+    }
+
+    // Remove previous highlight
+    for (const el of protoItems.values()) {
+      el.classList.remove("cls-proto-item-active");
+    }
+
+    // Highlight and scroll
+    item.classList.add("cls-proto-item-active");
+    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   // ── Middle panel (method list) ──
@@ -714,6 +741,8 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
           const badge = document.createElement("span");
           badge.className = "cls-proto-badge";
           badge.textContent = proto;
+          badge.title = `Click to view ${proto}`;
+          badge.addEventListener("click", () => scrollToProtocol(proto));
           protoLine.appendChild(badge);
         }
         detailHeader.appendChild(protoLine);
