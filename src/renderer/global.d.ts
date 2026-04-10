@@ -14,7 +14,7 @@ export interface AppInspectAPI {
   closeSession(sessionId: string): Promise<void>;
   getLibraryGraph(sessionId: string): Promise<LibraryGraphData>;
   readHex(sessionId: string, offset: number, length: number): Promise<{ offset: number; length: number; data: number[]; fileSize: number } | null>;
-  searchHex(sessionId: string, regionOffset: number, regionSize: number, pattern: number[]): Promise<{ matches: number[] } | null>;
+  searchHex(sessionId: string, regionOffset: number, regionSize: number, pattern: number[], caseInsensitive?: boolean): Promise<{ matches: number[] } | null>;
   showItemInFolder(filePath: string): Promise<void>;
   openFile(filePath: string): Promise<void>;
   getPlatform(): Promise<string>;

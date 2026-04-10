@@ -200,10 +200,10 @@ export function registerIPCHandlers(win: BrowserWindow): void {
   });
 
   // ── search-hex ──
-  ipcMain.handle("search-hex", (_event, args: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[] }) => {
+  ipcMain.handle("search-hex", (_event, args: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[]; caseInsensitive?: boolean }) => {
     try {
       const session = getSession(args.sessionId);
-      return session.searchHex(args.regionOffset, args.regionSize, args.pattern);
+      return session.searchHex(args.regionOffset, args.regionSize, args.pattern, args.caseInsensitive);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       win.webContents.send("analysis-error", { sessionId: args.sessionId, message });

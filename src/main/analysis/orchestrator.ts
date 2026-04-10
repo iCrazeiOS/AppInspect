@@ -802,6 +802,7 @@ export class AnalysisSession {
     regionOffset: number,
     regionSize: number,
     pattern: number[],
+    caseInsensitive = false,
   ): { matches: number[] } | null {
     const binaryPath = this.getActiveBinaryPath();
     if (!binaryPath || pattern.length === 0) return null;
@@ -846,7 +847,13 @@ export class AnalysisSession {
         for (let i = searchStart; i <= searchBuf.length - pattern.length; i++) {
           let found = true;
           for (let j = 0; j < pattern.length; j++) {
-            if (searchBuf[i + j] !== pattern[j]) {
+            let a = searchBuf[i + j]!;
+            let b = pattern[j]!;
+            if (caseInsensitive) {
+              if (a >= 0x41 && a <= 0x5a) a |= 0x20;
+              if (b >= 0x41 && b <= 0x5a) b |= 0x20;
+            }
+            if (a !== b) {
               found = false;
               break;
             }

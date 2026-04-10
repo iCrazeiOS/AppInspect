@@ -164,7 +164,7 @@ export type InvokeChannelMap = {
     result: { offset: number; length: number; data: number[]; fileSize: number } | null;
   };
   'search-hex': {
-    params: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[] };
+    params: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[]; caseInsensitive?: boolean };
     result: { matches: number[] } | null;
   };
 };

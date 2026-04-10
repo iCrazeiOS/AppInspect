@@ -102,6 +102,7 @@ export class HexViewer {
 
   // Search state
   private searchMode: "hex" | "text" = "hex";
+  private caseSensitive = true;
   private matches: number[] = [];
   private currentMatchIndex = -1;
   private matchPositions = new Set<number>(); // byte positions within region to highlight
@@ -379,6 +380,18 @@ export class HexViewer {
     });
     bar.appendChild(modeBtn);
 
+    // Case sensitivity toggle (only relevant in text mode)
+    const caseBtn = el("button", "hv-search-case", "Aa");
+    caseBtn.title = "Toggle case sensitivity";
+    caseBtn.classList.add("hv-search-case--active");
+    caseBtn.addEventListener("click", () => {
+      this.caseSensitive = !this.caseSensitive;
+      caseBtn.classList.toggle("hv-search-case--active", this.caseSensitive);
+      caseBtn.title = this.caseSensitive ? "Case sensitive (click to toggle)" : "Case insensitive (click to toggle)";
+      if (input.value.trim()) this.executeSearch(input.value);
+    });
+    bar.appendChild(caseBtn);
+
     // Match nav
     const matchPrev = el("button", "hv-nav-btn hv-match-nav", "\u2039");
     matchPrev.title = "Previous match (Shift+Enter)";
@@ -454,11 +467,13 @@ export class HexViewer {
 
     this.patternLength = pattern.length;
 
+    const caseInsensitive = !this.caseSensitive && this.searchMode === "text";
     const result = await window.api.searchHex(
       this.opts.sessionId,
       this.opts.regionOffset,
       this.opts.regionSize,
       pattern,
+      caseInsensitive,
     );
 
     if (!result) {
@@ -726,13 +741,16 @@ export class HexViewer {
     if (error) {
       this.matchInfoEl.textContent = error;
       this.matchInfoEl.classList.add("hv-match-count--error");
+      this.matchInfoEl.style.cursor = "";
     } else {
       this.matchInfoEl.classList.remove("hv-match-count--error");
       if (this.matches.length === 0) {
         const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
         this.matchInfoEl.textContent = input?.value.trim() ? "No results" : "";
+        this.matchInfoEl.style.cursor = "";
       } else {
         this.matchInfoEl.textContent = `${this.currentMatchIndex + 1} / ${this.matches.length}`;
+        this.matchInfoEl.style.cursor = "pointer";
       }
     }
   }
