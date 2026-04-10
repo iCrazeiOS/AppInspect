@@ -651,5 +651,107 @@ describe("objc", () => {
         "UITableViewDataSource",
       ]);
     });
+
+    it("extracts protocol details with instance and class methods", () => {
+      // Layout:
+      //   0x0000 - 0x0008: __objc_protolist (1 pointer)
+      //   0x1000 - 0x1040: protocol_t (full structure with method lists)
+      //   0x2000 - 0x200F: protocol name "MyProtocol\0"
+      //   0x3000 - 0x3020: instance method_list_t (1 method)
+      //   0x3100 - 0x3120: class method_list_t (1 method)
+      //   0x4000 - 0x400F: selector "doSomething:\0"
+      //   0x4100 - 0x410F: selector "sharedInstance\0"
+      //   0x5000 - 0x500F: type encoding "v@:\0"
+      //   0x5100 - 0x510F: type encoding "@:\0"
+
+      const buf = new ArrayBuffer(0x6000);
+      const view = new DataView(buf);
+      const le = true;
+      const baseVmaddr = 0x100000000n;
+
+      // __objc_protolist at file offset 0
+      const protoVmaddr = baseVmaddr + 0x1000n;
+      view.setBigUint64(0, protoVmaddr, le);
+
+      // protocol_t at 0x1000:
+      // isa(8) + mangledName(8) + protocols(8) + instanceMethods(8) + classMethods(8) + ...
+      const nameVmaddr = baseVmaddr + 0x2000n;
+      const instMethodsVmaddr = baseVmaddr + 0x3000n;
+      const classMethodsVmaddr = baseVmaddr + 0x3100n;
+
+      view.setBigUint64(0x1000 + 0, 0n, le);  // isa
+      view.setBigUint64(0x1000 + 8, nameVmaddr, le);  // mangledName
+      view.setBigUint64(0x1000 + 16, 0n, le);  // protocols (none)
+      view.setBigUint64(0x1000 + 24, instMethodsVmaddr, le);  // instanceMethods
+      view.setBigUint64(0x1000 + 32, classMethodsVmaddr, le);  // classMethods
+      view.setBigUint64(0x1000 + 40, 0n, le);  // optionalInstanceMethods
+      view.setBigUint64(0x1000 + 48, 0n, le);  // optionalClassMethods
+
+      // Protocol name
+      writeCString(view, 0x2000, "MyProtocol");
+
+      // Instance method_list_t at 0x3000 (absolute format):
+      // entsize_and_flags(4) + count(4) + [method entries]
+      // method entry: name_ptr(8) + types_ptr(8) + imp_ptr(8) = 24 bytes
+      view.setUint32(0x3000, 24, le);  // entsize (24 bytes per entry)
+      view.setUint32(0x3004, 1, le);   // count = 1
+
+      const instSelVmaddr = baseVmaddr + 0x4000n;
+      const instTypesVmaddr = baseVmaddr + 0x5000n;
+      view.setBigUint64(0x3000 + 8, instSelVmaddr, le);  // selector
+      view.setBigUint64(0x3000 + 16, instTypesVmaddr, le);  // types
+      view.setBigUint64(0x3000 + 24, 0n, le);  // imp (not needed)
+
+      // Class method_list_t at 0x3100
+      view.setUint32(0x3100, 24, le);  // entsize
+      view.setUint32(0x3104, 1, le);   // count = 1
+
+      const classSelVmaddr = baseVmaddr + 0x4100n;
+      const classTypesVmaddr = baseVmaddr + 0x5100n;
+      view.setBigUint64(0x3100 + 8, classSelVmaddr, le);
+      view.setBigUint64(0x3100 + 16, classTypesVmaddr, le);
+      view.setBigUint64(0x3100 + 24, 0n, le);
+
+      // Selector strings
+      writeCString(view, 0x4000, "doSomething:");
+      writeCString(view, 0x4100, "sharedInstance");
+
+      // Type encodings
+      writeCString(view, 0x5000, "v@:");
+      writeCString(view, 0x5100, "@:");
+
+      const protolistSection = makeSection(
+        "__DATA",
+        "__objc_protolist",
+        baseVmaddr,
+        8n,
+        0,
+      );
+
+      const segments = [
+        makeSegment("__DATA", baseVmaddr, 0x6000n, 0n, 0x6000n),
+      ];
+
+      const rebaseMap = new Map<number, bigint>();
+      const result = extractObjCMetadata(
+        buf,
+        [protolistSection],
+        segments,
+        rebaseMap,
+        le,
+      );
+
+      expect(result.protocols).toEqual(["MyProtocol"]);
+      expect(result.protocolDetails.length).toBe(1);
+
+      const proto = result.protocolDetails[0]!;
+      expect(proto.name).toBe("MyProtocol");
+      expect(proto.instanceMethods.length).toBe(1);
+      expect(proto.instanceMethods[0]!.selector).toBe("doSomething:");
+      expect(proto.classMethods.length).toBe(1);
+      expect(proto.classMethods[0]!.selector).toBe("sharedInstance");
+      expect(proto.optionalInstanceMethods).toEqual([]);
+      expect(proto.optionalClassMethods).toEqual([]);
+    });
   });
 });
