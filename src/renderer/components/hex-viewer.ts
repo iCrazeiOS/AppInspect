@@ -451,9 +451,10 @@ export class HexViewer {
 
   private onWheel(e: WheelEvent): void {
     if (!this.isScaled() || !this.scrollContainer) return;
-    // When scaled, override native scroll to move a fixed number of rows
+    // When scaled, override native scroll to move rows proportional to delta
     e.preventDefault();
-    const rows = e.deltaY > 0 ? 3 : -3;
+    const delta = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * ROW_HEIGHT : e.deltaY;
+    const rows = Math.sign(delta) * Math.max(1, Math.round(Math.abs(delta) / ROW_HEIGHT));
     const currentRow = this.scrollTopToRow(this.scrollContainer.scrollTop);
     const targetRow = Math.max(0, Math.min(this.totalRows - 1, currentRow + rows));
     this.scrollContainer.scrollTop = this.rowToScrollTop(targetRow);
