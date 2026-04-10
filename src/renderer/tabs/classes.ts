@@ -68,6 +68,7 @@ export function renderClasses(
 	sessionId: string = ""
 ): void {
 	container.innerHTML = "";
+	container.classList.add("cls-container");
 
 	const classesData = data as ClassesData | null;
 	if (!classesData || (!classesData.classes?.length && !classesData.protocols?.length)) {
