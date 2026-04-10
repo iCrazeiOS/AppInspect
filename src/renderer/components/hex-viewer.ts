@@ -111,10 +111,6 @@ export class HexViewer {
   // Track rendered range to avoid unnecessary re-renders
   private renderedStart = -1;
   private renderedEnd = -1;
-  private matchVersion = 0;
-  private renderedMatchVersion = -1;
-  private dataVersion = 0;
-  private renderedDataVersion = -1;
 
   constructor(opts: HexViewerOptions) {
     this.opts = opts;
@@ -409,7 +405,7 @@ export class HexViewer {
       this.currentMatchIndex = -1;
       this.patternLength = 0;
       this.matchPositions.clear();
-      this.matchVersion++;
+
       this.updateMatchInfo();
       this.forceRerender();
       return;
@@ -460,8 +456,6 @@ export class HexViewer {
         this.matchPositions.add(rel + i);
       }
     }
-    this.matchVersion++;
-
     this.updateMatchInfo();
     if (this.currentMatchIndex >= 0) {
       this.goToMatch(0);
@@ -523,14 +517,10 @@ export class HexViewer {
 
     this.updateLabel();
 
-    // Skip re-render if nothing has changed
-    if (start === this.renderedStart && end === this.renderedEnd
-      && this.matchVersion === this.renderedMatchVersion
-      && this.dataVersion === this.renderedDataVersion) return;
+    // Skip re-render if the visible window hasn't changed
+    if (start === this.renderedStart && end === this.renderedEnd) return;
     this.renderedStart = start;
     this.renderedEnd = end;
-    this.renderedMatchVersion = this.matchVersion;
-    this.renderedDataVersion = this.dataVersion;
 
     // Ensure data for visible rows is loaded
     this.ensureChunksLoaded(start, end);
@@ -652,7 +642,7 @@ export class HexViewer {
 
     if (result && result.data.length > 0) {
       this.chunks.set(chunkIndex, result.data);
-      this.dataVersion++;
+
       // Re-render so the loaded data appears
       this.forceRerender();
     }
