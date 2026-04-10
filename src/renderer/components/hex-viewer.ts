@@ -61,7 +61,7 @@ function parseHexPattern(input: string): number[] | string {
   const cleaned = input.replace(/\s+/g, "");
   if (cleaned.length === 0) return "Enter hex bytes";
   if (!/^[0-9a-fA-F]+$/.test(cleaned)) return "Non-hex character";
-  if (cleaned.length % 2 !== 0) return "Odd number of digits";
+  if (cleaned.length % 2 !== 0) return "Must enter full bytes";
   const bytes: number[] = [];
   for (let i = 0; i < cleaned.length; i += 2) {
     bytes.push(parseInt(cleaned.substring(i, i + 2), 16));
@@ -690,15 +690,19 @@ export class HexViewer {
       : base;
   }
 
-  private updateMatchInfo(text?: string): void {
+  private updateMatchInfo(error?: string): void {
     if (!this.matchInfoEl) return;
-    if (text) {
-      this.matchInfoEl.textContent = text;
-    } else if (this.matches.length === 0) {
-      const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
-      this.matchInfoEl.textContent = input?.value.trim() ? "No results" : "";
+    if (error) {
+      this.matchInfoEl.textContent = error;
+      this.matchInfoEl.classList.add("hv-match-count--error");
     } else {
-      this.matchInfoEl.textContent = `${this.currentMatchIndex + 1} / ${this.matches.length}`;
+      this.matchInfoEl.classList.remove("hv-match-count--error");
+      if (this.matches.length === 0) {
+        const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
+        this.matchInfoEl.textContent = input?.value.trim() ? "No results" : "";
+      } else {
+        this.matchInfoEl.textContent = `${this.currentMatchIndex + 1} / ${this.matches.length}`;
+      }
     }
   }
 }

@@ -3325,6 +3325,10 @@ body.platform-darwin .app-title-row {
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
 }
 
+.hv-match-count--error {
+  color: #da6771;
+}
+
 .hv-match-nav {
   font-size: 12px;
   padding: 2px 6px;
