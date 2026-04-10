@@ -90,15 +90,116 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   let selectedProtocol: ObjCProtocol | null = null;
   let selectedProtoMethod: { method: ObjCMethod; isClassMethod: boolean } | null = null;
 
+  // Navigation history
+  type NavState = { type: "class"; name: string } | { type: "protocol"; name: string };
+  const navHistory: NavState[] = [];
+  let navIndex = -1;
+  let isNavigating = false; // Prevent history push during back/forward
+
   // ── Cross-binary search state ──
   const xbin = createCrossBinaryState();
 
-  // Stats bar
+  // Stats bar with navigation
+  const statsBar = document.createElement("div");
+  statsBar.className = "cls-stats-bar";
+  container.appendChild(statsBar);
+
+  // Navigation buttons
+  const navBtns = document.createElement("div");
+  navBtns.className = "cls-nav-btns";
+  statsBar.appendChild(navBtns);
+
+  const backBtn = document.createElement("button");
+  backBtn.className = "cls-nav-btn";
+  backBtn.textContent = "\u276E";
+  backBtn.title = "Back";
+  backBtn.disabled = true;
+  navBtns.appendChild(backBtn);
+
+  const forwardBtn = document.createElement("button");
+  forwardBtn.className = "cls-nav-btn";
+  forwardBtn.textContent = "\u276F";
+  forwardBtn.title = "Forward";
+  forwardBtn.disabled = true;
+  navBtns.appendChild(forwardBtn);
+
   const stats = document.createElement("div");
   stats.className = "cls-stats";
   const totalMethods = allClasses.reduce((s, c) => s + c.methods.length, 0);
   stats.textContent = `${allClasses.length.toLocaleString()} classes \u00B7 ${totalMethods.toLocaleString()} methods \u00B7 ${allProtocols.length.toLocaleString()} protocols`;
-  container.appendChild(stats);
+  statsBar.appendChild(stats);
+
+  // Navigation functions
+  function updateNavButtons(): void {
+    backBtn.disabled = navIndex <= 0;
+    forwardBtn.disabled = navIndex >= navHistory.length - 1;
+  }
+
+  function pushNav(state: NavState): void {
+    if (isNavigating) return;
+    // Remove forward history when pushing new state
+    if (navIndex < navHistory.length - 1) {
+      navHistory.splice(navIndex + 1);
+    }
+    navHistory.push(state);
+    navIndex = navHistory.length - 1;
+    updateNavButtons();
+  }
+
+  function navigateTo(state: NavState): void {
+    isNavigating = true;
+    if (state.type === "class") {
+      const cls = allClasses.find((c) => c.name === state.name);
+      if (cls) {
+        const idx = filteredClasses.indexOf(cls);
+        selectedClassIndex = idx >= 0 ? idx : -1;
+        selectedClass = cls;
+        selectedMethod = null;
+        selectedProtocol = null;
+        selectedProtoMethod = null;
+        // Clear protocol highlight
+        for (const el of protoItems.values()) {
+          el.classList.remove("cls-proto-item-active");
+        }
+        renderList();
+        renderDetail();
+        renderSidebar();
+        if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
+      }
+    } else if (state.type === "protocol") {
+      selectProtocol(state.name);
+    }
+    isNavigating = false;
+    updateNavButtons();
+  }
+
+  function goBack(): void {
+    if (navIndex > 0) {
+      navIndex--;
+      navigateTo(navHistory[navIndex]!);
+    }
+  }
+
+  function goForward(): void {
+    if (navIndex < navHistory.length - 1) {
+      navIndex++;
+      navigateTo(navHistory[navIndex]!);
+    }
+  }
+
+  backBtn.addEventListener("click", goBack);
+  forwardBtn.addEventListener("click", goForward);
+
+  // Mouse button 4/5 for back/forward
+  container.addEventListener("mouseup", (e) => {
+    if (e.button === 3) { // Mouse back button
+      e.preventDefault();
+      goBack();
+    } else if (e.button === 4) { // Mouse forward button
+      e.preventDefault();
+      goForward();
+    }
+  });
 
   // Three-panel layout wrapper
   const wrapper = document.createElement("div");
@@ -217,6 +318,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       row.textContent = cls.name;
       row.title = cls.name;
       row.addEventListener("click", () => {
+        pushNav({ type: "class", name: cls.name });
         selectedClassIndex = i;
         selectedClass = cls;
         selectedMethod = null;
@@ -500,6 +602,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     // Show protocol details
     const proto = protocolDetailsMap.get(name);
     if (proto) {
+      pushNav({ type: "protocol", name });
       selectedProtocol = proto;
       selectedProtoMethod = null;
       selectedClass = null;
