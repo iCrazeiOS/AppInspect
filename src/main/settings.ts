@@ -39,5 +39,10 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   const settingsPath = getSettingsPath();
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), "utf-8");
+
+  // Merge on top of current disk state to avoid clobbering
+  // another instance's concurrent writes
+  const current = loadSettings();
+  const merged = { ...current, ...settings };
+  fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2), "utf-8");
 }

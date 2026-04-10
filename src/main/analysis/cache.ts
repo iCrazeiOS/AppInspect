@@ -41,6 +41,44 @@ export function isCacheValid(dir: string): boolean {
 }
 
 /**
+ * Safely extract into a cache directory, handling concurrent instances.
+ *
+ * Extracts to a temporary sibling directory first, then atomically renames
+ * to the real cache path. If another instance already created it, the temp
+ * is cleaned up and the existing cache is reused.
+ *
+ * Returns `true` when a valid cache already existed (extraction skipped).
+ */
+export async function extractToCache<T extends { success: boolean }>(
+  cacheDir: string,
+  extractFn: (destDir: string) => Promise<T>,
+): Promise<{ cached: true } | { cached: false; result: T }> {
+  if (isCacheValid(cacheDir)) {
+    return { cached: true };
+  }
+
+  const tempDir = `${cacheDir}-tmp-${process.pid}`;
+  try {
+    const result = await extractFn(tempDir);
+    if (!result.success) {
+      return { cached: false, result };
+    }
+
+    // Attempt atomic move — fails if another instance created cacheDir first
+    try {
+      fs.renameSync(tempDir, cacheDir);
+    } catch {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    return { cached: false, result };
+  } catch (err) {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+    throw err;
+  }
+}
+
+/**
  * Remove cache entries older than `maxAgeDays` days.
  * Runs best-effort — errors on individual entries are silently ignored.
  */

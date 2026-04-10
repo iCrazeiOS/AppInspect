@@ -244,7 +244,7 @@ export async function extractDEB(
     const buf = fs.readFileSync(debPath);
     const members = parseARMembers(buf);
 
-    const tempDir = destDir ?? path.join(os.tmpdir(), `appinspect-deb-${Date.now()}`);
+    const tempDir = destDir ?? path.join(os.tmpdir(), `appinspect-deb-${process.pid}-${Date.now()}`);
     fs.mkdirSync(tempDir, { recursive: true });
 
     // Check if a previous extraction already populated this directory

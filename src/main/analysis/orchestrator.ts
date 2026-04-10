@@ -60,7 +60,7 @@ import type { DEBBinaryInfo } from "../deb/extractor";
 import { MACHO_MAGICS } from "../parser/macho";
 
 // ── Extracted modules ─────────────────────────────────────────────
-import { getCacheDir, isCacheValid, pruneCache } from "./cache";
+import { getCacheDir, extractToCache, pruneCache } from "./cache";
 import { detectHooks } from "./hook-detection";
 import { detectAppFrameworks } from "./framework-detection";
 import { readBundleFiles, extractLocalisationStrings } from "./bundle-files";
@@ -1132,14 +1132,14 @@ export class AnalysisSession {
 
     // Step 1: Extract IPA (skip if a valid cache exists)
     const cacheDir = getCacheDir(ipaPath);
-    if (isCacheValid(cacheDir)) {
-      progressCallback("Using cached extraction...", 5);
-    } else {
+    const ext = await extractToCache(cacheDir, (dest) => {
       progressCallback("Extracting IPA...", 0);
-      const extraction = await extractIPA(ipaPath, cacheDir);
-      if (!extraction.success) {
-        throw new Error((extraction as { success: false; error: string }).error);
-      }
+      return extractIPA(ipaPath, dest);
+    });
+    if (ext.cached) {
+      progressCallback("Using cached extraction...", 5);
+    } else if (!ext.result.success) {
+      throw new Error((ext.result as { success: false; error: string }).error);
     }
 
     this.extractedDir = cacheDir;
@@ -1413,14 +1413,21 @@ export class AnalysisSession {
     this.filePath = debPath;
     this.infoPlist = {};
 
-    // Step 1: Extract DEB (extractor skips if cache dir already has content)
+    // Step 1: Extract DEB (skip if a valid cache exists)
     const cacheDir = getCacheDir(debPath);
-    progressCallback("Extracting DEB package...", 0);
-    const extraction = await extractDEB(debPath, cacheDir);
+    const ext = await extractToCache(cacheDir, (dest) => {
+      progressCallback("Extracting DEB package...", 0);
+      return extractDEB(debPath, dest);
+    });
 
-    if (!extraction.success) {
-      throw new Error(extraction.error);
+    if (!ext.cached && !ext.result.success) {
+      throw new Error(ext.result.error);
     }
+
+    // Re-derive metadata from the stable cache directory.
+    // Data is already extracted so this just parses control + discovers binaries.
+    const extraction = await extractDEB(debPath, cacheDir);
+    if (!extraction.success) throw new Error(extraction.error);
 
     this.extractedDir = cacheDir;
     this.appBundlePath = extraction.dataDir;
