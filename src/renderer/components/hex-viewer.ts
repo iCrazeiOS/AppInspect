@@ -406,6 +406,8 @@ export class HexViewer {
     const relOffset = matchOffset - this.opts.regionOffset;
     const targetRow = Math.floor(relOffset / this.bytesPerRow);
     this.scrollToRow(targetRow);
+    // Force re-render so highlights appear even if scroll position didn't change
+    this.forceRerender();
   }
 
   // ── Virtual scrolling ──
