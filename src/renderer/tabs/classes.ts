@@ -977,17 +977,17 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     });
     inner.appendChild(closeBtn);
 
-    // Full method signature (wrapping)
-    const sigBlock = document.createElement("div");
-    sigBlock.className = "cls-sb-sig";
-    sigBlock.textContent = sig;
-    inner.appendChild(sigBlock);
-
     // Class name
     const classLabel = document.createElement("div");
     classLabel.className = "cls-sb-class";
     classLabel.textContent = className;
     inner.appendChild(classLabel);
+
+    // Full method signature (wrapping)
+    const sigBlock = document.createElement("div");
+    sigBlock.className = "cls-sb-sig";
+    sigBlock.textContent = sig;
+    inner.appendChild(sigBlock);
 
     // ── Copy buttons section ──
     const actions = document.createElement("div");
@@ -1088,17 +1088,17 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     });
     inner.appendChild(closeBtn);
 
-    // Method signature
-    const sigBlock = document.createElement("div");
-    sigBlock.className = "cls-sb-sig";
-    sigBlock.textContent = sig;
-    inner.appendChild(sigBlock);
-
     // Protocol name
     const protoLabel = document.createElement("div");
     protoLabel.className = "cls-sb-class";
     protoLabel.textContent = `@protocol ${selectedProtocol.name}`;
     inner.appendChild(protoLabel);
+
+    // Method signature
+    const sigBlock = document.createElement("div");
+    sigBlock.className = "cls-sb-sig";
+    sigBlock.textContent = sig;
+    inner.appendChild(sigBlock);
 
     // Copy buttons
     const actions = document.createElement("div");
