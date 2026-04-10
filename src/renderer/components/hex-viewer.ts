@@ -668,10 +668,11 @@ export class HexViewer {
 
   private scrollToRow(row: number): void {
     if (!this.scrollContainer) return;
-    const targetTop = this.rowToScrollTop(row);
     const viewHeight = this.scrollContainer.clientHeight;
-    // Center the row in the viewport
-    this.scrollContainer.scrollTop = Math.max(0, targetTop - viewHeight / 2);
+    const visibleRows = Math.ceil(viewHeight / ROW_HEIGHT);
+    // Center in row-space, then convert to scroll position
+    const topRow = Math.max(0, row - Math.floor(visibleRows / 2));
+    this.scrollContainer.scrollTop = this.rowToScrollTop(topRow);
   }
 
   private forceRerender(): void {
