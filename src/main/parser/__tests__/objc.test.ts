@@ -561,5 +561,95 @@ describe("objc", () => {
       expect(result.classes[0]!.name).toBe("RelativeClass");
       expect(result.classes[0]!.methods.map((m: any) => m.selector)).toEqual(["initWithFrame:"]);
     });
+
+    it("extracts class protocol conformances from baseProtocols", () => {
+      // Layout:
+      //   0x0000 - 0x0008: __objc_classlist (1 pointer)
+      //   0x1000 - 0x1028: class_t (40 bytes)
+      //   0x2000 - 0x2040: class_ro_t (with baseProtocols at offset 40)
+      //   0x3000 - 0x300F: class name string "MyViewController\0"
+      //   0x4000 - 0x4018: protocol_list_t (count + 2 protocol pointers)
+      //   0x5000 - 0x5010: protocol_t #1 (isa + mangledName)
+      //   0x5100 - 0x5110: protocol_t #2 (isa + mangledName)
+      //   0x6000 - 0x600F: protocol name #1 "UITableViewDelegate\0"
+      //   0x6100 - 0x610F: protocol name #2 "UITableViewDataSource\0"
+
+      const buf = new ArrayBuffer(0x7000);
+      const view = new DataView(buf);
+      const le = true;
+      const baseVmaddr = 0x100000000n;
+
+      // __objc_classlist at file offset 0 — one pointer to class_t vmaddr
+      const classVmaddr = baseVmaddr + 0x1000n;
+      view.setBigUint64(0, classVmaddr, le);
+
+      // class_t at file offset 0x1000
+      // data pointer at offset 32
+      const roVmaddr = baseVmaddr + 0x2000n;
+      view.setBigUint64(0x1000 + 32, roVmaddr, le);
+
+      // class_ro_t at file offset 0x2000
+      // name pointer at offset 24
+      const nameVmaddr = baseVmaddr + 0x3000n;
+      view.setBigUint64(0x2000 + 24, nameVmaddr, le);
+      // baseMethods = 0 (no methods)
+      view.setBigUint64(0x2000 + 32, 0n, le);
+      // baseProtocols at offset 40
+      const protocolsVmaddr = baseVmaddr + 0x4000n;
+      view.setBigUint64(0x2000 + 40, protocolsVmaddr, le);
+
+      // Class name string at file offset 0x3000
+      writeCString(view, 0x3000, "MyViewController");
+
+      // protocol_list_t at file offset 0x4000
+      // count (8 bytes) + protocol_t* array
+      view.setBigUint64(0x4000, 2n, le); // count = 2
+
+      // Protocol pointers at 0x4008 and 0x4010
+      const proto1Vmaddr = baseVmaddr + 0x5000n;
+      const proto2Vmaddr = baseVmaddr + 0x5100n;
+      view.setBigUint64(0x4000 + 8, proto1Vmaddr, le);
+      view.setBigUint64(0x4000 + 16, proto2Vmaddr, le);
+
+      // protocol_t #1 at 0x5000: isa(8) + mangledName(8)
+      const proto1NameVmaddr = baseVmaddr + 0x6000n;
+      view.setBigUint64(0x5000 + 8, proto1NameVmaddr, le);
+
+      // protocol_t #2 at 0x5100: isa(8) + mangledName(8)
+      const proto2NameVmaddr = baseVmaddr + 0x6100n;
+      view.setBigUint64(0x5100 + 8, proto2NameVmaddr, le);
+
+      // Protocol name strings
+      writeCString(view, 0x6000, "UITableViewDelegate");
+      writeCString(view, 0x6100, "UITableViewDataSource");
+
+      const classlistSection = makeSection(
+        "__DATA",
+        "__objc_classlist",
+        baseVmaddr,
+        8n,
+        0,
+      );
+
+      const segments = [
+        makeSegment("__DATA", baseVmaddr, 0x7000n, 0n, 0x7000n),
+      ];
+
+      const rebaseMap = new Map<number, bigint>();
+      const result = extractObjCMetadata(
+        buf,
+        [classlistSection],
+        segments,
+        rebaseMap,
+        le,
+      );
+
+      expect(result.classes.length).toBe(1);
+      expect(result.classes[0]!.name).toBe("MyViewController");
+      expect(result.classes[0]!.protocols).toEqual([
+        "UITableViewDelegate",
+        "UITableViewDataSource",
+      ]);
+    });
   });
 });
