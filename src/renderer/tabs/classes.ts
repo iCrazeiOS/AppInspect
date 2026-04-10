@@ -22,6 +22,7 @@ interface ObjCMethod {
 interface ObjCClass {
   name: string;
   methods: ObjCMethod[];
+  protocols?: string[];
 }
 
 interface ClassesData {
@@ -700,6 +701,20 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
         countEl.textContent = `${total} method${total !== 1 ? "s" : ""}`;
       }
       detailHeader.appendChild(countEl);
+
+      // Show protocol conformances if present
+      if (selectedClass.protocols && selectedClass.protocols.length > 0) {
+        const protoLine = document.createElement("div");
+        protoLine.className = "cls-detail-protos";
+        protoLine.innerHTML = `<span class="cls-detail-protos-label">Conforms to:</span> `;
+        for (let i = 0; i < selectedClass.protocols.length; i++) {
+          const badge = document.createElement("span");
+          badge.className = "cls-proto-badge";
+          badge.textContent = selectedClass.protocols[i]!;
+          protoLine.appendChild(badge);
+        }
+        detailHeader.appendChild(protoLine);
+      }
 
       methodSearchBar.updateCount(filtered.length, total);
     } else {
