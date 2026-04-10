@@ -5,8 +5,9 @@
  * dependency graph displayed in the Libraries tab graph view.
  */
 
-export function classifyLib(name: string): "system" | "swift" | "embedded" {
+export function classifyLib(name: string): "system" | "framework" | "swift" | "embedded" {
   if (name.startsWith("/usr/lib/swift") || name.includes("libswift")) return "swift";
+  if (name.includes(".framework/")) return "framework";
   if (name.startsWith("/") || name.startsWith("@rpath/libswift")) return "system";
   return "embedded";
 }

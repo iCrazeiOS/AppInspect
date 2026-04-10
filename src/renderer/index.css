@@ -2750,6 +2750,7 @@ body.platform-darwin .app-title-row {
 .gr-legend-dot--binary-main { background: var(--accent); }
 .gr-legend-dot--binary-fw { background: #8b5cf6; }
 .gr-legend-dot--binary-tweak { background: #e05d44; }
+.gr-legend-dot--framework { background: #1f8ecd; }
 .gr-legend-dot--system { background: #2b5ea7; }
 .gr-legend-dot--swift { background: #d29922; }
 .gr-legend-dot--embedded { background: #238636; }
@@ -2814,6 +2815,11 @@ body.platform-darwin .app-title-row {
 .gr-node--binary-tweak .gr-node-circle {
   fill: #e05d44;
   stroke: #f07a64;
+}
+
+.gr-node--framework .gr-node-circle {
+  fill: #1f8ecd;
+  stroke: #3aa5e0;
 }
 
 .gr-node--system .gr-node-circle {

@@ -35,6 +35,7 @@ const NODE_RADIUS: Record<string, number> = {
   "binary:extension": 18,
   "binary:tweak": 18,
   "library:system": 10,
+  "library:framework": 12,
   "library:swift": 10,
   "library:embedded": 14,
 };
@@ -58,6 +59,7 @@ const NODE_COLOR: Record<string, string> = {
   "binary:extension": "#8b5cf6",
   "binary:tweak": "#e05d44",
   "library:system": "#2b5ea7",
+  "library:framework": "#1f8ecd",
   "library:swift": "#d29922",
   "library:embedded": "#238636",
 };
@@ -693,6 +695,7 @@ function buildLegend(data: LibraryGraphData, onToggle: () => void): LegendResult
     ["gr-legend-dot--binary-main", "Main Binary", () => hasType.has("binary:main"), ["binary:main"]],
     ["gr-legend-dot--binary-fw", "Frameworks", () => hasType.has("binary:framework") || hasType.has("binary:extension"), ["binary:framework", "binary:extension"]],
     ["gr-legend-dot--binary-tweak", "Tweaks", () => hasType.has("binary:tweak"), ["binary:tweak"]],
+    ["gr-legend-dot--framework", "System Frameworks", () => hasType.has("library:framework"), ["library:framework"]],
     ["gr-legend-dot--system", "System Libraries", () => hasType.has("library:system"), ["library:system"]],
     ["gr-legend-dot--swift", "Swift Libraries", () => hasType.has("library:swift"), ["library:swift"]],
     ["gr-legend-dot--embedded", "Embedded Libraries", () => hasType.has("library:embedded"), ["library:embedded"]],

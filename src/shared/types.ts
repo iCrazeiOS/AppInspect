@@ -288,7 +288,7 @@ export interface LibraryGraphNode {
   /** Only for binary nodes */
   binaryType?: 'main' | 'framework' | 'extension' | 'tweak';
   /** Only for library nodes */
-  category?: 'system' | 'swift' | 'embedded';
+  category?: 'system' | 'framework' | 'swift' | 'embedded';
   weak?: boolean;
   version?: string;
 }
