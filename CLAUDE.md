@@ -10,6 +10,8 @@ bun run build        # Build all targets (main, preload, renderer, css, mcp)
 bun run start        # Build + launch Electron
 bun run typecheck    # tsc --noEmit
 bun test             # Run all tests (bun:test)
+bun run check        # Lint + format check
+bun run check:fix    # Lint + format with auto-fix
 bun run dist         # Build + package with electron-builder
 ```
 
@@ -47,9 +49,32 @@ Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mti
 - **Exports:** named exports, no default exports
 - **Error handling:** result types (`{ ok, data/error }`) for parsers, try-catch with informative messages at boundaries. Parsers continue gracefully on individual failures
 - **BigInt:** used internally for addresses, converted to number/string before IPC serialisation (see `bigintReplacer` in MCP server)
-- **No linter configured** — TypeScript strict mode is the only enforcement
+- **Linter:** Biome (see "Linting & Formatting" section)
 - Keep implementations minimal. No unnecessary abstractions, helpers, or wrapper functions - unless it will sufficiently improve readability, or reduce code duplication
 - Follow existing patterns in the file you're editing
+
+## Linting & Formatting
+
+Biome handles linting and formatting. Configuration in `biome.json`.
+
+```bash
+bun run lint        # Run linter only
+bun run format      # Format files in place
+bun run format:check # Check formatting (CI mode)
+bun run check       # Lint + format check
+bun run check:fix   # Lint + format with auto-fix
+```
+
+**Style rules:**
+- Indentation: Tabs
+- Line width: 100 characters
+- Semicolons: Always
+- Quotes: Double quotes
+- Trailing commas: None
+- Arrow function parens: Always
+- Bracket spacing: Yes
+
+VS Code users: Install the recommended Biome extension for format-on-save.
 
 ## TypeScript config
 
@@ -71,7 +96,7 @@ When adding a significant user-facing feature (new tab, new MCP tool, new file f
 
 ## Pre-commit hook
 
-Husky runs `bun run typecheck && bun test` before every commit. Both must pass. Do not bypass with `--no-verify`.
+Husky runs Biome auto-fix, re-stages changes, then runs `bun run check && bun run typecheck && bun test` before every commit. Auto-fixable issues are corrected automatically; unfixable lint errors will fail the commit. Do not bypass with `--no-verify`.
 
 ## Cross-platform
 

@@ -20,6 +20,11 @@
     "mcp": "bun dist/mcp/server.js",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "lint": "biome lint ./src ./scripts",
+    "format": "biome format --write ./src ./scripts",
+    "format:check": "biome format ./src ./scripts",
+    "check": "biome check ./src ./scripts",
+    "check:fix": "biome check --write ./src ./scripts",
     "prepare": "husky"
   },
   "build": {
@@ -59,6 +64,7 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
     "@types/bun": "^1.3.11",
     "electron": "^35.7.5",
     "electron-builder": "^26.8.1",

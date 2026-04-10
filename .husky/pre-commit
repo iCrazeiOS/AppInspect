@@ -1,1 +1,6 @@
-bun run typecheck && bun test
+# Auto-fix lint/format issues and re-stage
+bun run check:fix
+git update-index --again
+
+# Fail if unfixable errors remain, then run typecheck and tests
+bun run check && bun run typecheck && bun test
