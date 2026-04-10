@@ -347,6 +347,16 @@ export class HexViewer {
     input.placeholder = "Search hex bytes (e.g. CF FA ED FE)";
     input.spellcheck = false;
     input.addEventListener("input", () => {
+      if (this.searchMode === "hex") {
+        const pos = input.selectionStart ?? input.value.length;
+        const before = input.value;
+        const stripped = before.replace(/[^0-9a-fA-F]/g, "");
+        if (stripped !== before) {
+          const removed = before.length - stripped.length;
+          input.value = stripped;
+          input.selectionStart = input.selectionEnd = Math.max(0, pos - removed);
+        }
+      }
       if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
       this.searchDebounceTimer = setTimeout(() => this.executeSearch(input.value), 300);
     });
