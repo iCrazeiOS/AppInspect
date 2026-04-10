@@ -3,31 +3,31 @@
  */
 
 import { SearchBar } from "../components";
-import { saveSearchState, getSearchState, registerSearchBar } from "../search-state";
+import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 
 // ── Types ──
 
 interface SecurityFinding {
-  severity: "critical" | "warning" | "info";
-  category: string;
-  message: string;
-  evidence: string;
-  location?: string;
-  functionName?: string;
-  source?: string;
+	severity: "critical" | "warning" | "info";
+	category: string;
+	message: string;
+	evidence: string;
+	location?: string;
+	functionName?: string;
+	source?: string;
 }
 
 interface BinaryHardening {
-  pie: boolean;
-  arc: boolean;
-  stackCanaries: boolean;
-  encrypted: boolean;
-  stripped: boolean;
+	pie: boolean;
+	arc: boolean;
+	stackCanaries: boolean;
+	encrypted: boolean;
+	stripped: boolean;
 }
 
 interface SecurityData {
-  findings: SecurityFinding[];
-  hardening: BinaryHardening;
+	findings: SecurityFinding[];
+	hardening: BinaryHardening;
 }
 
 // ── Constants ──
@@ -35,17 +35,17 @@ interface SecurityData {
 const SEVERITY_ORDER: Record<string, number> = { critical: 0, warning: 1, info: 2 };
 
 const SEVERITY_LABELS: Record<string, string> = {
-  critical: "CRITICAL",
-  warning: "WARNING",
-  info: "INFO",
+	critical: "CRITICAL",
+	warning: "WARNING",
+	info: "INFO"
 };
 
 const HARDENING_LABELS: { key: keyof BinaryHardening; label: string }[] = [
-  { key: "pie", label: "PIE" },
-  { key: "arc", label: "ARC" },
-  { key: "stackCanaries", label: "Stack Canaries" },
-  { key: "encrypted", label: "Encryption" },
-  { key: "stripped", label: "Stripped" },
+	{ key: "pie", label: "PIE" },
+	{ key: "arc", label: "ARC" },
+	{ key: "stackCanaries", label: "Stack Canaries" },
+	{ key: "encrypted", label: "Encryption" },
+	{ key: "stripped", label: "Stripped" }
 ];
 
 const EVIDENCE_COLLAPSED_LEN = 200;
@@ -53,288 +53,294 @@ const EVIDENCE_COLLAPSED_LEN = 200;
 // ── Render ──
 
 export function renderSecurity(container: HTMLElement, data: any, sessionId: string = ""): void {
-  container.innerHTML = "";
+	container.innerHTML = "";
 
-  const sec: SecurityData = (data?.findings ? data : data?.security) ?? { findings: [], hardening: {} };
-  const findings = sec.findings ?? [];
-  const hardening = sec.hardening ?? ({} as BinaryHardening);
+	const sec: SecurityData = (data?.findings ? data : data?.security) ?? {
+		findings: [],
+		hardening: {}
+	};
+	const findings = sec.findings ?? [];
+	const hardening = sec.hardening ?? ({} as BinaryHardening);
 
-  // State
-  const activeFilters = new Set<string>(["critical", "warning", "info"]);
-  let searchTerm = "";
-  let searchRegex = false;
+	// State
+	const activeFilters = new Set<string>(["critical", "warning", "info"]);
+	let searchTerm = "";
+	let searchRegex = false;
 
-  // ── Root wrapper ──
-  const root = document.createElement("div");
-  root.className = "sec-root";
+	// ── Root wrapper ──
+	const root = document.createElement("div");
+	root.className = "sec-root";
 
-  // ── Summary badges ──
-  const summaryRow = document.createElement("div");
-  summaryRow.className = "sec-summary";
-  const counts = { critical: 0, warning: 0, info: 0 };
-  for (const f of findings) {
-    if (f.severity in counts) counts[f.severity as keyof typeof counts]++;
-  }
-  for (const sev of ["critical", "warning", "info"] as const) {
-    const badge = document.createElement("span");
-    badge.className = `sec-badge sec-badge--${sev}`;
-    badge.textContent = `${counts[sev]} ${SEVERITY_LABELS[sev]}`;
-    summaryRow.appendChild(badge);
-  }
-  root.appendChild(summaryRow);
+	// ── Summary badges ──
+	const summaryRow = document.createElement("div");
+	summaryRow.className = "sec-summary";
+	const counts = { critical: 0, warning: 0, info: 0 };
+	for (const f of findings) {
+		if (f.severity in counts) counts[f.severity as keyof typeof counts]++;
+	}
+	for (const sev of ["critical", "warning", "info"] as const) {
+		const badge = document.createElement("span");
+		badge.className = `sec-badge sec-badge--${sev}`;
+		badge.textContent = `${counts[sev]} ${SEVERITY_LABELS[sev]}`;
+		summaryRow.appendChild(badge);
+	}
+	root.appendChild(summaryRow);
 
-  // ── Binary hardening section ──
-  const hardeningSection = document.createElement("div");
-  hardeningSection.className = "sec-hardening";
+	// ── Binary hardening section ──
+	const hardeningSection = document.createElement("div");
+	hardeningSection.className = "sec-hardening";
 
-  const hardeningTitle = document.createElement("h3");
-  hardeningTitle.className = "sec-section-title";
-  hardeningTitle.textContent = "Binary Hardening";
-  hardeningSection.appendChild(hardeningTitle);
+	const hardeningTitle = document.createElement("h3");
+	hardeningTitle.className = "sec-section-title";
+	hardeningTitle.textContent = "Binary Hardening";
+	hardeningSection.appendChild(hardeningTitle);
 
-  const hardeningGrid = document.createElement("div");
-  hardeningGrid.className = "sec-hardening-grid";
+	const hardeningGrid = document.createElement("div");
+	hardeningGrid.className = "sec-hardening-grid";
 
-  for (const { key, label } of HARDENING_LABELS) {
-    const cell = document.createElement("div");
-    cell.className = "sec-hardening-cell";
+	for (const { key, label } of HARDENING_LABELS) {
+		const cell = document.createElement("div");
+		cell.className = "sec-hardening-cell";
 
-    const icon = document.createElement("span");
-    const enabled = !!hardening[key];
-    icon.className = `sec-hardening-icon ${enabled ? "sec-hardening-pass" : "sec-hardening-fail"}`;
-    icon.textContent = enabled ? "\u2713" : "\u2717";
+		const icon = document.createElement("span");
+		const enabled = !!hardening[key];
+		icon.className = `sec-hardening-icon ${enabled ? "sec-hardening-pass" : "sec-hardening-fail"}`;
+		icon.textContent = enabled ? "\u2713" : "\u2717";
 
-    const text = document.createElement("span");
-    text.className = "sec-hardening-label";
-    text.textContent = label;
+		const text = document.createElement("span");
+		text.className = "sec-hardening-label";
+		text.textContent = label;
 
-    cell.appendChild(icon);
-    cell.appendChild(text);
-    hardeningGrid.appendChild(cell);
-  }
-  hardeningSection.appendChild(hardeningGrid);
-  root.appendChild(hardeningSection);
+		cell.appendChild(icon);
+		cell.appendChild(text);
+		hardeningGrid.appendChild(cell);
+	}
+	hardeningSection.appendChild(hardeningGrid);
+	root.appendChild(hardeningSection);
 
-  // ── Filter buttons ──
-  const filterRow = document.createElement("div");
-  filterRow.className = "sec-filters";
+	// ── Filter buttons ──
+	const filterRow = document.createElement("div");
+	filterRow.className = "sec-filters";
 
-  const filterLabel = document.createElement("span");
-  filterLabel.className = "sec-filter-label";
-  filterLabel.textContent = "Filter:";
-  filterRow.appendChild(filterLabel);
+	const filterLabel = document.createElement("span");
+	filterLabel.className = "sec-filter-label";
+	filterLabel.textContent = "Filter:";
+	filterRow.appendChild(filterLabel);
 
-  const filterButtons: Record<string, HTMLButtonElement> = {};
-  for (const sev of ["critical", "warning", "info"] as const) {
-    const btn = document.createElement("button");
-    btn.className = `sec-filter-btn sec-filter-btn--${sev} sec-filter-btn--active`;
-    btn.textContent = SEVERITY_LABELS[sev]!;
-    btn.addEventListener("click", () => {
-      if (activeFilters.has(sev)) {
-        activeFilters.delete(sev);
-        btn.classList.remove("sec-filter-btn--active");
-      } else {
-        activeFilters.add(sev);
-        btn.classList.add("sec-filter-btn--active");
-      }
-      renderFindings();
-    });
-    filterButtons[sev] = btn;
-    filterRow.appendChild(btn);
-  }
-  root.appendChild(filterRow);
+	const filterButtons: Record<string, HTMLButtonElement> = {};
+	for (const sev of ["critical", "warning", "info"] as const) {
+		const btn = document.createElement("button");
+		btn.className = `sec-filter-btn sec-filter-btn--${sev} sec-filter-btn--active`;
+		btn.textContent = SEVERITY_LABELS[sev]!;
+		btn.addEventListener("click", () => {
+			if (activeFilters.has(sev)) {
+				activeFilters.delete(sev);
+				btn.classList.remove("sec-filter-btn--active");
+			} else {
+				activeFilters.add(sev);
+				btn.classList.add("sec-filter-btn--active");
+			}
+			renderFindings();
+		});
+		filterButtons[sev] = btn;
+		filterRow.appendChild(btn);
+	}
+	root.appendChild(filterRow);
 
-  // ── Search bar ──
-  const searchWrap = document.createElement("div");
-  searchWrap.className = "sec-search";
-  const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
-    searchTerm = term;
-    searchRegex = isRegex;
-    saveSearchState(sessionId, "security", term, isRegex);
-    renderFindings();
-  });
-  root.appendChild(searchWrap);
+	// ── Search bar ──
+	const searchWrap = document.createElement("div");
+	searchWrap.className = "sec-search";
+	const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
+		searchTerm = term;
+		searchRegex = isRegex;
+		saveSearchState(sessionId, "security", term, isRegex);
+		renderFindings();
+	});
+	root.appendChild(searchWrap);
 
-  // ── Findings list ──
-  const findingsList = document.createElement("div");
-  findingsList.className = "sec-findings";
-  root.appendChild(findingsList);
+	// ── Findings list ──
+	const findingsList = document.createElement("div");
+	findingsList.className = "sec-findings";
+	root.appendChild(findingsList);
 
-  container.appendChild(root);
+	container.appendChild(root);
 
-  // Mount search bar after root is in the DOM
-  searchBar.mount(searchWrap);
-  registerSearchBar(sessionId, "security", searchBar);
+	// Mount search bar after root is in the DOM
+	searchBar.mount(searchWrap);
+	registerSearchBar(sessionId, "security", searchBar);
 
-  // Restore saved search state
-  const savedState = getSearchState(sessionId, "security");
-  if (savedState && savedState.term) {
-    searchBar.setValue(savedState.term, savedState.isRegex);
-  }
+	// Restore saved search state
+	const savedState = getSearchState(sessionId, "security");
+	if (savedState && savedState.term) {
+		searchBar.setValue(savedState.term, savedState.isRegex);
+	}
 
-  // ── Filtering + rendering logic ──
-  function getFilteredFindings(): SecurityFinding[] {
-    let filtered = findings.filter((f) => activeFilters.has(f.severity));
+	// ── Filtering + rendering logic ──
+	function getFilteredFindings(): SecurityFinding[] {
+		let filtered = findings.filter((f) => activeFilters.has(f.severity));
 
-    if (searchTerm) {
-      if (searchRegex) {
-        try {
-          const re = new RegExp(searchTerm, "i");
-          filtered = filtered.filter(
-            (f) =>
-              re.test(f.message) ||
-              re.test(f.category) ||
-              re.test(f.evidence) ||
-              (f.location && re.test(f.location)) ||
-              (f.functionName && re.test(f.functionName)) ||
-              (f.source && re.test(f.source))
-          );
-        } catch {
-          // Invalid regex, skip filtering
-        }
-      } else {
-        const lower = searchTerm.toLowerCase();
-        filtered = filtered.filter(
-          (f) =>
-            f.message.toLowerCase().includes(lower) ||
-            f.category.toLowerCase().includes(lower) ||
-            f.evidence.toLowerCase().includes(lower) ||
-            (f.location && f.location.toLowerCase().includes(lower)) ||
-            (f.functionName && f.functionName.toLowerCase().includes(lower)) ||
-            (f.source && f.source.toLowerCase().includes(lower))
-        );
-      }
-    }
+		if (searchTerm) {
+			if (searchRegex) {
+				try {
+					const re = new RegExp(searchTerm, "i");
+					filtered = filtered.filter(
+						(f) =>
+							re.test(f.message) ||
+							re.test(f.category) ||
+							re.test(f.evidence) ||
+							(f.location && re.test(f.location)) ||
+							(f.functionName && re.test(f.functionName)) ||
+							(f.source && re.test(f.source))
+					);
+				} catch {
+					// Invalid regex, skip filtering
+				}
+			} else {
+				const lower = searchTerm.toLowerCase();
+				filtered = filtered.filter(
+					(f) =>
+						f.message.toLowerCase().includes(lower) ||
+						f.category.toLowerCase().includes(lower) ||
+						f.evidence.toLowerCase().includes(lower) ||
+						(f.location && f.location.toLowerCase().includes(lower)) ||
+						(f.functionName && f.functionName.toLowerCase().includes(lower)) ||
+						(f.source && f.source.toLowerCase().includes(lower))
+				);
+			}
+		}
 
-    // Sort: critical first, then warning, then info
-    filtered.sort(
-      (a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
-    );
+		// Sort: critical first, then warning, then info
+		filtered.sort(
+			(a, b) => (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
+		);
 
-    return filtered;
-  }
+		return filtered;
+	}
 
-  function renderFindings(): void {
-    findingsList.innerHTML = "";
-    const filtered = getFilteredFindings();
-    searchBar.updateCount(filtered.length, findings.length);
+	function renderFindings(): void {
+		findingsList.innerHTML = "";
+		const filtered = getFilteredFindings();
+		searchBar.updateCount(filtered.length, findings.length);
 
-    if (filtered.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "sec-no-findings";
-      empty.textContent = findings.length === 0 ? "No security findings." : "No findings match the current filters.";
-      findingsList.appendChild(empty);
-      return;
-    }
+		if (filtered.length === 0) {
+			const empty = document.createElement("div");
+			empty.className = "sec-no-findings";
+			empty.textContent =
+				findings.length === 0
+					? "No security findings."
+					: "No findings match the current filters.";
+			findingsList.appendChild(empty);
+			return;
+		}
 
-    for (const finding of filtered) {
-      const card = document.createElement("div");
-      card.className = "sec-finding-card";
+		for (const finding of filtered) {
+			const card = document.createElement("div");
+			card.className = "sec-finding-card";
 
-      // Top row: severity badge + category
-      const topRow = document.createElement("div");
-      topRow.className = "sec-finding-top";
+			// Top row: severity badge + category
+			const topRow = document.createElement("div");
+			topRow.className = "sec-finding-top";
 
-      const sevBadge = document.createElement("span");
-      sevBadge.className = `sec-badge sec-badge--${finding.severity}`;
-      sevBadge.textContent = SEVERITY_LABELS[finding.severity] ?? finding.severity;
-      topRow.appendChild(sevBadge);
+			const sevBadge = document.createElement("span");
+			sevBadge.className = `sec-badge sec-badge--${finding.severity}`;
+			sevBadge.textContent = SEVERITY_LABELS[finding.severity] ?? finding.severity;
+			topRow.appendChild(sevBadge);
 
-      const cat = document.createElement("span");
-      cat.className = "sec-finding-category";
-      cat.textContent = finding.category;
-      topRow.appendChild(cat);
+			const cat = document.createElement("span");
+			cat.className = "sec-finding-category";
+			cat.textContent = finding.category;
+			topRow.appendChild(cat);
 
-      card.appendChild(topRow);
+			card.appendChild(topRow);
 
-      // Message
-      const msg = document.createElement("div");
-      msg.className = "sec-finding-message";
-      msg.textContent = finding.message;
-      card.appendChild(msg);
+			// Message
+			const msg = document.createElement("div");
+			msg.className = "sec-finding-message";
+			msg.textContent = finding.message;
+			card.appendChild(msg);
 
-      // Evidence (expandable if long, always copyable)
-      if (finding.evidence) {
-        const evi = document.createElement("div");
-        evi.className = "sec-finding-evidence";
+			// Evidence (expandable if long, always copyable)
+			if (finding.evidence) {
+				const evi = document.createElement("div");
+				evi.className = "sec-finding-evidence";
 
-        const isLong = finding.evidence.length > EVIDENCE_COLLAPSED_LEN;
-        let expanded = !isLong;
+				const isLong = finding.evidence.length > EVIDENCE_COLLAPSED_LEN;
+				let expanded = !isLong;
 
-        const eviText = document.createElement("span");
-        eviText.className = "sec-finding-evidence-text";
-        eviText.textContent = isLong
-          ? finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026"
-          : finding.evidence;
-        evi.appendChild(eviText);
+				const eviText = document.createElement("span");
+				eviText.className = "sec-finding-evidence-text";
+				eviText.textContent = isLong
+					? finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026"
+					: finding.evidence;
+				evi.appendChild(eviText);
 
-        if (isLong) {
-          const expandBtn = document.createElement("button");
-          expandBtn.className = "sec-evidence-toggle";
-          expandBtn.textContent = "Show more";
-          expandBtn.addEventListener("click", () => {
-            expanded = !expanded;
-            eviText.textContent = expanded
-              ? finding.evidence
-              : finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026";
-            expandBtn.textContent = expanded ? "Show less" : "Show more";
-          });
-          evi.appendChild(expandBtn);
-        }
+				if (isLong) {
+					const expandBtn = document.createElement("button");
+					expandBtn.className = "sec-evidence-toggle";
+					expandBtn.textContent = "Show more";
+					expandBtn.addEventListener("click", () => {
+						expanded = !expanded;
+						eviText.textContent = expanded
+							? finding.evidence
+							: finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026";
+						expandBtn.textContent = expanded ? "Show less" : "Show more";
+					});
+					evi.appendChild(expandBtn);
+				}
 
-        card.appendChild(evi);
-      }
+				card.appendChild(evi);
+			}
 
-      // Function name (copyable)
-      if (finding.functionName) {
-        const fn = document.createElement("div");
-        fn.className = "sec-finding-function";
-        const label = document.createElement("span");
-        label.className = "sec-finding-function-label";
-        label.textContent = "Referenced in: ";
-        const name = document.createElement("code");
-        name.className = "sec-finding-function-name sec-copyable";
-        name.textContent = finding.functionName;
-        name.title = "Double-click to copy";
-        name.addEventListener("dblclick", () => {
-          navigator.clipboard.writeText(finding.functionName!);
-        });
-        fn.appendChild(label);
-        fn.appendChild(name);
-        card.appendChild(fn);
-      }
+			// Function name (copyable)
+			if (finding.functionName) {
+				const fn = document.createElement("div");
+				fn.className = "sec-finding-function";
+				const label = document.createElement("span");
+				label.className = "sec-finding-function-label";
+				label.textContent = "Referenced in: ";
+				const name = document.createElement("code");
+				name.className = "sec-finding-function-name sec-copyable";
+				name.textContent = finding.functionName;
+				name.title = "Double-click to copy";
+				name.addEventListener("dblclick", () => {
+					navigator.clipboard.writeText(finding.functionName!);
+				});
+				fn.appendChild(label);
+				fn.appendChild(name);
+				card.appendChild(fn);
+			}
 
-      // Source (copyable)
-      if (finding.source) {
-        const src = document.createElement("div");
-        src.className = "sec-finding-source";
-        const srcLabel = document.createElement("span");
-        srcLabel.className = "sec-finding-function-label";
-        srcLabel.textContent = "Source: ";
-        const srcName = document.createElement("code");
-        srcName.className = "sec-finding-function-name sec-copyable";
-        srcName.textContent = finding.source;
-        srcName.title = "Double-click to copy";
-        srcName.addEventListener("dblclick", () => {
-          navigator.clipboard.writeText(finding.source!);
-        });
-        src.appendChild(srcLabel);
-        src.appendChild(srcName);
-        card.appendChild(src);
-      }
+			// Source (copyable)
+			if (finding.source) {
+				const src = document.createElement("div");
+				src.className = "sec-finding-source";
+				const srcLabel = document.createElement("span");
+				srcLabel.className = "sec-finding-function-label";
+				srcLabel.textContent = "Source: ";
+				const srcName = document.createElement("code");
+				srcName.className = "sec-finding-function-name sec-copyable";
+				srcName.textContent = finding.source;
+				srcName.title = "Double-click to copy";
+				srcName.addEventListener("dblclick", () => {
+					navigator.clipboard.writeText(finding.source!);
+				});
+				src.appendChild(srcLabel);
+				src.appendChild(srcName);
+				card.appendChild(src);
+			}
 
-      // Location
-      if (finding.location) {
-        const loc = document.createElement("div");
-        loc.className = "sec-finding-location";
-        loc.textContent = finding.location;
-        card.appendChild(loc);
-      }
+			// Location
+			if (finding.location) {
+				const loc = document.createElement("div");
+				loc.className = "sec-finding-location";
+				loc.textContent = finding.location;
+				card.appendChild(loc);
+			}
 
-      findingsList.appendChild(card);
-    }
-  }
+			findingsList.appendChild(card);
+		}
+	}
 
-  // Initial render
-  renderFindings();
+	// Initial render
+	renderFindings();
 }

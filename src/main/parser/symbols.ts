@@ -11,18 +11,18 @@ import { readCString } from "./load-commands";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-export interface Symbol {
-  name: string;
-  address: bigint;
-  type: "exported" | "imported" | "local";
-  sectionIndex: number;
+export interface SymbolEntry {
+	name: string;
+	address: bigint;
+	type: "exported" | "imported" | "local";
+	sectionIndex: number;
 }
 
 export interface SymtabInfo {
-  symoff: number;
-  nsyms: number;
-  stroff: number;
-  strsize: number;
+	symoff: number;
+	nsyms: number;
+	stroff: number;
+	strsize: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -40,25 +40,25 @@ const N_STAB_MASK = 0xe0;
  * Returns the decoded value and number of bytes consumed.
  */
 export function readULEB128(
-  dataView: DataView,
-  offset: number,
+	dataView: DataView,
+	offset: number
 ): { value: number; bytesRead: number } {
-  let value = 0;
-  let shift = 0;
-  let bytesRead = 0;
+	let value = 0;
+	let shift = 0;
+	let bytesRead = 0;
 
-  while (offset + bytesRead < dataView.byteLength) {
-    const byte = dataView.getUint8(offset + bytesRead);
-    bytesRead++;
-    // Use multiplication instead of bitwise shift to avoid 32-bit overflow.
-    // Bitwise operators in JS truncate to 32-bit signed integers, which
-    // corrupts values when shift >= 28.
-    value += (byte & 0x7f) * (2 ** shift);
-    if ((byte & 0x80) === 0) break;
-    shift += 7;
-  }
+	while (offset + bytesRead < dataView.byteLength) {
+		const byte = dataView.getUint8(offset + bytesRead);
+		bytesRead++;
+		// Use multiplication instead of bitwise shift to avoid 32-bit overflow.
+		// Bitwise operators in JS truncate to 32-bit signed integers, which
+		// corrupts values when shift >= 28.
+		value += (byte & 0x7f) * 2 ** shift;
+		if ((byte & 0x80) === 0) break;
+		shift += 7;
+	}
 
-  return { value, bytesRead };
+	return { value, bytesRead };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -67,14 +67,10 @@ export function readULEB128(
  * Read a null-terminated C string from the string table.
  * Returns an empty string if offset is out of bounds.
  */
-function readStringFromTable(
-  dataView: DataView,
-  strTableOffset: number,
-  n_strx: number,
-): string {
-  const start = strTableOffset + n_strx;
-  if (start >= dataView.byteLength) return "";
-  return readCString(dataView, start, dataView.byteLength - start);
+function readStringFromTable(dataView: DataView, strTableOffset: number, n_strx: number): string {
+	const start = strTableOffset + n_strx;
+	if (start >= dataView.byteLength) return "";
+	return readCString(dataView, start, dataView.byteLength - start);
 }
 
 // ── Symbol Table Parser ───────────────────────────────────────────────
@@ -90,62 +86,62 @@ function readStringFromTable(
  * @returns            Array of parsed Symbol entries (no STABS)
  */
 export function parseSymbolTable(
-  buffer: ArrayBuffer,
-  symtabInfo: SymtabInfo | null,
-  littleEndian: boolean,
-  is64Bit: boolean = true,
-): Symbol[] {
-  if (!symtabInfo) return [];
+	buffer: ArrayBuffer,
+	symtabInfo: SymtabInfo | null,
+	littleEndian: boolean,
+	is64Bit: boolean = true
+): SymbolEntry[] {
+	if (!symtabInfo) return [];
 
-  const { symoff, nsyms, stroff, strsize } = symtabInfo;
-  if (nsyms === 0) return [];
+	const { symoff, nsyms, stroff, strsize } = symtabInfo;
+	if (nsyms === 0) return [];
 
-  const view = new DataView(buffer);
-  const le = littleEndian;
-  const symbols: Symbol[] = [];
-  const entrySize = is64Bit ? NLIST_64_SIZE : NLIST_32_SIZE;
+	const view = new DataView(buffer);
+	const le = littleEndian;
+	const symbols: SymbolEntry[] = [];
+	const entrySize = is64Bit ? NLIST_64_SIZE : NLIST_32_SIZE;
 
-  for (let i = 0; i < nsyms; i++) {
-    const entryOffset = symoff + i * entrySize;
+	for (let i = 0; i < nsyms; i++) {
+		const entryOffset = symoff + i * entrySize;
 
-    // Bounds check
-    if (entryOffset + entrySize > buffer.byteLength) break;
+		// Bounds check
+		if (entryOffset + entrySize > buffer.byteLength) break;
 
-    const n_strx = view.getUint32(entryOffset, le);
-    const n_type = view.getUint8(entryOffset + 4);
-    const n_sect = view.getUint8(entryOffset + 5);
-    const n_desc = view.getInt16(entryOffset + 6, le);
-    const n_value = is64Bit
-      ? view.getBigUint64(entryOffset + 8, le)
-      : BigInt(view.getUint32(entryOffset + 8, le));
+		const n_strx = view.getUint32(entryOffset, le);
+		const n_type = view.getUint8(entryOffset + 4);
+		const n_sect = view.getUint8(entryOffset + 5);
+		const n_desc = view.getInt16(entryOffset + 6, le);
+		const n_value = is64Bit
+			? view.getBigUint64(entryOffset + 8, le)
+			: BigInt(view.getUint32(entryOffset + 8, le));
 
-    // Skip STABS debug symbols
-    if ((n_type & N_STAB_MASK) !== 0) continue;
+		// Skip STABS debug symbols
+		if ((n_type & N_STAB_MASK) !== 0) continue;
 
-    const name = readStringFromTable(view, stroff, n_strx);
+		const name = readStringFromTable(view, stroff, n_strx);
 
-    // Classify symbol
-    const isExternal = (n_type & N_EXT) !== 0;
-    const typeBits = n_type & N_TYPE_MASK;
+		// Classify symbol
+		const isExternal = (n_type & N_EXT) !== 0;
+		const typeBits = n_type & N_TYPE_MASK;
 
-    let symType: Symbol["type"];
-    if (isExternal && typeBits !== 0) {
-      symType = "exported";
-    } else if (isExternal && typeBits === 0) {
-      symType = "imported";
-    } else {
-      symType = "local";
-    }
+		let symType: SymbolEntry["type"];
+		if (isExternal && typeBits !== 0) {
+			symType = "exported";
+		} else if (isExternal && typeBits === 0) {
+			symType = "imported";
+		} else {
+			symType = "local";
+		}
 
-    symbols.push({
-      name,
-      address: n_value,
-      type: symType,
-      sectionIndex: n_sect,
-    });
-  }
+		symbols.push({
+			name,
+			address: n_value,
+			type: symType,
+			sectionIndex: n_sect
+		});
+	}
 
-  return symbols;
+	return symbols;
 }
 
 // ── Export Trie Parser ────────────────────────────────────────────────
@@ -161,65 +157,65 @@ export function parseSymbolTable(
  * @returns            Array of exported Symbol entries
  */
 export function parseExportTrie(
-  buffer: ArrayBuffer,
-  exportOffset: number,
-  exportSize: number,
-): Symbol[] {
-  if (exportSize === 0) return [];
-  if (exportOffset + exportSize > buffer.byteLength) return [];
+	buffer: ArrayBuffer,
+	exportOffset: number,
+	exportSize: number
+): SymbolEntry[] {
+	if (exportSize === 0) return [];
+	if (exportOffset + exportSize > buffer.byteLength) return [];
 
-  const view = new DataView(buffer);
-  const symbols: Symbol[] = [];
+	const view = new DataView(buffer);
+	const symbols: SymbolEntry[] = [];
 
-  function walkNode(nodeOffset: number, prefix: string): void {
-    const absOffset = exportOffset + nodeOffset;
-    if (absOffset >= exportOffset + exportSize) return;
+	function walkNode(nodeOffset: number, prefix: string): void {
+		const absOffset = exportOffset + nodeOffset;
+		if (absOffset >= exportOffset + exportSize) return;
 
-    // Read terminal size
-    const term = readULEB128(view, absOffset);
-    let cursor = absOffset + term.bytesRead;
+		// Read terminal size
+		const term = readULEB128(view, absOffset);
+		let cursor = absOffset + term.bytesRead;
 
-    if (term.value > 0) {
-      // This is a terminal node — read flags and address
-      const flags = readULEB128(view, cursor);
-      cursor += flags.bytesRead;
-      const addr = readULEB128(view, cursor);
-      cursor += addr.bytesRead;
+		if (term.value > 0) {
+			// This is a terminal node — read flags and address
+			const flags = readULEB128(view, cursor);
+			cursor += flags.bytesRead;
+			const addr = readULEB128(view, cursor);
+			cursor += addr.bytesRead;
 
-      symbols.push({
-        name: prefix,
-        address: BigInt(addr.value),
-        type: "exported",
-        sectionIndex: 0,
-      });
-    }
+			symbols.push({
+				name: prefix,
+				address: BigInt(addr.value),
+				type: "exported",
+				sectionIndex: 0
+			});
+		}
 
-    // Read children
-    const childrenStart = absOffset + term.bytesRead + term.value;
-    if (childrenStart >= exportOffset + exportSize) return;
+		// Read children
+		const childrenStart = absOffset + term.bytesRead + term.value;
+		if (childrenStart >= exportOffset + exportSize) return;
 
-    const childCount = view.getUint8(childrenStart);
-    let childCursor = childrenStart + 1;
+		const childCount = view.getUint8(childrenStart);
+		let childCursor = childrenStart + 1;
 
-    for (let i = 0; i < childCount; i++) {
-      // Read null-terminated edge string
-      const edgeChars: number[] = [];
-      while (childCursor < exportOffset + exportSize) {
-        const b = view.getUint8(childCursor);
-        childCursor++;
-        if (b === 0) break;
-        edgeChars.push(b);
-      }
-      const edge = String.fromCharCode(...edgeChars);
+		for (let i = 0; i < childCount; i++) {
+			// Read null-terminated edge string
+			const edgeChars: number[] = [];
+			while (childCursor < exportOffset + exportSize) {
+				const b = view.getUint8(childCursor);
+				childCursor++;
+				if (b === 0) break;
+				edgeChars.push(b);
+			}
+			const edge = String.fromCharCode(...edgeChars);
 
-      // Read child node offset (ULEB128, relative to trie start)
-      const childOff = readULEB128(view, childCursor);
-      childCursor += childOff.bytesRead;
+			// Read child node offset (ULEB128, relative to trie start)
+			const childOff = readULEB128(view, childCursor);
+			childCursor += childOff.bytesRead;
 
-      walkNode(childOff.value, prefix + edge);
-    }
-  }
+			walkNode(childOff.value, prefix + edge);
+		}
+	}
 
-  walkNode(0, "");
-  return symbols;
+	walkNode(0, "");
+	return symbols;
 }

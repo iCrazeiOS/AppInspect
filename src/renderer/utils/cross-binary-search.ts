@@ -3,20 +3,20 @@
  * classes, strings, symbols, and libraries tabs.
  */
 
-import type { SearchableTab, CrossBinarySearchResult } from "../../shared/ipc-types";
+import type { CrossBinarySearchResult, SearchableTab } from "../../shared/ipc-types";
 import type { SearchBar } from "../components";
 
 export interface CrossBinaryState {
-  active: boolean;
-  results: CrossBinarySearchResult[];
-  loading: boolean;
-  debounce: ReturnType<typeof setTimeout> | null;
-  /** @internal generation counter to discard stale results */
-  _gen: number;
+	active: boolean;
+	results: CrossBinarySearchResult[];
+	loading: boolean;
+	debounce: ReturnType<typeof setTimeout> | null;
+	/** @internal generation counter to discard stale results */
+	_gen: number;
 }
 
 export function createCrossBinaryState(): CrossBinaryState {
-  return { active: false, results: [], loading: false, debounce: null, _gen: 0 };
+	return { active: false, results: [], loading: false, debounce: null, _gen: 0 };
 }
 
 /**
@@ -25,22 +25,22 @@ export function createCrossBinaryState(): CrossBinaryState {
  * programmatically set the active state.
  */
 export function addAllBinariesToggle(
-  searchBar: SearchBar,
-  binaryCount: number,
-  state: CrossBinaryState,
-  onToggle: (active: boolean) => void,
+	searchBar: SearchBar,
+	binaryCount: number,
+	state: CrossBinaryState,
+	onToggle: (active: boolean) => void
 ): void {
-  if (binaryCount <= 1) return;
+	if (binaryCount <= 1) return;
 
-  const btn = document.createElement("button");
-  btn.textContent = "All";
-  btn.title = "Search across all binaries and frameworks";
-  btn.addEventListener("click", () => {
-    state.active = !state.active;
-    btn.classList.toggle("sb-extra-toggle--active", state.active);
-    onToggle(state.active);
-  });
-  searchBar.addToggle(btn);
+	const btn = document.createElement("button");
+	btn.textContent = "All";
+	btn.title = "Search across all binaries and frameworks";
+	btn.addEventListener("click", () => {
+		state.active = !state.active;
+		btn.classList.toggle("sb-extra-toggle--active", state.active);
+		onToggle(state.active);
+	});
+	searchBar.addToggle(btn);
 }
 
 /**
@@ -48,38 +48,44 @@ export function addAllBinariesToggle(
  * Calls `onResults` when done (only if not cancelled by a newer search).
  */
 export function doCrossBinarySearch(
-  sessionId: string,
-  term: string,
-  tab: SearchableTab,
-  state: CrossBinaryState,
-  onResults: () => void,
-  isRegex?: boolean,
-  caseSensitive?: boolean,
+	sessionId: string,
+	term: string,
+	tab: SearchableTab,
+	state: CrossBinaryState,
+	onResults: () => void,
+	isRegex?: boolean,
+	caseSensitive?: boolean
 ): void {
-  if (state.debounce) clearTimeout(state.debounce);
+	if (state.debounce) clearTimeout(state.debounce);
 
-  if (!term) {
-    state.results = [];
-    state.loading = false;
-    onResults();
-    return;
-  }
+	if (!term) {
+		state.results = [];
+		state.loading = false;
+		onResults();
+		return;
+	}
 
-  // Track search generation to discard stale results
-  const gen = ++state._gen;
-  state.debounce = setTimeout(async () => {
-    state.loading = true;
-    onResults();
-    try {
-      state.results = await window.api.searchAllBinaries(sessionId, term, tab, isRegex, caseSensitive);
-    } catch {
-      state.results = [];
-    }
-    // Only apply if this is still the latest search
-    if (state._gen !== gen) return;
-    state.loading = false;
-    onResults();
-  }, 400);
+	// Track search generation to discard stale results
+	const gen = ++state._gen;
+	state.debounce = setTimeout(async () => {
+		state.loading = true;
+		onResults();
+		try {
+			state.results = await window.api.searchAllBinaries(
+				sessionId,
+				term,
+				tab,
+				isRegex,
+				caseSensitive
+			);
+		} catch {
+			state.results = [];
+		}
+		// Only apply if this is still the latest search
+		if (state._gen !== gen) return;
+		state.loading = false;
+		onResults();
+	}, 400);
 }
 
 /**
@@ -87,28 +93,26 @@ export function doCrossBinarySearch(
  * Used by both the custom Classes renderer and the DataTable-based hint overlay.
  */
 export function buildShowAllLink(
-  sessionId: string,
-  label: string,
-  tab: SearchableTab,
-  state: CrossBinaryState,
-  onResults: () => void,
+	sessionId: string,
+	label: string,
+	tab: SearchableTab,
+	state: CrossBinaryState,
+	onResults: () => void
 ): HTMLAnchorElement {
-  const link = document.createElement("a");
-  link.className = "cls-cross-show-all";
-  link.textContent = `Show all ${label}`;
-  link.href = "#";
-  link.addEventListener("click", (e) => {
-    e.preventDefault();
-    doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
-  });
-  return link;
+	const link = document.createElement("a");
+	link.className = "cls-cross-show-all";
+	link.textContent = `Show all ${label}`;
+	link.href = "#";
+	link.addEventListener("click", (e) => {
+		e.preventDefault();
+		doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
+	});
+	return link;
 }
 
 /** Format a binary type as a badge label. */
 export function binaryTypeBadge(type: string): string {
-  return type === "main" ? "Main"
-    : type === "framework" ? "Framework"
-    : "Extension";
+	return type === "main" ? "Main" : type === "framework" ? "Framework" : "Extension";
 }
 
 /**
@@ -117,15 +121,13 @@ export function binaryTypeBadge(type: string): string {
  * no search term is entered, and there are no results.
  * Returns the hint container element.
  */
-export function createCrossBinaryHint(
-  parent: HTMLElement,
-): HTMLDivElement {
-  parent.style.position = "relative";
-  const hint = document.createElement("div");
-  hint.className = "xbin-show-all-hint";
-  hint.style.display = "none";
-  parent.appendChild(hint);
-  return hint;
+export function createCrossBinaryHint(parent: HTMLElement): HTMLDivElement {
+	parent.style.position = "relative";
+	const hint = document.createElement("div");
+	hint.className = "xbin-show-all-hint";
+	hint.style.display = "none";
+	parent.appendChild(hint);
+	return hint;
 }
 
 /**
@@ -138,23 +140,23 @@ export function createCrossBinaryHint(
  * @param onResults - Callback when results arrive from "Show all"
  */
 export function updateCrossBinaryHint(
-  sessionId: string,
-  hint: HTMLDivElement,
-  state: CrossBinaryState,
-  searchValue: string,
-  tab: SearchableTab,
-  label: string,
-  onResults: () => void,
+	sessionId: string,
+	hint: HTMLDivElement,
+	state: CrossBinaryState,
+	searchValue: string,
+	tab: SearchableTab,
+	label: string,
+	onResults: () => void
 ): void {
-  if (state.active && !searchValue && state.results.length === 0 && !state.loading) {
-    hint.innerHTML = "";
-    const singular = label.endsWith("ies") ? label.slice(0, -3) + "y" : label.slice(0, -1);
-    const text = document.createElement("span");
-    text.textContent = `Type a ${singular} name to search across all binaries.`;
-    hint.appendChild(text);
-    hint.appendChild(buildShowAllLink(sessionId, label, tab, state, onResults));
-    hint.style.display = "flex";
-  } else {
-    hint.style.display = "none";
-  }
+	if (state.active && !searchValue && state.results.length === 0 && !state.loading) {
+		hint.innerHTML = "";
+		const singular = label.endsWith("ies") ? label.slice(0, -3) + "y" : label.slice(0, -1);
+		const text = document.createElement("span");
+		text.textContent = `Type a ${singular} name to search across all binaries.`;
+		hint.appendChild(text);
+		hint.appendChild(buildShowAllLink(sessionId, label, tab, state, onResults));
+		hint.style.display = "flex";
+	} else {
+		hint.style.display = "none";
+	}
 }
