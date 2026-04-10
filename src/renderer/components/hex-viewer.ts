@@ -313,9 +313,8 @@ export class HexViewer {
 
   private buildHeader(): HTMLElement {
     const header = el("div", "hv-row hv-header-row");
-    const offsetLabel = el("span", "hv-offset hv-offset-toggle",
-      this.offsetMode === "hex" ? "Offset  " : "Offset  ",
-    );
+    const modeLabel = this.offsetMode === "hex" ? "(hex)" : "(dec)";
+    const offsetLabel = el("span", "hv-offset hv-offset-toggle", `Offset ${modeLabel}`);
     offsetLabel.title = "Click to toggle hex/decimal offsets";
     offsetLabel.addEventListener("click", () => {
       this.offsetMode = this.offsetMode === "hex" ? "dec" : "hex";
@@ -545,7 +544,7 @@ export class HexViewer {
     // Offset column
     const offsetText = this.offsetMode === "hex"
       ? hexOffset(fileOffset)
-      : String(fileOffset).padStart(10, " ");
+      : String(fileOffset).padStart(10, "0");
     row.appendChild(el("span", "hv-offset", offsetText));
 
     // Hex column

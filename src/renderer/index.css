@@ -3239,7 +3239,7 @@ body.platform-darwin .app-title-row {
   cursor: pointer;
   transition: color 100ms ease, border-color 100ms ease;
   /* Shift arrow glyphs up slightly — they sit below center at this font size */
-  padding-bottom: 2px;
+  padding-bottom: 8px;
 }
 
 .hv-nav-btn:hover {
@@ -3377,7 +3377,7 @@ body.platform-darwin .app-title-row {
 
 .hv-offset {
   color: #79c0ff;
-  min-width: 11ch;
+  min-width: 13ch;
   flex-shrink: 0;
 }
 
