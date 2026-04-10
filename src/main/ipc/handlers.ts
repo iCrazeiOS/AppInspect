@@ -38,71 +38,79 @@ function sanitizeBigInts<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj, bigintReplacer)) as T;
 }
 
-const session = new AnalysisSession();
+const sessions = new Map<string, AnalysisSession>();
+
+function getSession(sessionId: string): AnalysisSession {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error(`No session for ${sessionId}. Analyse a file first.`);
+  return session;
+}
 
 export function registerIPCHandlers(win: BrowserWindow): void {
   // ── analyse-ipa ──
   ipcMain.handle("analyse-ipa", async (_event, args: { path: string }) => {
+    const sessionId = args.path;
     try {
+      const session = new AnalysisSession();
+      sessions.set(sessionId, session);
       const result = await session.analyseIPA(args.path, (phase, percent) => {
-        win.webContents.send("update-progress", {
-          phase,
-          percent,
-          message: phase,
-        });
+        win.webContents.send("update-progress", { sessionId, phase, percent, message: phase });
       });
 
       const sanitized = sanitizeBigInts(result);
-      win.webContents.send("analysis-complete");
-      return sanitized;
+      win.webContents.send("analysis-complete", { sessionId });
+      return { sessionId, result: sanitized };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return null;
     }
   });
 
   // ── analyse-file (unified: IPA, Mach-O, or DEB) ──
   ipcMain.handle("analyse-file", async (_event, args: { path: string }) => {
+    const sessionId = args.path;
     try {
+      const session = new AnalysisSession();
+      sessions.set(sessionId, session);
       const result = await session.analyseFile(args.path, (phase, percent) => {
-        win.webContents.send("update-progress", {
-          phase,
-          percent,
-          message: phase,
-        });
+        win.webContents.send("update-progress", { sessionId, phase, percent, message: phase });
       });
 
       const sanitized = sanitizeBigInts(result);
-      win.webContents.send("analysis-complete");
-      return sanitized;
+      win.webContents.send("analysis-complete", { sessionId });
+      return { sessionId, result: sanitized };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return null;
     }
   });
 
   // ── analyse-binary ──
-  ipcMain.handle("analyse-binary", async (_event, args: { binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
+  ipcMain.handle("analyse-binary", async (_event, args: { sessionId: string; binaryIndex: number; cpuType?: number; cpuSubtype?: number }) => {
+    const { sessionId } = args;
     try {
+      const session = getSession(sessionId);
       const result = await session.analyseBinary(args.binaryIndex, (phase, percent) => {
-        win.webContents.send("update-progress", { phase, percent, message: phase });
+        win.webContents.send("update-progress", { sessionId, phase, percent, message: phase });
       }, args.cpuType, args.cpuSubtype);
 
       const sanitized = sanitizeBigInts(result);
-      win.webContents.send("analysis-complete");
+      win.webContents.send("analysis-complete", { sessionId });
       return sanitized;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return null;
     }
   });
 
   // ── get-tab-data ──
-  ipcMain.handle("get-tab-data", async (_event, args: { tab: TabName; binaryIndex?: number }) => {
+  ipcMain.handle("get-tab-data", async (_event, args: { sessionId: string; tab: TabName }) => {
+    const { sessionId } = args;
     try {
+      const session = getSession(sessionId);
       const cached = session.getResult();
       if (!cached) {
         throw new Error("No analysis result available");
@@ -127,7 +135,6 @@ export function registerIPCHandlers(win: BrowserWindow): void {
         case "classes":
           return sanitizeBigInts({ tab: "classes", data: { classes: cached.classes, protocols: cached.protocols ?? [] } });
         case "entitlements": {
-          // Convert Entitlement[] to flat object for the renderer
           const entObj: Record<string, unknown> = {};
           if (Array.isArray(cached.entitlements)) {
             for (const e of cached.entitlements) entObj[e.key] = e.value;
@@ -148,33 +155,37 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return null;
     }
   });
 
   // ── search-all-binaries ──
-  ipcMain.handle("search-all-binaries", async (_event, args: { query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean }) => {
+  ipcMain.handle("search-all-binaries", async (_event, args: { sessionId: string; query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean }) => {
+    const { sessionId } = args;
     try {
+      const session = getSession(sessionId);
       return await session.searchAllBinaries(
         args.query,
         args.tab,
         (phase, percent) => {
-          win.webContents.send("update-progress", { phase, percent, message: phase });
+          win.webContents.send("update-progress", { sessionId, phase, percent, message: phase });
         },
         args.isRegex,
         args.caseSensitive,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return [];
     }
   });
 
   // ── export-json ──
-  ipcMain.handle("export-json", async (_event, args: { tabs?: TabName[] }) => {
+  ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
+    const { sessionId } = args;
     try {
+      const session = getSession(sessionId);
       const cached = session.getResult();
       if (!cached) {
         throw new Error("No analysis result available");
@@ -207,9 +218,14 @@ export function registerIPCHandlers(win: BrowserWindow): void {
       return { success: true, path: filePath };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      win.webContents.send("analysis-error", { message });
+      win.webContents.send("analysis-error", { sessionId, message });
       return { success: false };
     }
+  });
+
+  // ── close-session ──
+  ipcMain.handle("close-session", (_event, args: { sessionId: string }) => {
+    sessions.delete(args.sessionId);
   });
 
   // ── get-settings ──

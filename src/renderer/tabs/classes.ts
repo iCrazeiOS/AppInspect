@@ -217,7 +217,7 @@ function copyWithFeedback(btn: HTMLButtonElement, text: string): void {
 
 // ── Main render ──
 
-export function renderClasses(container: HTMLElement, data: any, binaryCount: number = 1): void {
+export function renderClasses(container: HTMLElement, data: any, binaryCount: number = 1, sessionId: string = ""): void {
   container.innerHTML = "";
 
   const classesData = data as ClassesData | null;
@@ -267,7 +267,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   // Search bar
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
-      doCrossBinarySearch(term, "classes", xbin, () => {
+      doCrossBinarySearch(sessionId, term, "classes", xbin, () => {
         searchBar.updateCount(xbin.results.length, xbin.results.length);
         renderList();
       }, isRegex, caseSensitive);
@@ -294,12 +294,12 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
         return;
       }
     }
-    saveSearchState("classes", term, isRegex);
+    saveSearchState(sessionId, "classes", term, isRegex);
     searchBar.updateCount(filteredClasses.length, allClasses.length);
     renderList();
   });
   searchBar.mount(leftPanel);
-  registerSearchBar("classes", searchBar);
+  registerSearchBar(sessionId, "classes", searchBar);
   searchBar.updateCount(filteredClasses.length, allClasses.length);
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
@@ -396,7 +396,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
         hint.textContent = "No classes found across binaries.";
       } else {
         hint.textContent = "Type a class name to search across all binaries.";
-        const showAll = buildShowAllLink("classes", "classes", xbin, () => {
+        const showAll = buildShowAllLink(sessionId, "classes", "classes", xbin, () => {
           searchBar.updateCount(xbin.results.length, xbin.results.length);
           renderList();
         });
@@ -490,7 +490,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   );
 
   // Restore saved search state (must happen after spacer/rowContainer are created)
-  const savedState = getSearchState("classes");
+  const savedState = getSearchState(sessionId, "classes");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

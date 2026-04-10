@@ -52,7 +52,7 @@ const EVIDENCE_COLLAPSED_LEN = 200;
 
 // ── Render ──
 
-export function renderSecurity(container: HTMLElement, data: any): void {
+export function renderSecurity(container: HTMLElement, data: any, sessionId: string = ""): void {
   container.innerHTML = "";
 
   const sec: SecurityData = (data?.findings ? data : data?.security) ?? { findings: [], hardening: {} };
@@ -150,7 +150,7 @@ export function renderSecurity(container: HTMLElement, data: any): void {
   const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
     searchTerm = term;
     searchRegex = isRegex;
-    saveSearchState("security", term, isRegex);
+    saveSearchState(sessionId, "security", term, isRegex);
     renderFindings();
   });
   root.appendChild(searchWrap);
@@ -164,10 +164,10 @@ export function renderSecurity(container: HTMLElement, data: any): void {
 
   // Mount search bar after root is in the DOM
   searchBar.mount(searchWrap);
-  registerSearchBar("security", searchBar);
+  registerSearchBar(sessionId, "security", searchBar);
 
   // Restore saved search state
-  const savedState = getSearchState("security");
+  const savedState = getSearchState(sessionId, "security");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

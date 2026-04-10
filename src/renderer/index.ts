@@ -17,6 +17,29 @@ import { showToast } from "./components/toast";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 import type { AppSettings } from "../shared/types";
 
+// ── File tab state ──
+import {
+  fileTabs,
+  activeFileTabId,
+  getActiveFileTab,
+  getFileTab,
+  createFileTab,
+  removeFileTab,
+  setActiveFileTabId,
+} from "./file-tabs";
+import type { FileTabState } from "./file-tabs";
+import {
+  addFileTab as addFileTabToBar,
+  removeFileTab as removeFileTabFromBar,
+  setActiveTab as setActiveTabInBar,
+  setTabLoading,
+  getAdjacentTabId,
+  setFileTabCallbacks,
+} from "./file-tab-bar";
+
+// ── Search state ──
+import { clearSearchStatesForSession, getSearchBar } from "./search-state";
+
 // ── Types ──
 type AppState = "empty" | "loading" | "content" | "error";
 
@@ -27,7 +50,7 @@ const $ = <T extends HTMLElement>(sel: string): T =>
 const dropOverlay = $<HTMLDivElement>("#drop-overlay");
 const emptyState = $<HTMLDivElement>("#empty-state");
 const loadingBar = $<HTMLDivElement>("#loading-bar");
-const loadingText = $<HTMLDivElement>("#loading-text");
+const titlebarStatus = $<HTMLSpanElement>("#titlebar-status");
 const tabContent = $<HTMLDivElement>("#tab-content");
 const binarySelector = $<HTMLDivElement>("#binary-selector");
 const binaryDropdown = $<HTMLSelectElement>("#binary-dropdown");
@@ -49,29 +72,21 @@ const optMaxFileSize = $<HTMLInputElement>("#opt-max-file-size");
 
 console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, window.api);
 
-// ── Search state (imported from dedicated module to avoid circular deps) ──
-import { clearSearchStates, getSearchBar } from "./search-state";
-
-// ── Keyboard shortcut: Ctrl/Cmd+F to focus active tab's search bar ──
+// ── Keyboard shortcuts ──
 document.addEventListener("keydown", (e: KeyboardEvent) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "f") {
     e.preventDefault();
-    const bar = getSearchBar(currentTab);
-    if (bar) {
-      bar.focus();
+    const tab = getActiveFileTab();
+    if (tab) {
+      const bar = getSearchBar(tab.sessionId, tab.currentSectionTab);
+      if (bar) bar.focus();
     }
   }
+  if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+    e.preventDefault();
+    if (activeFileTabId) closeFileTab(activeFileTabId);
+  }
 });
-
-// ── State ──
-let currentTab = "overview";
-let appState: AppState = "empty";
-let analysisResult: AnalysisResult | null = null;
-let currentBinaryIndex = 0;
-let isSwitchingBinary = false;
-let isEncrypted = false;
-let encryptionBannerDismissed = false;
-const loadedTabs = new Set<string>();
 
 // ── App state transitions ──
 function setTabsDisabled(disabled: boolean): void {
@@ -80,49 +95,51 @@ function setTabsDisabled(disabled: boolean): void {
   });
 }
 
-function setState(state: AppState): void {
-  appState = state;
-
+function setGlobalState(state: AppState): void {
   emptyState.classList.toggle("hidden", state !== "empty");
   loadingBar.classList.toggle("hidden", state !== "loading");
   tabContent.classList.toggle("hidden", state !== "content");
   setTabsDisabled(state !== "content");
+  if (state !== "loading") {
+    titlebarStatus.classList.add("hidden");
+  }
 }
 
 function setLoadingPhase(phase: string, percent?: number): void {
-  loadingText.textContent = percent != null && percent > 0
+  titlebarStatus.textContent = percent != null && percent > 0
     ? `${phase} (${Math.round(percent)}%)`
     : phase;
+  titlebarStatus.classList.remove("hidden");
 }
 
 function showError(message: string): void {
-  setState("empty");
+  setGlobalState("empty");
   showToast(message, "error");
 }
 
 // ── Tab visibility based on source type ──
 function updateTabsForSourceType(sourceType: string): void {
   const isTweak = sourceType === "deb" || sourceType === "macho";
-  // Show Hooks tab for tweaks/binaries, Info.plist for IPAs and macOS apps
   tabBtnInfoPlist.classList.toggle("hidden", isTweak);
   tabBtnHooks.classList.toggle("hidden", !isTweak);
 }
 
 // ── Encryption warning banner ──
-function checkEncryptionBanner(result: AnalysisResult): void {
+function checkEncryptionBanner(tab: FileTabState, result: AnalysisResult): void {
   const encrypted =
     result.overview?.hardening?.encrypted === true ||
     (result.overview?.encryptionInfo?.cryptid != null &&
       result.overview.encryptionInfo.cryptid !== 0);
 
-  isEncrypted = encrypted;
-  encryptionBannerDismissed = false;
+  tab.isEncrypted = encrypted;
+  tab.encryptionBannerDismissed = false;
   updateEncryptionBanner();
 }
 
 function updateEncryptionBanner(): void {
+  const tab = getActiveFileTab();
   let banner = document.getElementById("encryption-banner");
-  if (isEncrypted && !encryptionBannerDismissed) {
+  if (tab && tab.isEncrypted && !tab.encryptionBannerDismissed) {
     if (!banner) {
       banner = document.createElement("div");
       banner.id = "encryption-banner";
@@ -131,13 +148,13 @@ function updateEncryptionBanner(): void {
         '<span class="encryption-banner-icon">\u26A0</span>' +
         '<span class="encryption-banner-text">This binary is FairPlay encrypted. Strings, classes, and symbols data may be incomplete. Use a decrypted IPA for full analysis.</span>' +
         '<button class="encryption-banner-close">\u00D7</button>';
-      // Insert before tab-content inside main-content
       const mainContent = document.getElementById("main-content");
       if (mainContent && tabContent) {
         mainContent.insertBefore(banner, tabContent);
       }
       banner.querySelector(".encryption-banner-close")!.addEventListener("click", () => {
-        encryptionBannerDismissed = true;
+        const activeTab = getActiveFileTab();
+        if (activeTab) activeTab.encryptionBannerDismissed = true;
         updateEncryptionBanner();
       });
     }
@@ -147,9 +164,10 @@ function updateEncryptionBanner(): void {
   }
 }
 
-// ── Tab switching ──
-function switchTab(tabId: string): void {
-  currentTab = tabId;
+// ── Section tab switching ──
+function switchSectionTab(tabId: string): void {
+  const tab = getActiveFileTab();
+  if (tab) tab.currentSectionTab = tabId;
 
   tabButtons.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset["tab"] === tabId);
@@ -160,66 +178,61 @@ function switchTab(tabId: string): void {
     panel.classList.toggle("hidden", !isTarget);
   });
 
-  // Re-show encryption banner on tab switch as a reminder
-  if (isEncrypted) {
-    encryptionBannerDismissed = false;
+  // Re-show encryption banner on tab switch
+  if (tab?.isEncrypted) {
+    tab.encryptionBannerDismissed = false;
     updateEncryptionBanner();
   }
 
-  // Lazy-load tab data if we have an analysis result and haven't loaded this tab yet
-  if (analysisResult && !loadedTabs.has(tabId)) {
+  // Lazy-load tab data
+  if (tab && tab.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
     loadTabData(tabId);
   }
 }
 
 async function loadTabData(tabId: string): Promise<void> {
+  const tab = getActiveFileTab();
+  if (!tab) return;
+
   try {
-    const tabData = await window.api.getTabData(tabId as import("../shared/ipc-types").TabName);
-    loadedTabs.add(tabId);
+    const tabData = await window.api.getTabData(tab.sessionId, tabId as import("../shared/ipc-types").TabName);
+    tab.loadedSectionTabs.add(tabId);
 
     const panel = document.getElementById(`tab-${tabId}`);
     if (panel && tabData != null) {
+      const sid = tab.sessionId;
+      const binCount = tab.analysisResult?.overview?.ipa?.binaries?.length ?? 1;
       switch (tabId) {
         case "overview":
           renderOverview(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "libraries": {
-          const libBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
-          renderLibraries(panel, (tabData as any)?.data ?? tabData, libBinCount);
+        case "libraries":
+          renderLibraries(panel, (tabData as any)?.data ?? tabData, binCount, sid);
           break;
-        }
         case "headers":
           renderHeaders(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "strings": {
-          const strBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
-          renderStrings(panel, (tabData as any)?.data ?? tabData, strBinCount);
+        case "strings":
+          renderStrings(panel, (tabData as any)?.data ?? tabData, binCount, sid);
           break;
-        }
-        case "symbols": {
-          const symBinCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
-          renderSymbols(panel, (tabData as any)?.data ?? tabData, symBinCount);
+        case "symbols":
+          renderSymbols(panel, (tabData as any)?.data ?? tabData, binCount, sid);
           break;
-        }
         case "security":
-          renderSecurity(panel, (tabData as any)?.data ?? tabData);
+          renderSecurity(panel, (tabData as any)?.data ?? tabData, sid);
           break;
         case "files":
-          renderFiles(panel, (tabData as any)?.data ?? tabData);
+          renderFiles(panel, (tabData as any)?.data ?? tabData, sid);
           break;
-        case "classes": {
-          const binaryCount = analysisResult?.overview?.ipa?.binaries?.length ?? 1;
-          renderClasses(panel, (tabData as any)?.data ?? tabData, binaryCount);
+        case "classes":
+          renderClasses(panel, (tabData as any)?.data ?? tabData, binCount, sid);
           break;
-        }
         case "entitlements":
           renderEntitlements(panel, (tabData as any)?.data ?? tabData);
           break;
-        case "infoplist": {
-          const plistData = (tabData as any)?.data ?? tabData;
-          renderPlist(panel, plistData);
+        case "infoplist":
+          renderPlist(panel, (tabData as any)?.data ?? tabData, sid);
           break;
-        }
         case "hooks":
           renderHooks(panel, (tabData as any)?.data ?? tabData);
           break;
@@ -239,30 +252,23 @@ async function loadTabData(tabId: string): Promise<void> {
 tabButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     const tabId = btn.dataset["tab"];
-    if (tabId) {
-      switchTab(tabId);
-    }
+    if (tabId) switchSectionTab(tabId);
   });
 });
 
 // ── Binary selector ──
 
-/** Badge label for binary type */
 function binaryTypeBadge(type: BinaryInfo["type"]): string {
   switch (type) {
-    case "main":
-      return "Main";
-    case "framework":
-      return "Framework";
-    case "extension":
-      return "Extension";
-    default:
-      return String(type);
+    case "main": return "Main";
+    case "framework": return "Framework";
+    case "extension": return "Extension";
+    default: return String(type);
   }
 }
 
-/** Populate the binary dropdown from discovered binaries */
 function populateBinarySelector(binaries: BinaryInfo[]): void {
+  const tab = getActiveFileTab();
   binaryDropdown.innerHTML = "";
 
   if (!binaries || binaries.length <= 1) {
@@ -279,19 +285,18 @@ function populateBinarySelector(binaries: BinaryInfo[]): void {
     binaryDropdown.appendChild(opt);
   }
 
-  binaryDropdown.value = String(currentBinaryIndex);
+  binaryDropdown.value = String(tab?.currentBinaryIndex ?? 0);
   binarySelector.classList.remove("hidden");
 }
 
-/** Clear all tab content and mark tabs as needing reload */
 function clearAllTabContent(): void {
-  loadedTabs.clear();
+  const tab = getActiveFileTab();
+  if (tab) tab.loadedSectionTabs.clear();
   tabPanels.forEach((panel) => {
     panel.innerHTML = "";
   });
 }
 
-/** Show/hide the binary-switch loading overlay */
 function setBinarySwitchLoading(show: boolean): void {
   let overlay = document.getElementById("binary-loading-overlay");
   if (show) {
@@ -310,35 +315,29 @@ function setBinarySwitchLoading(show: boolean): void {
   }
 }
 
-/** Handle binary dropdown change */
 async function handleBinaryChange(): Promise<void> {
-  const selectedIndex = parseInt(binaryDropdown.value, 10);
-  if (isNaN(selectedIndex) || selectedIndex === currentBinaryIndex || isSwitchingBinary) {
-    return;
-  }
+  const tab = getActiveFileTab();
+  if (!tab) return;
 
-  isSwitchingBinary = true;
-  currentBinaryIndex = selectedIndex;
+  const selectedIndex = parseInt(binaryDropdown.value, 10);
+  if (isNaN(selectedIndex) || selectedIndex === tab.currentBinaryIndex) return;
+
+  tab.currentBinaryIndex = selectedIndex;
   binaryDropdown.disabled = true;
   setBinarySwitchLoading(true);
 
   try {
-    // Remember the current arch so we can try to preserve it
-    const prevArchs = analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
-    const prevArch = prevArchs?.[currentArchIndex];
+    const prevArchs = tab.analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
+    const prevArch = prevArchs?.[tab.currentArchIndex];
 
-    const result = await window.api.analyseBinary(selectedIndex);
+    const result = await window.api.analyseBinary(tab.sessionId, selectedIndex);
     if (!result) throw new Error("Binary analysis returned no result");
-    analysisResult = result;
+    tab.analysisResult = result;
 
-    // Clear all cached tab renders so they re-render with new data
     clearAllTabContent();
+    tab.loadedSectionTabs.add(tab.currentSectionTab);
+    await loadTabData(tab.currentSectionTab);
 
-    // Render the currently active tab immediately
-    loadedTabs.add(currentTab);
-    await loadTabData(currentTab);
-
-    // Repopulate arch selector for the new binary, preserving arch if available
     const newArchs = result.overview?.fatArchs as FatArchInfo[] | undefined;
     let matchedIdx = 0;
     if (prevArch && newArchs) {
@@ -347,7 +346,7 @@ async function handleBinaryChange(): Promise<void> {
       );
       if (found >= 0) matchedIdx = found;
     }
-    currentArchIndex = matchedIdx;
+    tab.currentArchIndex = matchedIdx;
 
     if (newArchs) {
       populateArchSelector(newArchs);
@@ -355,26 +354,22 @@ async function handleBinaryChange(): Promise<void> {
       archSelector.classList.add("hidden");
     }
 
-    // If we matched a non-default arch, re-analyse with that arch
     if (matchedIdx > 0 && newArchs?.[matchedIdx]) {
       const arch = newArchs[matchedIdx]!;
-      const archResult = await window.api.analyseBinary(selectedIndex, arch.cputype, arch.cpusubtype);
-      analysisResult = archResult;
+      const archResult = await window.api.analyseBinary(tab.sessionId, selectedIndex, arch.cputype, arch.cpusubtype);
+      tab.analysisResult = archResult;
       clearAllTabContent();
-      loadedTabs.add(currentTab);
-      await loadTabData(currentTab);
+      tab.loadedSectionTabs.add(tab.currentSectionTab);
+      await loadTabData(tab.currentSectionTab);
     }
 
-    // Check encryption for the new binary
-    checkEncryptionBanner(result);
-
+    checkEncryptionBanner(tab, result);
     console.log(`[AppInspect] Switched to binary index ${selectedIndex}:`, result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`Binary switch failed: ${message}`, "error");
     console.error("[AppInspect] Binary switch failed:", err);
   } finally {
-    isSwitchingBinary = false;
     binaryDropdown.disabled = false;
     setBinarySwitchLoading(false);
   }
@@ -386,20 +381,11 @@ binaryDropdown.addEventListener("change", handleBinaryChange);
 
 function cpuLabel(cputype: number, cpusubtype: number): string {
   const base = CPU_TYPE_NAMES[cputype] ?? `CPU(0x${cputype.toString(16)})`;
-  // Mask off CPU_SUBTYPE_LIB64 (bit 31) to get the real subtype
   const sub = cpusubtype & 0x00ffffff;
-
-  // Known "all/default" subtypes — don't append anything
-  // x86/x86_64: CPU_SUBTYPE_X86_ALL = 3, CPU_SUBTYPE_X86_64_ALL = 3
-  // ARM: CPU_SUBTYPE_ARM_ALL = 0
-  // ARM64: CPU_SUBTYPE_ARM64_ALL = 0
   if (sub === 0) return base;
   if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return base;
-
-  // Named subtypes
   const name = cpuSubtypeName(cputype, cpusubtype);
   if (name) return name;
-
   return `${base} (sub ${sub})`;
 }
 
@@ -411,9 +397,8 @@ interface FatArchInfo {
   align: number;
 }
 
-let currentArchIndex = 0;
-
 function populateArchSelector(fatArchs: FatArchInfo[]): void {
+  const tab = getActiveFileTab();
   archDropdown.innerHTML = "";
 
   if (!fatArchs || fatArchs.length <= 1) {
@@ -429,18 +414,20 @@ function populateArchSelector(fatArchs: FatArchInfo[]): void {
     archDropdown.appendChild(opt);
   }
 
-  archDropdown.value = String(currentArchIndex);
+  archDropdown.value = String(tab?.currentArchIndex ?? 0);
   archSelector.classList.remove("hidden");
 }
 
 async function handleArchChange(): Promise<void> {
+  const tab = getActiveFileTab();
+  if (!tab) return;
+
   const idx = parseInt(archDropdown.value, 10);
-  if (isNaN(idx) || idx === currentArchIndex || isSwitchingBinary) return;
-  const fatArchs = analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
+  if (isNaN(idx) || idx === tab.currentArchIndex) return;
+  const fatArchs = tab.analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
   if (!fatArchs || !fatArchs[idx]) return;
 
-  isSwitchingBinary = true;
-  currentArchIndex = idx;
+  tab.currentArchIndex = idx;
   const cpuType = fatArchs[idx].cputype;
   const cpuSubtype = fatArchs[idx].cpusubtype;
   archDropdown.disabled = true;
@@ -448,17 +435,16 @@ async function handleArchChange(): Promise<void> {
   setBinarySwitchLoading(true);
 
   try {
-    const result = await window.api.analyseBinary(currentBinaryIndex, cpuType, cpuSubtype);
-    analysisResult = result;
+    const result = await window.api.analyseBinary(tab.sessionId, tab.currentBinaryIndex, cpuType, cpuSubtype);
+    tab.analysisResult = result;
     clearAllTabContent();
-    loadedTabs.add(currentTab);
-    await loadTabData(currentTab);
-    checkEncryptionBanner(result);
+    tab.loadedSectionTabs.add(tab.currentSectionTab);
+    await loadTabData(tab.currentSectionTab);
+    checkEncryptionBanner(tab, result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`Architecture switch failed: ${message}`, "error");
   } finally {
-    isSwitchingBinary = false;
     archDropdown.disabled = false;
     binaryDropdown.disabled = false;
     setBinarySwitchLoading(false);
@@ -467,66 +453,157 @@ async function handleArchChange(): Promise<void> {
 
 archDropdown.addEventListener("change", handleArchChange);
 
-// ── IPA Analysis ──
+// ── File tab management ──
+
+function switchFileTab(sessionId: string): void {
+  if (sessionId === activeFileTabId) return;
+
+  setActiveFileTabId(sessionId);
+  setActiveTabInBar(sessionId);
+
+  const tab = getFileTab(sessionId);
+  if (!tab) return;
+
+  // Clear all panel content for fresh render
+  tabPanels.forEach((panel) => { panel.innerHTML = ""; });
+
+  if (tab.appState === "loading") {
+    setGlobalState("loading");
+  } else if (tab.appState === "content" && tab.analysisResult) {
+    setGlobalState("content");
+
+    // Restore selectors
+    if (tab.analysisResult.overview?.ipa?.binaries) {
+      populateBinarySelector(tab.analysisResult.overview.ipa.binaries);
+    } else {
+      binarySelector.classList.add("hidden");
+    }
+    if (tab.analysisResult.overview?.fatArchs) {
+      populateArchSelector(tab.analysisResult.overview.fatArchs as FatArchInfo[]);
+    } else {
+      archSelector.classList.add("hidden");
+    }
+
+    // Restore tab visibility
+    updateTabsForSourceType(tab.analysisResult.overview?.sourceType ?? "ipa");
+    updateExportVisibility(true);
+    updateEncryptionBanner();
+
+    // Re-render the active section tab (clears loadedSectionTabs since panels were wiped)
+    tab.loadedSectionTabs.clear();
+    switchSectionTab(tab.currentSectionTab);
+  } else {
+    setGlobalState("empty");
+    binarySelector.classList.add("hidden");
+    archSelector.classList.add("hidden");
+    updateExportVisibility(false);
+  }
+}
+
+function closeFileTab(sessionId: string): void {
+  const adjacent = getAdjacentTabId(sessionId);
+
+  // Clean up
+  window.api.closeSession(sessionId);
+  removeFileTab(sessionId);
+  removeFileTabFromBar(sessionId);
+  clearSearchStatesForSession(sessionId);
+
+  if (activeFileTabId === null || activeFileTabId === sessionId) {
+    if (adjacent) {
+      switchFileTab(adjacent);
+    } else {
+      setActiveFileTabId(null);
+      setActiveTabInBar(null);
+      tabPanels.forEach((panel) => { panel.innerHTML = ""; });
+      binarySelector.classList.add("hidden");
+      archSelector.classList.add("hidden");
+      updateExportVisibility(false);
+      setGlobalState("empty");
+      updateEncryptionBanner();
+    }
+  }
+}
+
+// Wire up file tab bar callbacks
+setFileTabCallbacks(switchFileTab, closeFileTab);
+
+// Handle close-active-tab from app menu
+window.api.onCloseActiveTab(() => {
+  if (activeFileTabId) closeFileTab(activeFileTabId);
+});
+
+// ── Analysis ──
 async function startAnalysis(filePath: string): Promise<void> {
-  setState("loading");
+  // If already open, just switch to it
+  if (fileTabs.has(filePath)) {
+    switchFileTab(filePath);
+    return;
+  }
+
+  // Create file tab
+  const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
+  const tab = createFileTab(filePath, fileName);
+  addFileTabToBar(filePath, fileName);
+  setActiveFileTabId(filePath);
+  setActiveTabInBar(filePath);
+  setTabLoading(filePath, true);
+
+  setGlobalState("loading");
   setLoadingPhase("Starting analysis...", 0);
-  loadedTabs.clear();
-  clearSearchStates();
-  analysisResult = null;
-  currentBinaryIndex = 0;
 
   // Hide selectors during analysis
   binarySelector.classList.add("hidden");
   archSelector.classList.add("hidden");
-  currentArchIndex = 0;
+  updateExportVisibility(false);
 
   try {
-    const result = await window.api.analyseFile(filePath);
-    if (!result) {
-      // Error already shown via analysis-error event
-      setState("empty");
+    const response = await window.api.analyseFile(filePath);
+    if (!response) {
+      tab.appState = "error";
+      setTabLoading(filePath, false);
+      if (activeFileTabId === filePath) setGlobalState("empty");
       return;
     }
-    analysisResult = result;
-    loadedTabs.add("overview"); // Overview is included in the full result
-    setState("content");
+    const result = response.result;
+    tab.analysisResult = result;
+    tab.appState = "content";
+    tab.loadedSectionTabs.add("overview");
+    setTabLoading(filePath, false);
 
-    // Populate binary selector if multiple binaries discovered
-    if (result.overview?.ipa?.binaries) {
-      populateBinarySelector(result.overview.ipa.binaries);
+    // Only update UI if this tab is still active
+    if (activeFileTabId === filePath) {
+      setGlobalState("content");
+
+      if (result.overview?.ipa?.binaries) {
+        populateBinarySelector(result.overview.ipa.binaries);
+      }
+      if (result.overview?.fatArchs) {
+        populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
+      }
+
+      const overviewPanel = document.getElementById("tab-overview");
+      if (overviewPanel) {
+        renderOverview(overviewPanel, Object.assign({}, result.overview, { hooks: (result as any).hooks }) as any);
+      }
+
+      checkEncryptionBanner(tab, result);
+      updateTabsForSourceType(result.overview?.sourceType ?? "ipa");
+      updateExportVisibility(true);
+      switchSectionTab("overview");
     }
 
-    // Populate arch selector if fat binary
-    if (result.overview?.fatArchs) {
-      populateArchSelector(result.overview.fatArchs as FatArchInfo[]);
-    }
-
-    // Render overview immediately from the full result
-    const overviewPanel = document.getElementById("tab-overview");
-    if (overviewPanel) {
-      renderOverview(overviewPanel, Object.assign({}, result.overview, { hooks: (result as any).hooks }) as any);
-    }
-
-    // Check for encryption and show banner
-    checkEncryptionBanner(result);
-
-    // Show/hide tabs based on file type
-    updateTabsForSourceType(result.overview?.sourceType ?? "ipa");
-
-    // Show export buttons now that analysis is loaded
-    updateExportVisibility(true);
-
-    switchTab("overview");
     console.log("[AppInspect] Analysis complete:", result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    showError(message);
+    tab.appState = "error";
+    setTabLoading(filePath, false);
+    if (activeFileTabId === filePath) showError(message);
     console.error("[AppInspect] Analysis failed:", err);
   }
 }
 
-// ── Open IPA button ──
+// ── Open file button ──
 async function handleOpenIPA(): Promise<void> {
   console.log("[AppInspect] handleOpenIPA called, window.api =", window.api);
   try {
@@ -544,6 +621,7 @@ async function handleOpenIPA(): Promise<void> {
 
 $<HTMLButtonElement>("#btn-open-ipa").addEventListener("click", handleOpenIPA);
 $<HTMLButtonElement>("#btn-open-ipa-empty").addEventListener("click", handleOpenIPA);
+$<HTMLButtonElement>("#file-tab-add").addEventListener("click", handleOpenIPA);
 
 // ── Drag and drop ──
 let dragCounter = 0;
@@ -594,7 +672,6 @@ document.addEventListener("drop", (e: DragEvent) => {
   const lowerPath = filePath.toLowerCase();
   const supported = lowerPath.endsWith(".ipa") || lowerPath.endsWith(".deb") || lowerPath.endsWith(".dylib") || lowerPath.endsWith(".app");
   if (!supported) {
-    // Allow extensionless files (bare Mach-O executables) — they'll be detected by magic bytes
     const fileName = filePath.split(/[\\/]/).pop() ?? "";
     const hasExtension = fileName.includes(".");
     if (hasExtension) {
@@ -609,29 +686,36 @@ document.addEventListener("drop", (e: DragEvent) => {
 
 // ── IPC listeners ──
 window.api.onProgress((data) => {
-  setLoadingPhase(data.phase, data.percent);
+  setTabLoading(data.sessionId, true);
+  if (data.sessionId === activeFileTabId) {
+    setLoadingPhase(data.phase, data.percent);
+  }
 });
 
-window.api.onComplete(() => {
-  console.log("[AppInspect] Analysis complete signal received");
+window.api.onComplete((data) => {
+  setTabLoading(data.sessionId, false);
+  console.log("[AppInspect] Analysis complete signal received for", data.sessionId);
 });
 
 window.api.onError((data) => {
-  showToast(data.message, "error");
+  setTabLoading(data.sessionId, false);
+  if (data.sessionId === activeFileTabId) {
+    showToast(data.message, "error");
+  }
 });
 
 // ── JSON Export ──
 
-/** Show or hide export buttons based on whether analysis is loaded */
 function updateExportVisibility(visible: boolean): void {
   sidebarFooter.classList.toggle("hidden", !visible);
   exportTabBtns.forEach((btn) => btn.classList.toggle("export-active", visible));
 }
 
-/** Export all analysis data */
 async function handleExportAll(): Promise<void> {
+  const tab = getActiveFileTab();
+  if (!tab) return;
   try {
-    const result = await window.api.exportJSON();
+    const result = await window.api.exportJSON(tab.sessionId);
     if (result.success) {
       showToast(`Exported to ${result.path}`, "success");
     }
@@ -641,10 +725,11 @@ async function handleExportAll(): Promise<void> {
   }
 }
 
-/** Export a single tab's data */
 async function handleExportTab(tabName: string): Promise<void> {
+  const tab = getActiveFileTab();
+  if (!tab) return;
   try {
-    const result = await window.api.exportJSON([tabName as any]);
+    const result = await window.api.exportJSON(tab.sessionId, [tabName as any]);
     if (result.success) {
       showToast(`Exported ${tabName} to ${result.path}`, "success");
     }
@@ -658,7 +743,7 @@ $<HTMLButtonElement>("#btn-export-all").addEventListener("click", handleExportAl
 
 exportTabBtns.forEach((btn) => {
   btn.addEventListener("click", (e) => {
-    e.stopPropagation(); // Prevent tab switch
+    e.stopPropagation();
     const tabName = btn.dataset["exportTab"];
     if (tabName) {
       handleExportTab(tabName);
@@ -722,5 +807,5 @@ optMaxFileSize.addEventListener("change", () => saveNumberSetting("maxFileSizeMB
 
 // ── Init ──
 console.log("[AppInspect] Renderer loaded");
-setState("empty");
-switchTab("overview");
+setGlobalState("empty");
+switchSectionTab("overview");

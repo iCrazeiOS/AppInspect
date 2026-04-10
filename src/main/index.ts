@@ -5,7 +5,7 @@ import { pruneCache } from "./analysis/orchestrator";
 
 const APP_ROOT = path.join(app.getAppPath());
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     title: "AppInspect",
     width: 1200,
@@ -36,6 +36,7 @@ function createWindow(): void {
   }
 
   registerIPCHandlers(win);
+  return win;
 }
 
 const isDev = !app.isPackaged;
@@ -51,47 +52,58 @@ const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
   { role: "resetZoom" as const },
 ];
 
-const menuTemplate: Electron.MenuItemConstructorOptions[] = [
-  {
-    label: "Edit",
-    submenu: [
-      { role: "undo" },
-      { role: "redo" },
-      { type: "separator" },
-      { role: "cut" },
-      { role: "copy" },
-      { role: "paste" },
-      { role: "selectAll" },
-    ],
-  },
-  {
-    label: "View",
-    submenu: viewSubmenu,
-  },
-];
-
-// macOS needs the app name as first menu item
-if (process.platform === "darwin") {
-  menuTemplate.unshift({
-    label: app.getName(),
-    submenu: [
-      { role: "about" },
-      { type: "separator" },
-      { role: "hide" },
-      { role: "hideOthers" },
-      { role: "unhide" },
-      { type: "separator" },
-      { role: "quit" },
-    ],
-  });
+function buildMenuTemplate(win: BrowserWindow): Electron.MenuItemConstructorOptions[] {
+  return [
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "Close Tab",
+          accelerator: "CmdOrCtrl+W",
+          click: () => win.webContents.send("close-active-tab"),
+        },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: viewSubmenu,
+    },
+  ];
 }
 
 app.whenReady().then(() => {
+  pruneCache();
+  const win = createWindow();
+
+  const menuTemplate = buildMenuTemplate(win);
+  if (process.platform === "darwin") {
+    menuTemplate.unshift({
+      label: app.getName(),
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    });
+  }
   const menu = Menu.buildFromTemplate(menuTemplate);
   Menu.setApplicationMenu(menu);
-
-  pruneCache();
-  createWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

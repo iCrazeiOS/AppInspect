@@ -52,7 +52,7 @@ const CROSS_BINARY_COLUMNS: Column[] = [
   { key: "binary", label: "Binary", width: "280px" },
 ];
 
-export function renderStrings(container: HTMLElement, data: unknown, binaryCount: number = 1): void {
+export function renderStrings(container: HTMLElement, data: unknown, binaryCount: number = 1, sessionId: string = ""): void {
   container.innerHTML = "";
 
   // Handle both old format (array) and new format ({ binary, localisation })
@@ -142,16 +142,16 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
 
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
-      doCrossBinarySearch(term, "strings", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
+      doCrossBinarySearch(sessionId, term, "strings", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;
     searchRegex = isRegex;
-    saveSearchState("strings", term, isRegex);
+    saveSearchState(sessionId, "strings", term, isRegex);
     applyFilters();
   });
   searchBar.mount(wrapper);
-  registerSearchBar("strings", searchBar);
+  registerSearchBar(sessionId, "strings", searchBar);
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {
@@ -208,7 +208,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
     const total = table.totalCount;
     rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} strings`;
     searchBar.updateCount(shown, total);
-    updateCrossBinaryHint(xbinHint, xbin, searchBar.getValue(), "strings", "strings", applyCrossBinaryResults);
+    updateCrossBinaryHint(sessionId, xbinHint, xbin, searchBar.getValue(), "strings", "strings", applyCrossBinaryResults);
   }
 
   function buildChips(): void {
@@ -313,7 +313,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
   table.setData(binaryRows);
 
   // Restore saved search state (must happen after table is created)
-  const savedState = getSearchState("strings");
+  const savedState = getSearchState(sessionId, "strings");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

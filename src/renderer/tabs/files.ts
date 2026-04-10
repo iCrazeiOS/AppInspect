@@ -156,7 +156,7 @@ function showContextMenu(x: number, y: number, entry: FileEntry, row: HTMLElemen
 
 // ── Rendering ──
 
-export function renderFiles(container: HTMLElement, data: unknown): void {
+export function renderFiles(container: HTMLElement, data: unknown, sessionId: string = ""): void {
   container.innerHTML = "";
 
   // Cache platform for context menu labels
@@ -317,7 +317,7 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   let totalFileCount = count;
 
   const searchBar = new SearchBar((term: string, isRegex: boolean, _caseSensitive: boolean) => {
-    saveSearchState("files", term, isRegex);
+    saveSearchState(sessionId, "files", term, isRegex);
 
     if (!term) {
       activeFilter = null;
@@ -358,12 +358,12 @@ export function renderFiles(container: HTMLElement, data: unknown): void {
   });
 
   searchBar.mount(searchWrap);
-  registerSearchBar("files", searchBar);
+  registerSearchBar(sessionId, "files", searchBar);
   renderTree();
   searchBar.updateCount(totalFileCount, totalFileCount);
 
   // Restore saved search state
-  const savedState = getSearchState("files");
+  const savedState = getSearchState(sessionId, "files");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

@@ -116,18 +116,18 @@ export type TabName = TabData['tab'];
 export type InvokeChannelMap = {
   'analyse-file': {
     params: { path: string };
-    result: AnalysisResult;
+    result: { sessionId: string; result: AnalysisResult };
   };
   'analyse-ipa': {
     params: { path: string };
-    result: AnalysisResult;
+    result: { sessionId: string; result: AnalysisResult };
   };
   'get-tab-data': {
-    params: { tab: TabName; binaryIndex: number };
+    params: { sessionId: string; tab: TabName };
     result: TabData;
   };
   'export-json': {
-    params: { tabs?: TabName[] };
+    params: { sessionId: string; tabs?: TabName[] };
     result: { success: boolean; path?: string };
   };
   'open-file-picker': {
@@ -135,12 +135,16 @@ export type InvokeChannelMap = {
     result: string | null;
   };
   'analyse-binary': {
-    params: { binaryIndex: number };
+    params: { sessionId: string; binaryIndex: number; cpuType?: number; cpuSubtype?: number };
     result: AnalysisResult;
   };
   'search-all-binaries': {
-    params: { query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean };
+    params: { sessionId: string; query: string; tab: SearchableTab; isRegex?: boolean; caseSensitive?: boolean };
     result: CrossBinarySearchResult[];
+  };
+  'close-session': {
+    params: { sessionId: string };
+    result: void;
   };
   'get-settings': {
     params: void;
@@ -155,18 +159,24 @@ export type InvokeChannelMap = {
 // ── Send channels (main -> renderer) ──
 
 export interface ProgressPayload {
+  sessionId: string;
   phase: string;
   percent: number;
   message: string;
 }
 
+export interface AnalysisCompletePayload {
+  sessionId: string;
+}
+
 export interface AnalysisErrorPayload {
+  sessionId: string;
   message: string;
 }
 
 export type SendChannelMap = {
   'update-progress': ProgressPayload;
-  'analysis-complete': void;
+  'analysis-complete': AnalysisCompletePayload;
   'analysis-error': AnalysisErrorPayload;
 };
 

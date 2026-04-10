@@ -125,13 +125,20 @@
       <!-- Main content area -->
       <main id="main-content" class="main-content">
         <!-- Titlebar drag region -->
-        <div class="titlebar"></div>
-        <!-- Loading bar -->
+        <div class="titlebar">
+          <span id="titlebar-status" class="titlebar-status hidden"></span>
+        </div>
+        <!-- Loading bar (progress track only) -->
         <div id="loading-bar" class="loading-bar hidden">
           <div class="loading-bar-track">
             <div class="loading-bar-fill"></div>
           </div>
-          <div id="loading-text" class="loading-text">Analysing...</div>
+        </div>
+
+        <!-- File tabs (multi-file) -->
+        <div id="file-tab-bar" class="file-tab-bar hidden">
+          <div id="file-tab-list" class="file-tab-list"></div>
+          <button id="file-tab-add" class="file-tab-add" title="Open File">+</button>
         </div>
 
         <!-- Empty state -->

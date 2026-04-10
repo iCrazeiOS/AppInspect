@@ -37,7 +37,7 @@ const CROSS_BINARY_COLUMNS: Column[] = [
 
 // ── Main render ──
 
-export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | null, binaryCount: number = 1): void {
+export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | null, binaryCount: number = 1, sessionId: string = ""): void {
   container.innerHTML = "";
 
   if (!data || data.length === 0) {
@@ -80,7 +80,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
 
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
-      doCrossBinarySearch(term, "libraries", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
+      doCrossBinarySearch(sessionId, term, "libraries", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;
@@ -98,11 +98,11 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
       const lc = term.toLowerCase();
       table.setFilter((row) => String(row["name"] ?? "").toLowerCase().includes(lc));
     }
-    saveSearchState("libraries", term, isRegex);
+    saveSearchState(sessionId, "libraries", term, isRegex);
     updateCount();
   });
   searchBar.mount(searchContainer);
-  registerSearchBar("libraries", searchBar);
+  registerSearchBar(sessionId, "libraries", searchBar);
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {
@@ -159,7 +159,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
     const total = table.totalCount;
     rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} libraries`;
     searchBar.updateCount(shown, total);
-    updateCrossBinaryHint(xbinHint, xbin, searchBar.getValue(), "libraries", "libraries", applyCrossBinaryResults);
+    updateCrossBinaryHint(sessionId, xbinHint, xbin, searchBar.getValue(), "libraries", "libraries", applyCrossBinaryResults);
   }
 
   function applyLocalFilter(): void {
@@ -182,7 +182,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   updateCount();
 
   // Restore saved search state
-  const savedState = getSearchState("libraries");
+  const savedState = getSearchState(sessionId, "libraries");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

@@ -48,6 +48,7 @@ export function addAllBinariesToggle(
  * Calls `onResults` when done (only if not cancelled by a newer search).
  */
 export function doCrossBinarySearch(
+  sessionId: string,
   term: string,
   tab: SearchableTab,
   state: CrossBinaryState,
@@ -70,7 +71,7 @@ export function doCrossBinarySearch(
     state.loading = true;
     onResults();
     try {
-      state.results = await window.api.searchAllBinaries(term, tab, isRegex, caseSensitive);
+      state.results = await window.api.searchAllBinaries(sessionId, term, tab, isRegex, caseSensitive);
     } catch {
       state.results = [];
     }
@@ -86,6 +87,7 @@ export function doCrossBinarySearch(
  * Used by both the custom Classes renderer and the DataTable-based hint overlay.
  */
 export function buildShowAllLink(
+  sessionId: string,
   label: string,
   tab: SearchableTab,
   state: CrossBinaryState,
@@ -97,7 +99,7 @@ export function buildShowAllLink(
   link.href = "#";
   link.addEventListener("click", (e) => {
     e.preventDefault();
-    doCrossBinarySearch(".", tab, state, onResults, true, false);
+    doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
   });
   return link;
 }
@@ -136,6 +138,7 @@ export function createCrossBinaryHint(
  * @param onResults - Callback when results arrive from "Show all"
  */
 export function updateCrossBinaryHint(
+  sessionId: string,
   hint: HTMLDivElement,
   state: CrossBinaryState,
   searchValue: string,
@@ -149,7 +152,7 @@ export function updateCrossBinaryHint(
     const text = document.createElement("span");
     text.textContent = `Type a ${singular} name to search across all binaries.`;
     hint.appendChild(text);
-    hint.appendChild(buildShowAllLink(label, tab, state, onResults));
+    hint.appendChild(buildShowAllLink(sessionId, label, tab, state, onResults));
     hint.style.display = "flex";
   } else {
     hint.style.display = "none";

@@ -35,7 +35,7 @@ const CROSS_BINARY_COLUMNS: Column[] = [
   { key: "binary", label: "Binary", width: "280px" },
 ];
 
-export function renderSymbols(container: HTMLElement, data: unknown, binaryCount: number = 1): void {
+export function renderSymbols(container: HTMLElement, data: unknown, binaryCount: number = 1, sessionId: string = ""): void {
   container.innerHTML = "";
 
   const entries = (Array.isArray(data) ? data : []) as SymbolEntry[];
@@ -69,16 +69,16 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
 
   const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
     if (xbin.active) {
-      doCrossBinarySearch(term, "symbols", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
+      doCrossBinarySearch(sessionId, term, "symbols", xbin, applyCrossBinaryResults, isRegex, caseSensitive);
       return;
     }
     searchTerm = term;
     searchRegex = isRegex;
-    saveSearchState("symbols", term, isRegex);
+    saveSearchState(sessionId, "symbols", term, isRegex);
     applyFilters();
   });
   searchBar.mount(wrapper);
-  registerSearchBar("symbols", searchBar);
+  registerSearchBar(sessionId, "symbols", searchBar);
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {
@@ -176,7 +176,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
     const total = table.totalCount;
     rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} symbols`;
     searchBar.updateCount(shown, total);
-    updateCrossBinaryHint(xbinHint, xbin, searchBar.getValue(), "symbols", "symbols", applyCrossBinaryResults);
+    updateCrossBinaryHint(sessionId, xbinHint, xbin, searchBar.getValue(), "symbols", "symbols", applyCrossBinaryResults);
   }
 
   function applyFilters(): void {
@@ -204,7 +204,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
   table.setData(rows);
 
   // Restore saved search state (must happen after table is created)
-  const savedState = getSearchState("symbols");
+  const savedState = getSearchState(sessionId, "symbols");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }

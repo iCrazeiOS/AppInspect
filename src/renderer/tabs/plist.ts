@@ -67,7 +67,7 @@ function extractQuickInfo(plist: Record<string, unknown>): {
   return { urlSchemes, backgroundModes, privacyStrings, atsExceptions };
 }
 
-export function renderPlist(container: HTMLElement, data: any): void {
+export function renderPlist(container: HTMLElement, data: any, sessionId: string = ""): void {
   container.innerHTML = "";
 
   // data may be the raw plist object directly, or { raw: {...}, extracted: {...} }
@@ -143,17 +143,17 @@ export function renderPlist(container: HTMLElement, data: any): void {
 
   const totalKeys = Object.keys(plist).length;
   const searchBar = new SearchBar((term, isRegex, _caseSensitive) => {
-    saveSearchState("plist", term, isRegex);
+    saveSearchState(sessionId, "plist", term, isRegex);
     tree.filter(term);
     // Update count based on visible nodes
     const visibleCount = treeContainer.querySelectorAll(".jt-node:not(.jt-hidden)").length;
     searchBar.updateCount(term ? visibleCount : totalKeys, totalKeys);
   });
   searchBar.mount(searchWrap);
-  registerSearchBar("plist", searchBar);
+  registerSearchBar(sessionId, "plist", searchBar);
 
   // Restore saved search state
-  const savedState = getSearchState("plist");
+  const savedState = getSearchState(sessionId, "plist");
   if (savedState && savedState.term) {
     searchBar.setValue(savedState.term, savedState.isRegex);
   }
