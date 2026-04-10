@@ -72,8 +72,6 @@ const optScanAllBinaries = $<HTMLInputElement>("#opt-scan-all-binaries");
 const optMaxBundleSize = $<HTMLInputElement>("#opt-max-bundle-size");
 const optMaxFileSize = $<HTMLInputElement>("#opt-max-file-size");
 
-console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, window.api);
-
 // ── Keyboard shortcuts ──
 document.addEventListener("keydown", (e: KeyboardEvent) => {
   const mod = e.metaKey || e.ctrlKey;
@@ -750,8 +748,6 @@ async function startAnalysis(filePath: string): Promise<void> {
       updateExportVisibility(true);
       switchSectionTab("overview");
     }
-
-    console.log("[AppInspect] Analysis complete:", result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     tab.appState = "error";
@@ -763,10 +759,8 @@ async function startAnalysis(filePath: string): Promise<void> {
 
 // ── Open file button ──
 async function handleOpenIPA(): Promise<void> {
-  console.log("[AppInspect] handleOpenIPA called, window.api =", window.api);
   try {
     const filePath = await window.api.openFilePicker();
-    console.log("[AppInspect] openFilePicker returned:", filePath);
     if (filePath) {
       await startAnalysis(filePath);
     }
@@ -815,12 +809,10 @@ document.addEventListener("drop", (e: DragEvent) => {
   dropOverlay.classList.add("hidden");
 
   const files = e.dataTransfer?.files;
-  console.log("[AppInspect] Drop event, files:", files?.length, "file[0]:", files?.[0]);
   if (!files || files.length === 0) return;
 
   const file = files[0]!;
   const filePath = window.api.getPathForFile(file);
-  console.log("[AppInspect] Dropped file path:", filePath);
 
   if (!filePath) {
     showToast("No file path available from drop", "warning");
@@ -838,7 +830,6 @@ document.addEventListener("drop", (e: DragEvent) => {
     }
   }
 
-  console.log("[AppInspect] Dropped file:", filePath);
   startAnalysis(filePath);
 });
 
@@ -855,7 +846,6 @@ window.api.onComplete((data) => {
   if (data.sessionId === activeFileTabId) {
     titlebarStatus.classList.add("hidden");
   }
-  console.log("[AppInspect] Analysis complete signal received for", data.sessionId);
 });
 
 window.api.onError((data) => {
@@ -967,6 +957,5 @@ optMaxFileSize.addEventListener("change", () => saveNumberSetting("maxFileSizeMB
 })();
 
 // ── Init ──
-console.log("[AppInspect] Renderer loaded");
 setGlobalState("empty");
 switchSectionTab("overview");
