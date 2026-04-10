@@ -2,7 +2,7 @@
 
 A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
-Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
+Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
 ## Features
 
