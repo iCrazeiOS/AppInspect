@@ -199,6 +199,34 @@ const TOOLS = [
       required: ["binaryIndex"],
     },
   },
+  {
+    name: "read_hex",
+    description:
+      "Read raw hex bytes from the active binary at a given offset. " +
+      "Returns formatted hex dump or raw byte array. Use for inspecting " +
+      "raw binary content at specific offsets (e.g. segment/section data). " +
+      "Max 65536 bytes per request.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        offset: {
+          type: "number",
+          description: "Byte offset within the binary (e.g. segment fileoff or section offset)",
+        },
+        length: {
+          type: "number",
+          description: "Number of bytes to read (max 65536, default 256)",
+        },
+        format: {
+          type: "string",
+          enum: ["raw", "hexdump"],
+          description: "Output format: 'hexdump' returns formatted text (default), 'raw' returns byte array",
+        },
+        path: PATH_PARAM,
+      },
+      required: ["offset"],
+    },
+  },
 ];
 
 // ── Section data helpers ─────────────────────────────────────────────
@@ -361,6 +389,49 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
       }
       const result = await session.analyseBinary(index, noop);
       return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+    }
+
+    case "read_hex": {
+      const session = getSession(args.path as string | undefined);
+      const offset = args.offset as number;
+      if (offset === undefined || offset === null) {
+        return fail("Missing required parameter: offset");
+      }
+      const length = (args.length as number) ?? 256;
+      const format = (args.format as string) ?? "hexdump";
+
+      const result = session.readHex(offset, length);
+      if (!result) return fail("No binary loaded or offset out of range.");
+
+      if (format === "hexdump") {
+        const lines: string[] = [];
+        for (let i = 0; i < result.data.length; i += 16) {
+          const rowBytes = result.data.slice(i, i + 16);
+          const addr = (result.offset + i).toString(16).padStart(8, "0").toUpperCase();
+          const hexParts: string[] = [];
+          for (let j = 0; j < 16; j++) {
+            if (j < rowBytes.length) {
+              hexParts.push(rowBytes[j]!.toString(16).padStart(2, "0").toUpperCase());
+            } else {
+              hexParts.push("  ");
+            }
+          }
+          const hexLeft = hexParts.slice(0, 8).join(" ");
+          const hexRight = hexParts.slice(8).join(" ");
+          const ascii = rowBytes
+            .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
+            .join("");
+          lines.push(`${addr}  ${hexLeft}  ${hexRight}  |${ascii}|`);
+        }
+        return ok({
+          offset: result.offset,
+          length: result.length,
+          fileSize: result.fileSize,
+          hexdump: lines.join("\n"),
+        });
+      }
+
+      return ok(result);
     }
 
     default:
