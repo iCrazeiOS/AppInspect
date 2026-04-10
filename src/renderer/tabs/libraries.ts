@@ -18,6 +18,13 @@ import {
 } from "../utils/cross-binary-search";
 import { mountGraphView } from "./graph";
 
+// ── View preference & cached graph (persists across re-renders within a session) ──
+
+const viewPreference = new Map<string, "list" | "graph">();
+
+/** Cached graph DOM + cleanup so binary switches don't rebuild the layout. */
+const graphCache = new Map<string, { wrapper: HTMLElement; cleanup: () => void }>();
+
 // ── Helpers ──
 
 function classifyLibrary(name: string): "system" | "swift" | "embedded" {
@@ -65,8 +72,11 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   graphBtn.className = "lib-toggle-btn";
   graphBtn.textContent = "Graph";
 
+  const totalLabel = el("span", "lib-total-label", `Total: ${data.length}`);
+
   toggleRow.appendChild(listBtn);
   toggleRow.appendChild(graphBtn);
+  toggleRow.appendChild(totalLabel);
   outerWrapper.appendChild(toggleRow);
 
   // ── Content area (swapped between list and graph) ──
@@ -74,16 +84,16 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   outerWrapper.appendChild(contentArea);
   container.appendChild(outerWrapper);
 
-  // Track current view and graph cleanup
+  // Track current view
   let currentView: "list" | "graph" = "list";
-  let graphCleanup: (() => void) | null = null;
 
   function showListView(): void {
     if (currentView === "list") return;
     currentView = "list";
+    viewPreference.set(sessionId, "list");
     listBtn.classList.add("lib-toggle-btn--active");
     graphBtn.classList.remove("lib-toggle-btn--active");
-    if (graphCleanup) { graphCleanup(); graphCleanup = null; }
+    // Detach graph DOM (keep cached) and show list
     contentArea.innerHTML = "";
     buildListView(contentArea);
   }
@@ -91,10 +101,21 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   function showGraphView(): void {
     if (currentView === "graph") return;
     currentView = "graph";
+    viewPreference.set(sessionId, "graph");
     graphBtn.classList.add("lib-toggle-btn--active");
     listBtn.classList.remove("lib-toggle-btn--active");
     contentArea.innerHTML = "";
-    graphCleanup = mountGraphView(contentArea, sessionId);
+
+    // Reuse cached graph if available, otherwise create new
+    const cached = graphCache.get(sessionId);
+    if (cached) {
+      contentArea.appendChild(cached.wrapper);
+    } else {
+      const wrapper = el("div", "lib-graph-mount");
+      contentArea.appendChild(wrapper);
+      const cleanup = mountGraphView(wrapper, sessionId);
+      graphCache.set(sessionId, { wrapper, cleanup });
+    }
   }
 
   listBtn.addEventListener("click", showListView);
@@ -243,8 +264,22 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
     }
   }
 
-  // Start with list view
-  buildListView(contentArea);
+  // Restore previous view preference, default to list
+  if (viewPreference.get(sessionId) === "graph") {
+    showGraphView();
+  } else {
+    buildListView(contentArea);
+  }
+}
+
+/** Clean up cached graph state for a session (call when closing a file tab). */
+export function cleanupLibrariesSession(sessionId: string): void {
+  const cached = graphCache.get(sessionId);
+  if (cached) {
+    cached.cleanup();
+    graphCache.delete(sessionId);
+  }
+  viewPreference.delete(sessionId);
 }
 
 function buildCountBadge(label: string, count: number): HTMLElement {

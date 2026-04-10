@@ -3,7 +3,7 @@
 
 import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { renderOverview } from "./tabs/overview";
-import { renderLibraries } from "./tabs/libraries";
+import { renderLibraries, cleanupLibrariesSession } from "./tabs/libraries";
 import { renderHeaders } from "./tabs/headers";
 import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
@@ -653,6 +653,7 @@ function closeFileTab(sessionId: string): void {
   removeFileTab(sessionId);
   removeFileTabFromBar(sessionId);
   clearSearchStatesForSession(sessionId);
+  cleanupLibrariesSession(sessionId);
 
   if (activeFileTabId === null || activeFileTabId === sessionId) {
     if (adjacent) {
