@@ -60,15 +60,16 @@ const CLASS_T_SIZE_32 = 20;
 const CLASS_T_DATA_OFFSET_64 = 32; // isa + super + cache + vtable
 const CLASS_T_DATA_OFFSET_32 = 16;
 
-// class_ro_t layout:
-// 64-bit: flags(4) + instanceStart(4) + instanceSize(8) + reserved(4) + ivarLayout(8) + name(8) + baseMethods(8) ...
-// 32-bit: flags(4) + instanceStart(4) + instanceSize(4) + reserved(4) + ivarLayout(4) + name(4) + baseMethods(4) ...
-const CLASS_RO_NAME_OFFSET_64 = 24; // flags(4) + iStart(4) + iSize(8) + reserved(4) + ivarLayout(8) = 24 to name ptr
-const CLASS_RO_NAME_OFFSET_32 = 20; // flags(4) + iStart(4) + iSize(4) + reserved(4) + ivarLayout(4) = 20 to name ptr
-const CLASS_RO_METHODS_OFFSET_64 = 32; // name(8) after name offset
-const CLASS_RO_METHODS_OFFSET_32 = 24; // name(4) after name offset
-const CLASS_RO_BASEPROTOCOLS_OFFSET_64 = 40; // baseMethods(8) after methods offset
-const CLASS_RO_BASEPROTOCOLS_OFFSET_32 = 28; // baseMethods(4) after methods offset
+// class_ro_t layout (verified against Apple objc4 source and hex analysis):
+// 64-bit: flags(4) + instanceStart(4) + instanceSize(4) + reserved(4) + ivarLayout(8) + name(8) + baseMethods(8) ...
+// 32-bit: flags(4) + instanceStart(4) + instanceSize(4) + ivarLayout(4) + name(4) + baseMethods(4) ...
+// Note: reserved field ONLY exists on 64-bit (#ifdef __LP64__)
+const CLASS_RO_NAME_OFFSET_64 = 24; // flags(4) + iStart(4) + iSize(4) + reserved(4) + ivarLayout(8) = 24
+const CLASS_RO_NAME_OFFSET_32 = 16; // flags(4) + iStart(4) + iSize(4) + ivarLayout(4) = 16 (no reserved on 32-bit!)
+const CLASS_RO_METHODS_OFFSET_64 = 32; // +name(8) = 32
+const CLASS_RO_METHODS_OFFSET_32 = 20; // +name(4) = 20
+const CLASS_RO_BASEPROTOCOLS_OFFSET_64 = 40; // +baseMethods(8) = 40
+const CLASS_RO_BASEPROTOCOLS_OFFSET_32 = 24; // +baseMethods(4) = 24
 
 // protocol_t layout:
 // 64-bit: isa(8) + mangledName(8) + protocols(8) + instanceMethods(8) + classMethods(8) +
@@ -593,7 +594,10 @@ function parseClass(
 
 	const dataFieldOffset = classFileOffset + dataOffset;
 	let dataVmaddr = resolvePointer(view, dataFieldOffset, rebaseMap, le, segments, is64Bit);
-	dataVmaddr = dataVmaddr & POINTER_MASK; // strip low 3 flag bits
+	// Only strip low 3 flag bits on 64-bit (tagged pointers); 32-bit uses direct pointers
+	if (is64Bit) {
+		dataVmaddr = dataVmaddr & POINTER_MASK;
+	}
 
 	if (dataVmaddr === 0n) return null;
 
@@ -672,7 +676,10 @@ function parseClass(
 
 	// Class methods from metaclass (isa pointer at offset 0)
 	let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments, is64Bit);
-	isaVmaddr = isaVmaddr & POINTER_MASK;
+	// Only strip low bits on 64-bit (tagged isa)
+	if (is64Bit) {
+		isaVmaddr = isaVmaddr & POINTER_MASK;
+	}
 	if (isaVmaddr !== 0n) {
 		const metaclassOff = vmaddrToFileOffset(isaVmaddr, segments);
 		if (metaclassOff !== null && metaclassOff + classSize <= view.byteLength) {
@@ -684,7 +691,9 @@ function parseClass(
 				segments,
 				is64Bit
 			);
-			metaDataVmaddr = metaDataVmaddr & POINTER_MASK;
+			if (is64Bit) {
+				metaDataVmaddr = metaDataVmaddr & POINTER_MASK;
+			}
 			if (metaDataVmaddr !== 0n) {
 				const metaRoOff = vmaddrToFileOffset(metaDataVmaddr, segments);
 				if (metaRoOff !== null && metaRoOff + minRoSize <= view.byteLength) {
@@ -757,7 +766,9 @@ function parseProtocolListAt(
 		if (ptrOffset + ptrSize > view.byteLength) break;
 
 		let protoVmaddr = resolvePointer(view, ptrOffset, rebaseMap, le, segments, is64Bit);
-		protoVmaddr = protoVmaddr & POINTER_MASK;
+		if (is64Bit) {
+			protoVmaddr = protoVmaddr & POINTER_MASK;
+		}
 		if (protoVmaddr === 0n) continue;
 
 		const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
@@ -891,7 +902,9 @@ function parseProtocolsWithDetails(
 		if (ptrFileOffset + ptrSize > view.byteLength) break;
 
 		let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
-		protoVmaddr = protoVmaddr & POINTER_MASK;
+		if (is64Bit) {
+			protoVmaddr = protoVmaddr & POINTER_MASK;
+		}
 		if (protoVmaddr === 0n) continue;
 
 		const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
@@ -941,7 +954,9 @@ function parseProtocols(
 		if (ptrFileOffset + ptrSize > view.byteLength) break;
 
 		let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
-		protoVmaddr = protoVmaddr & POINTER_MASK;
+		if (is64Bit) {
+			protoVmaddr = protoVmaddr & POINTER_MASK;
+		}
 		if (protoVmaddr === 0n) continue;
 
 		const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
@@ -1023,7 +1038,10 @@ export function extractObjCMetadata(
 
 			// Resolve the pointer (may be a chained fixup)
 			let classVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
-			classVmaddr = classVmaddr & POINTER_MASK; // strip low 3 flag bits
+			// Only strip low 3 flag bits on 64-bit (tagged pointers)
+			if (is64Bit) {
+				classVmaddr = classVmaddr & POINTER_MASK;
+			}
 
 			if (classVmaddr === 0n) continue;
 
