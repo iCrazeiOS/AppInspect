@@ -101,6 +101,14 @@ function lcDetail(lc: LoadCommand): string {
       return `cryptid=${lc.encryption.cryptid}`;
     case "build_version":
       return `minos=${lc.buildVersion.minos} sdk=${lc.buildVersion.sdk}`;
+    case "uuid":
+      return lc.uuid;
+    case "main":
+      return `entry=0x${lc.entryoff.toString(16)}`;
+    case "rpath":
+      return lc.path;
+    case "source_version":
+      return lc.version;
     case "generic":
       return "";
   }

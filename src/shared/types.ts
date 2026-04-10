@@ -126,12 +126,45 @@ export interface LCGeneric {
   cmdName: string;
 }
 
+export interface LCUUID {
+  type: 'uuid';
+  cmd: number;
+  cmdsize: number;
+  uuid: string;
+}
+
+export interface LCMain {
+  type: 'main';
+  cmd: number;
+  cmdsize: number;
+  entryoff: number;
+  stacksize: number;
+}
+
+export interface LCRpath {
+  type: 'rpath';
+  cmd: number;
+  cmdsize: number;
+  path: string;
+}
+
+export interface LCSourceVersion {
+  type: 'source_version';
+  cmd: number;
+  cmdsize: number;
+  version: string;
+}
+
 export type LoadCommand =
   | LCSegment
   | LCDylib
   | LCSymtab
   | LCEncryptionInfo
   | LCBuildVersion
+  | LCUUID
+  | LCMain
+  | LCRpath
+  | LCSourceVersion
   | LCGeneric;
 
 // ── Strings ──

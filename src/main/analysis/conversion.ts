@@ -21,6 +21,24 @@ import type { StringEntry as ParserStringEntry } from "../parser/strings";
 import { buildMethodSignature } from "../parser/objc";
 import { decodeLCName } from "../../shared/macho";
 
+/**
+ * Decode LC_SOURCE_VERSION packed version number.
+ * Format: A.B.C.D.E where A is 24 bits, B/C/D/E are 10 bits each.
+ */
+function decodeSourceVersion(version: bigint): string {
+  const a = Number((version >> 40n) & 0xFFFFFFn);
+  const b = Number((version >> 30n) & 0x3FFn);
+  const c = Number((version >> 20n) & 0x3FFn);
+  const d = Number((version >> 10n) & 0x3FFn);
+  const e = Number(version & 0x3FFn);
+  // Omit trailing zeros for cleaner display
+  if (e !== 0) return `${a}.${b}.${c}.${d}.${e}`;
+  if (d !== 0) return `${a}.${b}.${c}.${d}`;
+  if (c !== 0) return `${a}.${b}.${c}`;
+  if (b !== 0) return `${a}.${b}`;
+  return `${a}`;
+}
+
 /** Build signature from prefix (-/+), selector, and raw type encoding using the full ObjC type parser. */
 export function buildMethodSignatureFromParts(prefix: string, selector: string, typeEncoding: string): string {
   if (!typeEncoding) return `${prefix}${selector}`;
@@ -129,13 +147,60 @@ export function convertLoadCommands(lcResult: LoadCommandsResult): SharedLoadCom
     });
   }
 
-  // Add remaining generic load commands that weren't already covered
+  // Add remaining load commands - handle specific types before falling through to generic
   for (const lc of lcResult.loadCommands) {
     const cmd = lc.cmd;
     // Skip commands we already converted above
     if ("segname" in lc || "name" in lc || "symoff" in lc || "cryptoff" in lc || "platform" in lc) {
       continue;
     }
+
+    // LC_UUID
+    if ("uuid" in lc && typeof lc.uuid === "string") {
+      result.push({
+        type: "uuid",
+        cmd,
+        cmdsize: lc.cmdsize,
+        uuid: lc.uuid,
+      });
+      continue;
+    }
+
+    // LC_MAIN
+    if ("entryoff" in lc && typeof lc.entryoff === "bigint") {
+      result.push({
+        type: "main",
+        cmd,
+        cmdsize: lc.cmdsize,
+        entryoff: Number(lc.entryoff),
+        stacksize: Number(lc.stacksize),
+      });
+      continue;
+    }
+
+    // LC_RPATH
+    if ("path" in lc && typeof lc.path === "string") {
+      result.push({
+        type: "rpath",
+        cmd,
+        cmdsize: lc.cmdsize,
+        path: lc.path,
+      });
+      continue;
+    }
+
+    // LC_SOURCE_VERSION
+    if ("version" in lc && typeof lc.version === "bigint") {
+      result.push({
+        type: "source_version",
+        cmd,
+        cmdsize: lc.cmdsize,
+        version: decodeSourceVersion(lc.version),
+      });
+      continue;
+    }
+
+    // Generic fallback
     result.push({
       type: "generic",
       cmd,
