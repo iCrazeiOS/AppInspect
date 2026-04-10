@@ -38,17 +38,31 @@ const MH_FLAGS: Record<number, string> = {
   0x2000000: "MH_APP_EXTENSION_SAFE",
 };
 
+// Complete LC_* mapping from Apple XNU mach-o/loader.h
 const LC_NAMES: Record<number, string> = {
   0x1: "LC_SEGMENT",
   0x2: "LC_SYMTAB",
+  0x3: "LC_SYMSEG",
   0x4: "LC_THREAD",
   0x5: "LC_UNIXTHREAD",
+  0x6: "LC_LOADFVMLIB",
+  0x7: "LC_IDFVMLIB",
+  0x8: "LC_IDENT",
+  0x9: "LC_FVMFILE",
+  0xa: "LC_PREPAGE",
   0xb: "LC_DYSYMTAB",
   0xc: "LC_LOAD_DYLIB",
   0xd: "LC_ID_DYLIB",
   0xe: "LC_LOAD_DYLINKER",
   0xf: "LC_ID_DYLINKER",
+  0x10: "LC_PREBOUND_DYLIB",
   0x11: "LC_ROUTINES",
+  0x12: "LC_SUB_FRAMEWORK",
+  0x13: "LC_SUB_UMBRELLA",
+  0x14: "LC_SUB_CLIENT",
+  0x15: "LC_SUB_LIBRARY",
+  0x16: "LC_TWOLEVEL_HINTS",
+  0x17: "LC_PREBIND_CKSUM",
   0x19: "LC_SEGMENT_64",
   0x1a: "LC_ROUTINES_64",
   0x1b: "LC_UUID",
@@ -69,14 +83,18 @@ const LC_NAMES: Record<number, string> = {
   0x2e: "LC_LINKER_OPTIMIZATION_HINT",
   0x2f: "LC_VERSION_MIN_TVOS",
   0x30: "LC_VERSION_MIN_WATCHOS",
+  0x31: "LC_NOTE",
   0x32: "LC_BUILD_VERSION",
+  // LC_REQ_DYLD (0x80000000) variants
   0x80000018: "LC_LOAD_WEAK_DYLIB",
   0x8000001c: "LC_RPATH",
-  0x8000001d: "LC_REEXPORT_DYLIB",
+  0x8000001f: "LC_REEXPORT_DYLIB",
   0x80000022: "LC_DYLD_INFO_ONLY",
+  0x80000023: "LC_LOAD_UPWARD_DYLIB",
   0x80000028: "LC_MAIN",
   0x80000033: "LC_DYLD_EXPORTS_TRIE",
   0x80000034: "LC_DYLD_CHAINED_FIXUPS",
+  0x80000035: "LC_FILESET_ENTRY",
 };
 
 function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
