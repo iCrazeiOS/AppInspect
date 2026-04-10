@@ -29,7 +29,7 @@ const DEFAULT_BYTES_PER_ROW = 16;
 const ROW_HEIGHT = 20;
 const CHUNK_SIZE = 65536; // 64 KB per IPC fetch
 const BUFFER_ROWS = 30;  // extra rows rendered above/below viewport
-const MAX_SPACER_PX = 10_000_000; // browsers cap scrollHeight around 33M; stay well under
+const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 
 // Row width in `ch` units for a given bytesPerRow:
 //   offset(9) + hex(N*3) + gaps(floor((N-1)/8)*1.5) + ascii_margin(2) + ascii(N) + padding(~4)
@@ -89,6 +89,7 @@ export class HexViewer {
   private rafId = 0;
   private boundOnScroll: () => void;
   private boundOnResize: () => void;
+  private boundOnWheel: (e: WheelEvent) => void;
   private resizeRaf = 0;
 
   // Data cache: chunkIndex -> byte array
@@ -112,6 +113,7 @@ export class HexViewer {
     this.totalRows = Math.ceil(opts.regionSize / DEFAULT_BYTES_PER_ROW);
     this.boundOnScroll = this.onScroll.bind(this);
     this.boundOnResize = this.onResize.bind(this);
+    this.boundOnWheel = this.onWheel.bind(this);
   }
 
   mount(container: HTMLElement): void {
@@ -132,6 +134,7 @@ export class HexViewer {
     this.scrollContainer.appendChild(this.spacer);
     this.scrollContainer.appendChild(this.rowContainer);
     this.scrollContainer.addEventListener("scroll", this.boundOnScroll);
+    this.scrollContainer.addEventListener("wheel", this.boundOnWheel, { passive: false });
     this.root.appendChild(this.scrollContainer);
 
     container.innerHTML = "";
@@ -151,6 +154,7 @@ export class HexViewer {
     if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf);
     window.removeEventListener("resize", this.boundOnResize);
     this.scrollContainer?.removeEventListener("scroll", this.boundOnScroll);
+    this.scrollContainer?.removeEventListener("wheel", this.boundOnWheel);
     if (this.root) {
       this.root.remove();
       this.root = null;
@@ -440,6 +444,20 @@ export class HexViewer {
   }
 
   // ── Virtual scrolling ──
+
+  private isScaled(): boolean {
+    return this.totalRows * ROW_HEIGHT > MAX_SPACER_PX;
+  }
+
+  private onWheel(e: WheelEvent): void {
+    if (!this.isScaled() || !this.scrollContainer) return;
+    // When scaled, override native scroll to move a fixed number of rows
+    e.preventDefault();
+    const rows = e.deltaY > 0 ? 3 : -3;
+    const currentRow = this.scrollTopToRow(this.scrollContainer.scrollTop);
+    const targetRow = Math.max(0, Math.min(this.totalRows - 1, currentRow + rows));
+    this.scrollContainer.scrollTop = this.rowToScrollTop(targetRow);
+  }
 
   private onScroll(): void {
     if (this.rafId) cancelAnimationFrame(this.rafId);
