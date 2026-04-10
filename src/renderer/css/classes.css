@@ -2,12 +2,47 @@
    Classes Tab (cls-)
    ══════════════════════════════════════════════ */
 
-.cls-stats {
-  font-size: 12px;
-  color: var(--text-muted);
+.cls-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
+}
+
+.cls-nav-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.cls-nav-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 100ms ease, opacity 100ms ease;
+}
+
+.cls-nav-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.cls-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.cls-stats {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .cls-panels {
@@ -295,6 +330,22 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.cls-proto-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.cls-proto-item-active {
+  background-color: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.cls-proto-item-active:hover {
+  background-color: var(--accent-subtle);
 }
 
 .cls-detail-hint {
@@ -316,7 +367,38 @@
 .cls-detail-count {
   font-size: 12px;
   color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.cls-detail-protos {
+  font-size: 12px;
+  color: var(--text-muted);
   margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.cls-detail-protos-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.cls-proto-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background-color: var(--accent-subtle);
+  color: var(--accent);
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.cls-proto-badge:hover {
+  background-color: var(--accent-medium);
 }
 
 .cls-method-list {
@@ -335,8 +417,8 @@
   text-overflow: ellipsis;
   color: var(--text);
   transition: background-color 100ms ease;
-  cursor: default;
-  user-select: text;
+  cursor: pointer;
+  user-select: none;
 }
 
 .cls-method-item:hover {
@@ -346,6 +428,19 @@
 .cls-method-active {
   background-color: var(--accent-medium) !important;
   color: var(--accent);
+}
+
+.cls-proto-method-group {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 12px 8px 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.cls-proto-method-group:first-child {
+  padding-top: 4px;
 }
 
 /* ── Method Detail Sidebar (cls-sb-) ── */

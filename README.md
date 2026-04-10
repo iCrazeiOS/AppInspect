@@ -24,7 +24,7 @@ File type is detected automatically by magic bytes.
 | **Headers** | Mach-O header fields, fat architecture list, full load command dump |
 | **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags. Interactive force-directed dependency graph view showing inter-binary relationships, with pan/zoom, node dragging, and category filtering |
 | **Symbols** | Exported, imported, and local symbols with addresses |
-| **Classes** | ObjC class names, instance and class methods with decoded type signatures, protocols, Logos hook generation |
+| **Classes** | ObjC class names and methods with decoded type signatures, protocol conformances per class, protocol detail view (required/optional instance/class methods), Logos hook generation, back/forward navigation history |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
 | **Info.plist** | Full Info.plist contents (IPA only) |

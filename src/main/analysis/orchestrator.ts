@@ -19,6 +19,7 @@ import type {
   LinkedLibrary,
   Symbol as SymbolEntry,
   ObjCClass,
+  ObjCProtocol,
   Entitlement,
   StringEntry,
   LocalisationString,
@@ -165,6 +166,7 @@ interface BinaryAnalysisResult {
   symbols: SymbolEntry[];
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
   entitlements: Entitlement[];
   uuid: string | null;
   teamId: string | null;
@@ -197,6 +199,7 @@ async function analyseBinaryFile(
   let symbols: SymbolEntry[] = [];
   let classes: ObjCClass[] = [];
   let protocols: string[] = [];
+  let protocolDetails: ObjCProtocol[] = [];
   let entitlements: Entitlement[] = [];
   let uuid: string | null = null;
   let teamId: string | null = null;
@@ -222,7 +225,7 @@ async function analyseBinaryFile(
     errors.push(`Failed to read binary: ${msg}`);
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, protocolDetails, entitlements,
       uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
@@ -282,7 +285,7 @@ async function analyseBinaryFile(
   if (!machoFile) {
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, protocolDetails, entitlements,
       uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
@@ -332,7 +335,7 @@ async function analyseBinaryFile(
   if (!lcResult) {
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
-      buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
+      buildVersion, encryptionInfo, strings, symbols, classes, protocols, protocolDetails, entitlements,
       uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
@@ -415,6 +418,7 @@ async function analyseBinaryFile(
     );
     classes = objcMeta.classes;
     protocols = objcMeta.protocols;
+    protocolDetails = objcMeta.protocolDetails;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     errors.push(`ObjC metadata error: ${msg}`);
@@ -688,6 +692,7 @@ async function analyseBinaryFile(
     symbols,
     classes,
     protocols,
+    protocolDetails,
     entitlements,
     uuid,
     teamId,
@@ -742,6 +747,7 @@ function buildAnalysisResult(
     symbols: br.symbols,
     classes: br.classes,
     protocols: br.protocols,
+    protocolDetails: br.protocolDetails,
     entitlements: opts.entitlements ?? br.entitlements,
     infoPlist: opts.infoPlist ?? {},
     security: opts.security ?? br.security,

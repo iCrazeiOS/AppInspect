@@ -22,11 +22,21 @@ interface ObjCMethod {
 interface ObjCClass {
   name: string;
   methods: ObjCMethod[];
+  protocols?: string[];
+}
+
+interface ObjCProtocol {
+  name: string;
+  instanceMethods: ObjCMethod[];
+  classMethods: ObjCMethod[];
+  optionalInstanceMethods: ObjCMethod[];
+  optionalClassMethods: ObjCMethod[];
 }
 
 interface ClassesData {
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
 }
 
 const ROW_HEIGHT = 28;
@@ -67,22 +77,129 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     return;
   }
 
-  const allClasses = classesData.classes ?? [];
-  const allProtocols = classesData.protocols ?? [];
+  const allClasses = [...(classesData.classes ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const allProtocols = [...(classesData.protocols ?? [])].sort((a, b) => a.localeCompare(b));
+  const protocolDetailsMap = new Map<string, ObjCProtocol>();
+  for (const p of classesData.protocolDetails ?? []) {
+    protocolDetailsMap.set(p.name, p);
+  }
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
   let selectedMethod: ObjCMethod | null = null;
   let selectedClassIndex = -1;
+  let selectedProtocol: ObjCProtocol | null = null;
+  let selectedProtoMethod: { method: ObjCMethod; isClassMethod: boolean } | null = null;
+
+  // Navigation history
+  type NavState = { type: "class"; name: string } | { type: "protocol"; name: string };
+  const navHistory: NavState[] = [];
+  let navIndex = -1;
+  let isNavigating = false; // Prevent history push during back/forward
 
   // ── Cross-binary search state ──
   const xbin = createCrossBinaryState();
 
-  // Stats bar
+  // Stats bar with navigation
+  const statsBar = document.createElement("div");
+  statsBar.className = "cls-stats-bar";
+  container.appendChild(statsBar);
+
+  // Navigation buttons
+  const navBtns = document.createElement("div");
+  navBtns.className = "cls-nav-btns";
+  statsBar.appendChild(navBtns);
+
+  const backBtn = document.createElement("button");
+  backBtn.className = "cls-nav-btn";
+  backBtn.textContent = "\u276E";
+  backBtn.title = "Back";
+  backBtn.disabled = true;
+  navBtns.appendChild(backBtn);
+
+  const forwardBtn = document.createElement("button");
+  forwardBtn.className = "cls-nav-btn";
+  forwardBtn.textContent = "\u276F";
+  forwardBtn.title = "Forward";
+  forwardBtn.disabled = true;
+  navBtns.appendChild(forwardBtn);
+
   const stats = document.createElement("div");
   stats.className = "cls-stats";
   const totalMethods = allClasses.reduce((s, c) => s + c.methods.length, 0);
   stats.textContent = `${allClasses.length.toLocaleString()} classes \u00B7 ${totalMethods.toLocaleString()} methods \u00B7 ${allProtocols.length.toLocaleString()} protocols`;
-  container.appendChild(stats);
+  statsBar.appendChild(stats);
+
+  // Navigation functions
+  function updateNavButtons(): void {
+    backBtn.disabled = navIndex <= 0;
+    forwardBtn.disabled = navIndex >= navHistory.length - 1;
+  }
+
+  function pushNav(state: NavState): void {
+    if (isNavigating) return;
+    // Remove forward history when pushing new state
+    if (navIndex < navHistory.length - 1) {
+      navHistory.splice(navIndex + 1);
+    }
+    navHistory.push(state);
+    navIndex = navHistory.length - 1;
+    updateNavButtons();
+  }
+
+  function navigateTo(state: NavState): void {
+    isNavigating = true;
+    if (state.type === "class") {
+      const cls = allClasses.find((c) => c.name === state.name);
+      if (cls) {
+        const idx = filteredClasses.indexOf(cls);
+        selectedClassIndex = idx >= 0 ? idx : -1;
+        selectedClass = cls;
+        selectedMethod = null;
+        selectedProtocol = null;
+        selectedProtoMethod = null;
+        // Clear protocol highlight
+        for (const el of protoItems.values()) {
+          el.classList.remove("cls-proto-item-active");
+        }
+        renderList();
+        renderDetail();
+        renderSidebar();
+        if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
+      }
+    } else if (state.type === "protocol") {
+      selectProtocol(state.name);
+    }
+    isNavigating = false;
+    updateNavButtons();
+  }
+
+  function goBack(): void {
+    if (navIndex > 0) {
+      navIndex--;
+      navigateTo(navHistory[navIndex]!);
+    }
+  }
+
+  function goForward(): void {
+    if (navIndex < navHistory.length - 1) {
+      navIndex++;
+      navigateTo(navHistory[navIndex]!);
+    }
+  }
+
+  backBtn.addEventListener("click", goBack);
+  forwardBtn.addEventListener("click", goForward);
+
+  // Mouse button 4/5 for back/forward
+  container.addEventListener("mouseup", (e) => {
+    if (e.button === 3) { // Mouse back button
+      e.preventDefault();
+      goBack();
+    } else if (e.button === 4) { // Mouse forward button
+      e.preventDefault();
+      goForward();
+    }
+  });
 
   // Three-panel layout wrapper
   const wrapper = document.createElement("div");
@@ -201,6 +318,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       row.textContent = cls.name;
       row.title = cls.name;
       row.addEventListener("click", () => {
+        pushNav({ type: "class", name: cls.name });
         selectedClassIndex = i;
         selectedClass = cls;
         selectedMethod = null;
@@ -432,16 +550,20 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   }
 
   // Protocols collapsible section
+  let protoExpanded = false;
+  let protoHeader: HTMLButtonElement | null = null;
+  let protoList: HTMLDivElement | null = null;
+  const protoItems = new Map<string, HTMLDivElement>();
+
   if (allProtocols.length > 0) {
     const protoSection = document.createElement("div");
     protoSection.className = "cls-proto-section";
 
-    const protoHeader = document.createElement("button");
+    protoHeader = document.createElement("button");
     protoHeader.className = "cls-proto-header";
     protoHeader.textContent = `\u25B6 Protocols (${allProtocols.length})`;
-    let protoExpanded = false;
 
-    const protoList = document.createElement("div");
+    protoList = document.createElement("div");
     protoList.className = "cls-proto-list";
     protoList.style.display = "none";
 
@@ -449,18 +571,125 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       const item = document.createElement("div");
       item.className = "cls-proto-item";
       item.textContent = p;
+      item.addEventListener("click", () => selectProtocol(p));
       protoList.appendChild(item);
+      protoItems.set(p, item);
     }
 
     protoHeader.addEventListener("click", () => {
       protoExpanded = !protoExpanded;
-      protoHeader.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} Protocols (${allProtocols.length})`;
-      protoList.style.display = protoExpanded ? "block" : "none";
+      protoHeader!.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} Protocols (${allProtocols.length})`;
+      protoList!.style.display = protoExpanded ? "block" : "none";
     });
 
     protoSection.appendChild(protoHeader);
     protoSection.appendChild(protoList);
     leftPanel.appendChild(protoSection);
+  }
+
+  function selectProtocol(name: string): void {
+    // Remove previous highlight
+    for (const el of protoItems.values()) {
+      el.classList.remove("cls-proto-item-active");
+    }
+
+    // Highlight selected
+    const item = protoItems.get(name);
+    if (item) {
+      item.classList.add("cls-proto-item-active");
+    }
+
+    // Show protocol details
+    const proto = protocolDetailsMap.get(name);
+    if (proto) {
+      pushNav({ type: "protocol", name });
+      selectedProtocol = proto;
+      selectedProtoMethod = null;
+      selectedClass = null;
+      selectedClassIndex = -1;
+      // Clear class selection UI
+      const activeClassItem = document.querySelector(".cls-item-active");
+      if (activeClassItem) activeClassItem.classList.remove("cls-item-active");
+      renderProtocolDetail();
+      renderSidebar();
+    }
+  }
+
+  function scrollToProtocol(name: string): void {
+    if (!protoHeader || !protoList) return;
+    const item = protoItems.get(name);
+    if (!item) return;
+
+    // Expand if collapsed
+    if (!protoExpanded) {
+      protoExpanded = true;
+      protoHeader.textContent = `\u25BC Protocols (${allProtocols.length})`;
+      protoList.style.display = "block";
+    }
+
+    // Select and scroll
+    selectProtocol(name);
+    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function renderProtocolDetail(): void {
+    if (!selectedProtocol) return;
+
+    methodListContainer.innerHTML = "";
+    detailHeader.innerHTML = "";
+
+    const heading = document.createElement("h3");
+    heading.className = "cls-detail-name";
+    heading.textContent = `@protocol ${selectedProtocol.name}`;
+    detailHeader.appendChild(heading);
+
+    const hasAnyMethods =
+      selectedProtocol.instanceMethods.length > 0 ||
+      selectedProtocol.classMethods.length > 0 ||
+      selectedProtocol.optionalInstanceMethods.length > 0 ||
+      selectedProtocol.optionalClassMethods.length > 0;
+
+    if (!hasAnyMethods) {
+      const hint = document.createElement("div");
+      hint.className = "cls-detail-hint";
+      hint.textContent = "No methods defined in this protocol.";
+      methodListContainer.appendChild(hint);
+      return;
+    }
+
+    const methodList = document.createElement("ul");
+    methodList.className = "cls-method-list";
+
+    const addMethodGroup = (title: string, methods: ObjCMethod[], isClassMethod: boolean) => {
+      if (methods.length === 0) return;
+      const groupHeader = document.createElement("li");
+      groupHeader.className = "cls-proto-method-group";
+      groupHeader.textContent = `${title} (${methods.length})`;
+      methodList.appendChild(groupHeader);
+
+      for (const m of methods) {
+        const li = document.createElement("li");
+        li.className = "cls-method-item";
+        if (selectedProtoMethod?.method === m) {
+          li.classList.add("cls-method-active");
+        }
+        li.textContent = m.signature || m.selector;
+        li.title = m.selector;
+        li.addEventListener("click", () => {
+          selectedProtoMethod = { method: m, isClassMethod };
+          renderProtocolDetail();
+          renderSidebar();
+        });
+        methodList.appendChild(li);
+      }
+    };
+
+    addMethodGroup("Required Instance Methods", selectedProtocol.instanceMethods, false);
+    addMethodGroup("Required Class Methods", selectedProtocol.classMethods, true);
+    addMethodGroup("Optional Instance Methods", selectedProtocol.optionalInstanceMethods, false);
+    addMethodGroup("Optional Class Methods", selectedProtocol.optionalClassMethods, true);
+
+    methodListContainer.appendChild(methodList);
   }
 
   // ── Middle panel (method list) ──
@@ -652,6 +881,14 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   }
 
   function renderDetail(): void {
+    // Clear protocol selection when showing class detail
+    if (selectedProtocol) {
+      selectedProtocol = null;
+      selectedProtoMethod = null;
+      for (const el of protoItems.values()) {
+        el.classList.remove("cls-proto-item-active");
+      }
+    }
     detailHeader.innerHTML = "";
     if (!selectedClass && !(searchAllClasses && methodSearchTerm)) {
       detailHeader.innerHTML = "";
@@ -700,6 +937,25 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
         countEl.textContent = `${total} method${total !== 1 ? "s" : ""}`;
       }
       detailHeader.appendChild(countEl);
+
+      // Show protocol conformances if present
+      if (selectedClass.protocols && selectedClass.protocols.length > 0) {
+        const protoLine = document.createElement("div");
+        protoLine.className = "cls-detail-protos";
+        const label = document.createElement("span");
+        label.className = "cls-detail-protos-label";
+        label.textContent = "Conforms to:";
+        protoLine.appendChild(label);
+        for (const proto of selectedClass.protocols) {
+          const badge = document.createElement("span");
+          badge.className = "cls-proto-badge";
+          badge.textContent = proto;
+          badge.title = `Click to view ${proto}`;
+          badge.addEventListener("click", () => scrollToProtocol(proto));
+          protoLine.appendChild(badge);
+        }
+        detailHeader.appendChild(protoLine);
+      }
 
       methodSearchBar.updateCount(filtered.length, total);
     } else {
@@ -773,6 +1029,12 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   function renderSidebar(): void {
     sidebar.innerHTML = "";
 
+    // Handle protocol method selection
+    if (selectedProtoMethod && selectedProtocol) {
+      renderProtoMethodSidebar();
+      return;
+    }
+
     if (!selectedMethod || !selectedClass) {
       sidebar.classList.remove("cls-sidebar--open");
       sidebar.style.width = "";
@@ -818,17 +1080,17 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     });
     inner.appendChild(closeBtn);
 
-    // Full method signature (wrapping)
-    const sigBlock = document.createElement("div");
-    sigBlock.className = "cls-sb-sig";
-    sigBlock.textContent = sig;
-    inner.appendChild(sigBlock);
-
     // Class name
     const classLabel = document.createElement("div");
     classLabel.className = "cls-sb-class";
     classLabel.textContent = className;
     inner.appendChild(classLabel);
+
+    // Full method signature (wrapping)
+    const sigBlock = document.createElement("div");
+    sigBlock.className = "cls-sb-sig";
+    sigBlock.textContent = sig;
+    inner.appendChild(sigBlock);
 
     // ── Copy buttons section ──
     const actions = document.createElement("div");
@@ -889,6 +1151,83 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
       actions.appendChild(copySigBtn);
     }
+  }
+
+  function renderProtoMethodSidebar(): void {
+    if (!selectedProtoMethod || !selectedProtocol) return;
+
+    sidebar.classList.add("cls-sidebar--open");
+    const saved = loadWidths("panels:classes:sidebar");
+    if (saved?.width) {
+      const max = panelMax("right");
+      const parsed = parseInt(saved.width, 10);
+      const clamped = Number.isFinite(parsed) ? Math.min(parsed, max) : parsed;
+      const w = `${clamped}px`;
+      sidebar.style.width = w;
+      sidebar.style.minWidth = w;
+    }
+    rightHandle.style.display = "";
+
+    const inner = document.createElement("div");
+    inner.className = "cls-sb-inner";
+    sidebar.appendChild(inner);
+
+    const m = selectedProtoMethod.method;
+    const sig = m.signature || m.selector;
+
+    // Close button
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "cls-sb-close";
+    closeBtn.textContent = "\u00D7";
+    closeBtn.title = "Close";
+    closeBtn.addEventListener("click", () => {
+      selectedProtoMethod = null;
+      sidebar.classList.remove("cls-sidebar--open");
+      sidebar.style.width = "";
+      sidebar.style.minWidth = "";
+      sidebar.innerHTML = "";
+      rightHandle.style.display = "none";
+      renderProtocolDetail();
+    });
+    inner.appendChild(closeBtn);
+
+    // Protocol name
+    const protoLabel = document.createElement("div");
+    protoLabel.className = "cls-sb-class";
+    protoLabel.textContent = `@protocol ${selectedProtocol.name}`;
+    inner.appendChild(protoLabel);
+
+    // Method signature
+    const sigBlock = document.createElement("div");
+    sigBlock.className = "cls-sb-sig";
+    sigBlock.textContent = sig;
+    inner.appendChild(sigBlock);
+
+    // Copy buttons
+    const actions = document.createElement("div");
+    actions.className = "cls-sb-actions";
+    inner.appendChild(actions);
+
+    // Copy protocol name
+    const copyProtoBtn = document.createElement("button");
+    copyProtoBtn.className = "cls-sb-btn";
+    copyProtoBtn.textContent = "Copy Protocol Name";
+    copyProtoBtn.addEventListener("click", () => copyWithFeedback(copyProtoBtn, selectedProtocol!.name));
+    actions.appendChild(copyProtoBtn);
+
+    // Copy selector
+    const copySelectorBtn = document.createElement("button");
+    copySelectorBtn.className = "cls-sb-btn";
+    copySelectorBtn.textContent = "Copy Selector";
+    copySelectorBtn.addEventListener("click", () => copyWithFeedback(copySelectorBtn, m.selector));
+    actions.appendChild(copySelectorBtn);
+
+    // Copy full signature
+    const copySigBtn = document.createElement("button");
+    copySigBtn.className = "cls-sb-btn";
+    copySigBtn.textContent = "Copy Signature";
+    copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
+    actions.appendChild(copySigBtn);
   }
 
   // Check for pending class selection (from cross-binary click on a different binary)

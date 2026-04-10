@@ -233,6 +233,15 @@ export interface ObjCClass {
   name: string;
   superclass?: string;
   methods: ObjCMethod[];
+  protocols?: string[];
+}
+
+export interface ObjCProtocol {
+  name: string;
+  instanceMethods: ObjCMethod[];
+  classMethods: ObjCMethod[];
+  optionalInstanceMethods: ObjCMethod[];
+  optionalClassMethods: ObjCMethod[];
 }
 
 // ── Entitlements ──
@@ -390,6 +399,7 @@ export interface AnalysisResult {
   symbols: Symbol[];
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
   entitlements: Entitlement[];
   infoPlist: { [key: string]: PlistValue };
   security: {

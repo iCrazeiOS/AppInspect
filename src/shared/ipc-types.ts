@@ -10,6 +10,7 @@ import type {
   LinkedLibrary,
   Symbol,
   ObjCClass,
+  ObjCProtocol,
   SecurityFinding,
   BinaryHardening,
   FileEntry,
@@ -55,7 +56,7 @@ export interface SymbolsTabData {
 
 export interface ClassesTabData {
   tab: 'classes';
-  data: { classes: ObjCClass[]; protocols: string[] };
+  data: { classes: ObjCClass[]; protocols: string[]; protocolDetails: ObjCProtocol[] };
 }
 
 export interface EntitlementsTabData {

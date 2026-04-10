@@ -133,7 +133,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
         case "symbols":
           return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
         case "classes":
-          return sanitizeBigInts({ tab: "classes", data: { classes: cached.classes, protocols: cached.protocols ?? [] } });
+          return sanitizeBigInts({ tab: "classes", data: { classes: cached.classes, protocols: cached.protocols ?? [], protocolDetails: cached.protocolDetails ?? [] } });
         case "entitlements": {
           const entObj: Record<string, unknown> = {};
           if (Array.isArray(cached.entitlements)) {
