@@ -291,13 +291,15 @@ async function analyseBinaryFile(
   progressCallback("Parsing load commands...", basePercent + 10);
   let lcResult: LoadCommandsResult | null = null;
   try {
-    const lcOffset = machoFile.offset + 32; // mach_header_64 = 32 bytes
+    const headerSize = machoFile.is64Bit ? 32 : 28;
+    const lcOffset = machoFile.offset + headerSize;
     lcResult = parseLoadCommands(
       buffer,
       lcOffset,
       header.ncmds,
       header.sizeofcmds,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     sharedLoadCommands = convertLoadCommands(lcResult);
     libraries = convertLibraries(lcResult);
@@ -367,6 +369,7 @@ async function analyseBinaryFile(
       lcResult.segments,
       rebaseMap,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     strings = convertStrings(rawStrings);
   } catch (err) {
@@ -390,6 +393,7 @@ async function analyseBinaryFile(
           }
         : null,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     symbols = convertSymbols(rawSymbols);
   } catch (err) {
@@ -407,6 +411,7 @@ async function analyseBinaryFile(
       lcResult.segments,
       rebaseMap,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     classes = objcMeta.classes;
     protocols = objcMeta.protocols;
@@ -645,6 +650,8 @@ async function analyseBinaryFile(
           rawSymbols,
           machoFile.littleEndian,
           rebaseMap,
+          machoFile.header.cputype,
+          machoFile.is64Bit,
         );
 
         // Annotate findings with function names
@@ -1026,9 +1033,10 @@ export class AnalysisSession {
       if (!headerResult.ok) return [];
 
       const machO = headerResult.data;
-      const lcOffset = machO.offset + 32;
+      const headerSize = machO.is64Bit ? 32 : 28;
+      const lcOffset = machO.offset + headerSize;
       const lcResult = parseLoadCommands(
-        buffer, lcOffset, machO.header.ncmds, machO.header.sizeofcmds, machO.littleEndian,
+        buffer, lcOffset, machO.header.ncmds, machO.header.sizeofcmds, machO.littleEndian, machO.is64Bit,
       );
 
       return lcResult.libraries.map((lib) => ({

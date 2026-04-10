@@ -7,6 +7,7 @@ import type { AnalysisResult } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
 import { decodeCpuType, decodeFileType, hexStr, cpuSubtypeName } from "../utils/macho";
+import { decodeLCName } from "../../shared/macho";
 
 type HeadersData = AnalysisResult["headers"];
 
@@ -38,37 +39,6 @@ const MH_FLAGS: Record<number, string> = {
   0x2000000: "MH_APP_EXTENSION_SAFE",
 };
 
-const LC_NAMES: Record<number, string> = {
-  0x1: "LC_SEGMENT",
-  0x2: "LC_SYMTAB",
-  0x4: "LC_THREAD",
-  0x5: "LC_UNIXTHREAD",
-  0xb: "LC_DYSYMTAB",
-  0xc: "LC_LOAD_DYLIB",
-  0xd: "LC_ID_DYLIB",
-  0xe: "LC_LOAD_DYLINKER",
-  0xf: "LC_ID_DYLINKER",
-  0x19: "LC_SEGMENT_64",
-  0x1a: "LC_ROUTINES_64",
-  0x1d: "LC_UUID",
-  0x1e: "LC_RPATH",
-  0x21: "LC_ENCRYPTION_INFO",
-  0x24: "LC_VERSION_MIN_IPHONEOS",
-  0x25: "LC_VERSION_MIN_MACOSX",
-  0x26: "LC_FUNCTION_STARTS",
-  0x29: "LC_DATA_IN_CODE",
-  0x2a: "LC_SOURCE_VERSION",
-  0x2e: "LC_MAIN",
-  0x32: "LC_BUILD_VERSION",
-  0x2c: "LC_ENCRYPTION_INFO_64",
-  0x80000018: "LC_LOAD_WEAK_DYLIB",
-  0x8000001c: "LC_REEXPORT_DYLIB",
-  0x80000022: "LC_DYLD_INFO_ONLY",
-  0x80000028: "LC_LOAD_UPWARD_DYLIB",
-  0x80000033: "LC_DYLD_EXPORTS_TRIE",
-  0x80000034: "LC_DYLD_CHAINED_FIXUPS",
-};
-
 function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
   const sub = cpusubtype & 0x00ffffff;
   const name = cpuSubtypeName(cputype, cpusubtype);
@@ -84,10 +54,6 @@ function decodeFlags(flags: number): string[] {
     if (flags & Number(bit)) result.push(name);
   }
   return result.length > 0 ? result : [`0x${flags.toString(16)}`];
-}
-
-function decodeLCName(cmd: number): string {
-  return LC_NAMES[cmd] ?? `LC_UNKNOWN(0x${cmd.toString(16)})`;
 }
 
 function humanSize(bytes: number | bigint | string): string {
@@ -135,6 +101,18 @@ function lcDetail(lc: LoadCommand): string {
       return `cryptid=${lc.encryption.cryptid}`;
     case "build_version":
       return `minos=${lc.buildVersion.minos} sdk=${lc.buildVersion.sdk}`;
+    case "uuid":
+      return lc.uuid;
+    case "main":
+      return `entry=0x${lc.entryoff.toString(16)}`;
+    case "rpath":
+      return lc.path;
+    case "source_version":
+      return lc.version;
+    case "dyld_info":
+      return `exports=${lc.exportSize}B bind=${lc.bindSize}B`;
+    case "id_dylib":
+      return `${lc.name} (${lc.currentVersion})`;
     case "generic":
       return "";
   }
@@ -249,8 +227,7 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
   const tbody = el("tbody");
   for (const lc of data.loadCommands) {
     const tr = el("tr", "hdr-lc-row");
-    const cmdName = lc.type === "generic" ? lc.cmdName : decodeLCName(lc.cmd);
-    tr.appendChild(el("td", "hdr-lc-td", cmdName));
+    tr.appendChild(el("td", "hdr-lc-td", decodeLCName(lc.cmd)));
     tr.appendChild(el("td", "hdr-lc-td", `${lc.cmdsize} B`));
     tr.appendChild(el("td", "hdr-lc-td hdr-lc-detail", lcDetail(lc)));
     tbody.appendChild(tr);

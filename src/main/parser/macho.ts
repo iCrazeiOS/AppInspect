@@ -22,6 +22,8 @@ export const FAT_CIGAM = 0xbebafeca; // Fat binary, little-endian (rare)
 
 export const CPU_TYPE_ARM64 = 0x0100000c;
 export const CPU_TYPE_X86_64 = 0x01000007;
+export const CPU_TYPE_ARM = 0x0000000c;
+export const CPU_TYPE_X86 = 0x00000007;
 
 export const MH_EXECUTE = 2;
 export const MH_DYLIB = 6;
@@ -41,6 +43,7 @@ export const MACHO_MAGICS = new Set([
 // Struct sizes
 const FAT_HEADER_SIZE = 8; // magic(4) + nfat_arch(4)
 const FAT_ARCH_SIZE = 20; // cputype(4) + cpusubtype(4) + offset(4) + size(4) + align(4)
+const MACH_HEADER_32_SIZE = 28; // magic(4) + cputype(4) + cpusubtype(4) + filetype(4) + ncmds(4) + sizeofcmds(4) + flags(4)
 const MACH_HEADER_64_SIZE = 32; // magic(4) + cputype(4) + cpusubtype(4) + filetype(4) + ncmds(4) + sizeofcmds(4) + flags(4) + reserved(4)
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -68,6 +71,7 @@ export interface MachOFile {
   header: MachOHeader;
   offset: number;
   littleEndian: boolean;
+  is64Bit: boolean;
 }
 
 export type Result<T> =
@@ -142,9 +146,8 @@ export function parseFatHeader(buffer: ArrayBuffer): Result<FatArch[]> {
 // ── Mach-O Header Parsing ──────────────────────────────────────────────
 
 /**
- * Parse a mach_header_64 at the given byte offset within the buffer.
- * Detects endianness from the magic value. Returns an error for 32-bit
- * headers or invalid magic.
+ * Parse a mach_header or mach_header_64 at the given byte offset within the buffer.
+ * Detects endianness and bitness from the magic value.
  */
 export function parseMachOHeader(
   buffer: ArrayBuffer,
@@ -158,38 +161,49 @@ export function parseMachOHeader(
   }
 
   const view = new DataView(buffer);
-  const rawMagic = view.getUint32(offset, false); // read big-endian first
+  const rawMagicBE = view.getUint32(offset, false); // read big-endian first
+  const rawMagicLE = view.getUint32(offset, true);  // also try little-endian
 
-  // Check for 32-bit Mach-O
-  if (rawMagic === MH_MAGIC || rawMagic === MH_CIGAM) {
-    return { ok: false, error: "32-bit Mach-O files are not supported" };
-  }
-
-  // Also check if reading as little-endian yields 32-bit magic
-  const rawMagicLE = view.getUint32(offset, true);
-  if (rawMagicLE === MH_MAGIC || rawMagicLE === MH_CIGAM) {
-    return { ok: false, error: "32-bit Mach-O files are not supported" };
-  }
-
-  // Determine 64-bit endianness
+  // Determine bitness and endianness from magic
   let littleEndian: boolean;
-  if (rawMagic === MH_MAGIC_64) {
-    // Read as big-endian and got native magic → file is big-endian
+  let is64Bit: boolean;
+
+  if (rawMagicBE === MH_MAGIC_64) {
+    // Read as big-endian and got 64-bit native magic → file is big-endian
     littleEndian = false;
-  } else if (rawMagic === MH_CIGAM_64) {
-    // Read as big-endian and got swapped magic → file is little-endian
+    is64Bit = true;
+  } else if (rawMagicBE === MH_CIGAM_64) {
+    // Read as big-endian and got 64-bit swapped magic → file is little-endian
     littleEndian = true;
+    is64Bit = true;
+  } else if (rawMagicBE === MH_MAGIC) {
+    // 32-bit native magic, big-endian
+    littleEndian = false;
+    is64Bit = false;
+  } else if (rawMagicBE === MH_CIGAM) {
+    // 32-bit swapped magic, little-endian
+    littleEndian = true;
+    is64Bit = false;
+  } else if (rawMagicLE === MH_MAGIC_64) {
+    // Little-endian read got 64-bit magic
+    littleEndian = true;
+    is64Bit = true;
+  } else if (rawMagicLE === MH_MAGIC) {
+    // Little-endian read got 32-bit magic
+    littleEndian = true;
+    is64Bit = false;
   } else {
     return {
       ok: false,
-      error: `Invalid Mach-O magic: 0x${rawMagic.toString(16).padStart(8, "0")}`,
+      error: `Invalid Mach-O magic: 0x${rawMagicBE.toString(16).padStart(8, "0")}`,
     };
   }
 
-  if (buffer.byteLength < offset + MACH_HEADER_64_SIZE) {
+  const headerSize = is64Bit ? MACH_HEADER_64_SIZE : MACH_HEADER_32_SIZE;
+  if (buffer.byteLength < offset + headerSize) {
     return {
       ok: false,
-      error: `Buffer too small for mach_header_64 at offset ${offset} (need ${offset + MACH_HEADER_64_SIZE} bytes, have ${buffer.byteLength})`,
+      error: `Buffer too small for mach_header${is64Bit ? "_64" : ""} at offset ${offset} (need ${offset + headerSize} bytes, have ${buffer.byteLength})`,
     };
   }
 
@@ -201,7 +215,7 @@ export function parseMachOHeader(
     ncmds: view.getUint32(offset + 16, littleEndian),
     sizeofcmds: view.getUint32(offset + 20, littleEndian),
     flags: view.getUint32(offset + 24, littleEndian),
-    reserved: view.getUint32(offset + 28, littleEndian),
+    reserved: is64Bit ? view.getUint32(offset + 28, littleEndian) : 0,
   };
 
   return {
@@ -210,6 +224,7 @@ export function parseMachOHeader(
       header,
       offset,
       littleEndian,
+      is64Bit,
     },
   };
 }

@@ -7,6 +7,8 @@ import {
   MH_MAGIC_64,
   MH_MAGIC,
   FAT_MAGIC,
+  CPU_TYPE_ARM,
+  CPU_TYPE_X86,
   CPU_TYPE_ARM64,
   CPU_TYPE_X86_64,
   MH_EXECUTE,
@@ -51,19 +53,36 @@ export function buildMachHeader64(opts: MachHeader64Options = {}): ArrayBuffer {
 
 // ── 32-bit mach_header builder ─────────────────────────────────────────
 
+export interface MachHeader32Options {
+  magic?: number;
+  cputype?: number;
+  cpusubtype?: number;
+  filetype?: number;
+  ncmds?: number;
+  sizeofcmds?: number;
+  flags?: number;
+  littleEndian?: boolean;
+}
+
 /**
- * Build a 28-byte mach_header (32-bit) buffer.
+ * Build a 28-byte mach_header (32-bit) buffer with configurable fields.
+ * Defaults to a valid ARM32 executable header in little-endian.
  */
-export function buildMachHeader32(littleEndian: boolean = true): ArrayBuffer {
+export function buildMachHeader32(opts: MachHeader32Options | boolean = {}): ArrayBuffer {
+  // Backward compatibility: if a boolean is passed, treat it as littleEndian
+  const options: MachHeader32Options = typeof opts === "boolean" ? { littleEndian: opts } : opts;
+  const le = options.littleEndian ?? true;
   const buf = new ArrayBuffer(28);
   const view = new DataView(buf);
-  view.setUint32(0, MH_MAGIC, littleEndian);
-  view.setUint32(4, 0x0000000c, littleEndian); // CPU_TYPE_ARM
-  view.setUint32(8, 0x00000000, littleEndian);
-  view.setUint32(12, MH_EXECUTE, littleEndian);
-  view.setUint32(16, 5, littleEndian);
-  view.setUint32(20, 400, littleEndian);
-  view.setUint32(24, 0, littleEndian);
+
+  view.setUint32(0, options.magic ?? MH_MAGIC, le);
+  view.setUint32(4, options.cputype ?? CPU_TYPE_ARM, le);
+  view.setUint32(8, options.cpusubtype ?? 0x00000000, le);
+  view.setUint32(12, options.filetype ?? MH_EXECUTE, le);
+  view.setUint32(16, options.ncmds ?? 5, le);
+  view.setUint32(20, options.sizeofcmds ?? 400, le);
+  view.setUint32(24, options.flags ?? 0, le);
+
   return buf;
 }
 
@@ -141,3 +160,25 @@ export const FAT_DUAL_ARCH = buildFatHeader([
   { cputype: CPU_TYPE_ARM64, cpusubtype: 0, offset: 16384, size: 50000, align: 14 },
   { cputype: CPU_TYPE_X86_64, cpusubtype: 3, offset: 70000, size: 45000, align: 14 },
 ]);
+
+// ── 32-bit pre-built fixtures ─────────────────────────────────────────
+
+/** A standard ARM32 executable header (little-endian) */
+export const ARM32_EXEC_HEADER = buildMachHeader32({
+  cputype: CPU_TYPE_ARM,
+  filetype: MH_EXECUTE,
+  ncmds: 10,
+  sizeofcmds: 600,
+  flags: 0,
+  littleEndian: true,
+});
+
+/** An x86 (32-bit) executable header (little-endian) */
+export const X86_EXEC_HEADER = buildMachHeader32({
+  cputype: CPU_TYPE_X86,
+  filetype: MH_EXECUTE,
+  ncmds: 12,
+  sizeofcmds: 700,
+  flags: 0,
+  littleEndian: true,
+});

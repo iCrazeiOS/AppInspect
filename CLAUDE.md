@@ -20,7 +20,7 @@ Three Electron processes with strict context isolation:
 - **Main** (`src/main/`) — analysis orchestrator, file I/O, IPC handlers
 - **Renderer** (`src/renderer/`) — vanilla TypeScript DOM manipulation, no framework
 - **Preload** (`src/preload/`) — typed `window.api` bridge via contextBridge
-- **MCP** (`src/mcp/`) — standalone MCP server for AI agents (runs under Bun, no Electron)
+- **MCP** (`src/mcp/`) — standalone MCP server for AI agents (runs under Bun, no Electron). **Important:** After running `bun run build:mcp`, you must restart Claude Code (or the MCP client) to pick up changes — the server process keeps running old code until restarted. If MCP tool results don't reflect your code changes, this is likely why.
 - **Shared** (`src/shared/`) — types shared across all processes (`types.ts`, `ipc-types.ts`)
 
 IPC: renderer invokes main via typed channels defined in `src/shared/ipc-types.ts`. Main sends progress/completion/error events back. All IPC types are in `InvokeChannelMap` and `SendChannelMap`.
