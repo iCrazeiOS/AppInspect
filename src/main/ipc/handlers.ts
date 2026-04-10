@@ -187,6 +187,30 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     return sanitizeBigInts(await session.getLibraryGraph());
   });
 
+  // ── read-hex ──
+  ipcMain.handle("read-hex", (_event, args: { sessionId: string; offset: number; length: number }) => {
+    try {
+      const session = getSession(args.sessionId);
+      return session.readHex(args.offset, args.length);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+      return null;
+    }
+  });
+
+  // ── search-hex ──
+  ipcMain.handle("search-hex", (_event, args: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[] }) => {
+    try {
+      const session = getSession(args.sessionId);
+      return session.searchHex(args.regionOffset, args.regionSize, args.pattern);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+      return null;
+    }
+  });
+
   // ── export-json ──
   ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
     const { sessionId } = args;

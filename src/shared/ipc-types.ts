@@ -159,6 +159,14 @@ export type InvokeChannelMap = {
     params: AppSettings;
     result: void;
   };
+  'read-hex': {
+    params: { sessionId: string; offset: number; length: number };
+    result: { offset: number; length: number; data: number[]; fileSize: number } | null;
+  };
+  'search-hex': {
+    params: { sessionId: string; regionOffset: number; regionSize: number; pattern: number[] };
+    result: { matches: number[] } | null;
+  };
 };
 
 // ── Send channels (main -> renderer) ──

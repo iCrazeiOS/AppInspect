@@ -171,6 +171,7 @@ interface BinaryAnalysisResult {
   security: { findings: SecurityFinding[]; hardening: BinaryHardening };
   hooks: HookInfo;
   errors: string[];
+  fatSliceOffset: number;
 }
 
 async function analyseBinaryFile(
@@ -204,6 +205,7 @@ async function analyseBinaryFile(
   let hardening: BinaryHardening = {
     pie: false, arc: false, stackCanaries: false, encrypted: false, stripped: true,
   };
+  let fatSliceOffset = 0;
 
   // Step 4: Read binary
   progressCallback("Reading binary...", basePercent);
@@ -221,7 +223,7 @@ async function analyseBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, hooks, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
 
@@ -249,6 +251,7 @@ async function analyseBinaryFile(
         // Slice the buffer to the selected architecture so all internal
         // offsets (symoff, stroff, section offsets, etc.) are correct.
         // For thin binaries (offset=0, size=full), this is a no-op.
+        fatSliceOffset = selectedArch.offset;
         if (selectedArch.offset > 0) {
           buffer = buffer.slice(selectedArch.offset, selectedArch.offset + selectedArch.size);
         }
@@ -280,7 +283,7 @@ async function analyseBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, hooks, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
 
@@ -328,7 +331,7 @@ async function analyseBinaryFile(
     return {
       header, fatArchs, loadCommands: sharedLoadCommands, libraries,
       buildVersion, encryptionInfo, strings, symbols, classes, protocols, entitlements,
-      uuid, teamId, security: { findings, hardening }, hooks, errors,
+      uuid, teamId, security: { findings, hardening }, hooks, errors, fatSliceOffset,
     };
   }
 
@@ -684,6 +687,7 @@ async function analyseBinaryFile(
     security: { findings, hardening },
     hooks,
     errors,
+    fatSliceOffset,
   };
 }
 
@@ -706,6 +710,7 @@ export class AnalysisSession {
   private sourceType: SourceType = "ipa";
   private filePath: string = "";
   private activeBinaryName: string = "";
+  private fatSliceOffset: number = 0;
   private searchIndex: Map<number, BinarySearchIndex> | null = null;
 
   // ── Getters ────────────────────────────────────────────────────────
@@ -723,6 +728,122 @@ export class AnalysisSession {
   /** Return how many binaries were discovered in the loaded container. */
   getBinariesCount(): number {
     return this.binaries.length;
+  }
+
+  /** Return the file path of the currently active binary. */
+  getActiveBinaryPath(): string | null {
+    if (this.binaries.length === 0) return this.filePath || null;
+    const active = this.binaries.find((b) => b.name === this.activeBinaryName);
+    return active?.path ?? this.binaries[0]?.path ?? null;
+  }
+
+  // ── Hex read ──────────────────────────────────────────────────────
+
+  /** Read raw bytes from the active binary for hex display. */
+  readHex(offset: number, length: number): { offset: number; length: number; data: number[]; fileSize: number } | null {
+    const binaryPath = this.getActiveBinaryPath();
+    if (!binaryPath) return null;
+
+    const MAX_LEN = 65536;
+    const safeLength = Math.min(Math.max(0, length), MAX_LEN);
+
+    const fd = fs.openSync(binaryPath, "r");
+    try {
+      const stat = fs.fstatSync(fd);
+      const fileSize = stat.size;
+      const absOffset = this.fatSliceOffset + offset;
+
+      // Compute the logical binary slice size
+      const sliceSize = this.fatSliceOffset > 0
+        ? Math.min(fileSize - this.fatSliceOffset, fileSize)
+        : fileSize;
+
+      if (absOffset >= fileSize) {
+        return { offset, length: 0, data: [], fileSize: sliceSize };
+      }
+      const readLen = Math.min(safeLength, fileSize - absOffset);
+      const buf = Buffer.alloc(readLen);
+      fs.readSync(fd, buf, 0, readLen, absOffset);
+
+      return { offset, length: readLen, data: Array.from(buf), fileSize: sliceSize };
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  /** Search for a byte pattern within a region of the active binary. */
+  searchHex(
+    regionOffset: number,
+    regionSize: number,
+    pattern: number[],
+  ): { matches: number[] } | null {
+    const binaryPath = this.getActiveBinaryPath();
+    if (!binaryPath || pattern.length === 0) return null;
+
+    const MAX_MATCHES = 10000;
+    const CHUNK_SIZE = 65536;
+    const matches: number[] = [];
+
+    const fd = fs.openSync(binaryPath, "r");
+    try {
+      const stat = fs.fstatSync(fd);
+      const fileSize = stat.size;
+      const absStart = this.fatSliceOffset + regionOffset;
+      const sliceSize = this.fatSliceOffset > 0
+        ? Math.min(fileSize - this.fatSliceOffset, fileSize)
+        : fileSize;
+      const safeRegionSize = Math.min(regionSize, sliceSize - regionOffset);
+
+      if (absStart >= fileSize || safeRegionSize <= 0) {
+        return { matches: [] };
+      }
+
+      // Read in chunks with overlap for cross-boundary matches
+      const overlap = pattern.length - 1;
+      let pos = 0;
+      let carryover = Buffer.alloc(0);
+
+      while (pos < safeRegionSize && matches.length < MAX_MATCHES) {
+        const readStart = absStart + pos;
+        const readLen = Math.min(CHUNK_SIZE, safeRegionSize - pos);
+        const buf = Buffer.alloc(readLen);
+        const bytesRead = fs.readSync(fd, buf, 0, readLen, readStart);
+        if (bytesRead === 0) break;
+
+        // Prepend carryover from previous chunk for cross-boundary matching
+        const searchBuf = carryover.length > 0
+          ? Buffer.concat([carryover, buf.subarray(0, bytesRead)])
+          : buf.subarray(0, bytesRead);
+        const searchStart = carryover.length > 0 ? 0 : 0;
+        const baseOffset = pos - carryover.length;
+
+        for (let i = searchStart; i <= searchBuf.length - pattern.length; i++) {
+          let found = true;
+          for (let j = 0; j < pattern.length; j++) {
+            if (searchBuf[i + j] !== pattern[j]) {
+              found = false;
+              break;
+            }
+          }
+          if (found) {
+            matches.push(regionOffset + baseOffset + i);
+            if (matches.length >= MAX_MATCHES) break;
+          }
+        }
+
+        pos += bytesRead;
+        // Keep the last (pattern.length - 1) bytes as carryover
+        if (overlap > 0 && bytesRead === readLen && pos < safeRegionSize) {
+          carryover = Buffer.from(buf.subarray(bytesRead - overlap, bytesRead));
+        } else {
+          carryover = Buffer.alloc(0);
+        }
+      }
+
+      return { matches };
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   // ── Library dependency graph ────────────────────────────────────────
@@ -988,6 +1109,7 @@ export class AnalysisSession {
     const mainBinary = binaries[0]!;
     this.activeBinaryName = mainBinary.name;
     const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
+    this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     // If code-signature entitlements were empty, try mobileprovision
     let finalEntitlements = binaryResult.entitlements;
@@ -1141,6 +1263,7 @@ export class AnalysisSession {
     const binary = this.binaries[binaryIndex]!;
     this.activeBinaryName = binary.name;
     const binaryResult = await analyseBinaryFile(binary.path, progressCallback, 0, cpuType, cpuSubtype);
+    this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     // Rebuild the result with the new binary data but keep IPA-level info
     const result: AnalysisResult = {
@@ -1206,6 +1329,7 @@ export class AnalysisSession {
 
     progressCallback("Analysing binary...", 10);
     const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
+    this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     const result: AnalysisResult = {
       overview: {
@@ -1292,6 +1416,7 @@ export class AnalysisSession {
     const mainBinary = this.binaries[0]!;
     this.activeBinaryName = mainBinary.name;
     const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
+    this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     // Step 3: Scan additional binaries if setting enabled
     let debExtraFindings: SecurityFinding[] = [];
@@ -1458,6 +1583,7 @@ export class AnalysisSession {
     const mainBinary = binaries[0]!;
     this.activeBinaryName = mainBinary.name;
     const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+    this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     // Entitlements from code signature
     let finalEntitlements = binaryResult.entitlements;
