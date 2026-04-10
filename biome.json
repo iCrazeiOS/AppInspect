@@ -41,7 +41,8 @@
 				"noUnusedImports": "warn"
 			},
 			"style": {
-				"useConst": "error"
+				"useConst": "error",
+				"noNonNullAssertion": "off"
 			},
 			"suspicious": {
 				"noExplicitAny": "warn",
