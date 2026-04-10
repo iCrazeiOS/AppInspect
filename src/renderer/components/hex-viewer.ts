@@ -566,8 +566,8 @@ export class HexViewer {
     // Ensure data for visible rows is loaded
     this.ensureChunksLoaded(start, end);
 
-    // Position row container at the pixel offset for the start row
-    rc.style.top = `${this.rowToScrollTop(start)}px`;
+    // Position so firstVisible aligns with scrollTop regardless of scaling
+    rc.style.top = `${scrollTop - (firstVisible - start) * ROW_HEIGHT}px`;
     rc.innerHTML = "";
 
     for (let row = start; row < end; row++) {
