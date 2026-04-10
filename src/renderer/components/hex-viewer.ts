@@ -113,6 +113,8 @@ export class HexViewer {
   private renderedEnd = -1;
   private matchVersion = 0;
   private renderedMatchVersion = -1;
+  private dataVersion = 0;
+  private renderedDataVersion = -1;
 
   constructor(opts: HexViewerOptions) {
     this.opts = opts;
@@ -521,11 +523,14 @@ export class HexViewer {
 
     this.updateLabel();
 
-    // Skip re-render if the visible window and match state haven't changed
-    if (start === this.renderedStart && end === this.renderedEnd && this.matchVersion === this.renderedMatchVersion) return;
+    // Skip re-render if nothing has changed
+    if (start === this.renderedStart && end === this.renderedEnd
+      && this.matchVersion === this.renderedMatchVersion
+      && this.dataVersion === this.renderedDataVersion) return;
     this.renderedStart = start;
     this.renderedEnd = end;
     this.renderedMatchVersion = this.matchVersion;
+    this.renderedDataVersion = this.dataVersion;
 
     // Ensure data for visible rows is loaded
     this.ensureChunksLoaded(start, end);
@@ -647,6 +652,7 @@ export class HexViewer {
 
     if (result && result.data.length > 0) {
       this.chunks.set(chunkIndex, result.data);
+      this.dataVersion++;
       // Re-render so the loaded data appears
       this.forceRerender();
     }
