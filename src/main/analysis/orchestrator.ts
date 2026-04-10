@@ -855,6 +855,7 @@ async function analyseBinaryFile(
       headerFlags: header.flags,
       encryption: encryptionInfo,
       loadCommands: lcResult.loadCommands.map((lc) => ({ cmd: lc.cmd })),
+      platform: buildVersion?.platform,
     });
 
     hardening = getBinaryHardening({

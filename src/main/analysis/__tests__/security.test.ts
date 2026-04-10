@@ -123,10 +123,10 @@ describe('Security Scan Engine', () => {
     expect(pie).toBeDefined();
   });
 
-  it('warns when PIE flag is missing', () => {
+  it('reports missing PIE as info', () => {
     const findings = runSecurityScan(baseParams({ headerFlags: 0 }));
     const pie = findings.find(
-      (f) => f.message.includes('PIE') && f.severity === 'warning',
+      (f) => f.message.includes('PIE') && f.severity === 'info',
     );
     expect(pie).toBeDefined();
   });
@@ -166,7 +166,7 @@ describe('Security Scan Engine', () => {
     expect(unsafe[0]!.severity).toBe('warning');
   });
 
-  it('warns on weak crypto functions like _CC_MD5', () => {
+  it('reports weak crypto functions as info', () => {
     const findings = runSecurityScan(
       baseParams({
         symbols: [makeSym('_CC_MD5')],
@@ -174,7 +174,7 @@ describe('Security Scan Engine', () => {
     );
     const weak = findings.filter((f) => f.category === 'weak-crypto');
     expect(weak.length).toBe(1);
-    expect(weak[0]!.severity).toBe('warning');
+    expect(weak[0]!.severity).toBe('info');
     expect(weak[0]!.evidence).toBe('_CC_MD5');
   });
 
@@ -258,29 +258,84 @@ describe('Security Scan Engine', () => {
 
   // ── Encryption ──
 
-  it('warns when binary is encrypted (cryptid != 0)', () => {
+  it('reports encryption status as info', () => {
     const findings = runSecurityScan(
       baseParams({
         encryption: { cryptoff: 0x1000, cryptsize: 0x2000, cryptid: 1 },
       }),
     );
     const enc = findings.find(
-      (f) => f.message.includes('encrypted') && f.severity === 'warning',
+      (f) => f.message.includes('encrypted') && f.severity === 'info',
     );
     expect(enc).toBeDefined();
   });
 
   // ── Rpath ──
 
-  it('reports LC_RPATH presence', () => {
+  it('reports LC_RPATH as warning on macOS', () => {
     const LC_RPATH_VAL = 0x8000001c;
     const findings = runSecurityScan(
       baseParams({
         loadCommands: [{ cmd: LC_RPATH_VAL, path: '/usr/lib' }],
+        platform: 1, // macOS
       }),
     );
     const rpath = findings.find((f) => f.message.includes('Rpath'));
     expect(rpath).toBeDefined();
-    expect(rpath!.severity).toBe('info');
+    expect(rpath!.severity).toBe('warning');
+  });
+
+  it('suppresses PIE and rpath findings on iOS', () => {
+    const LC_RPATH_VAL = 0x8000001c;
+    const findings = runSecurityScan(
+      baseParams({
+        headerFlags: 0,
+        loadCommands: [{ cmd: LC_RPATH_VAL, path: '/usr/lib' }],
+        platform: 2, // iOS
+      }),
+    );
+    expect(findings.find((f) => f.message.includes('PIE'))).toBeUndefined();
+    expect(findings.find((f) => f.message.includes('Rpath'))).toBeUndefined();
+  });
+
+  // ── iOS-specific severity adjustments ──
+
+  it('downgrades unsafe C APIs to info on iOS', () => {
+    const findings = runSecurityScan(
+      baseParams({
+        symbols: [makeSym('_strcpy')],
+        platform: 2, // iOS
+      }),
+    );
+    const unsafe = findings.filter((f) => f.category === 'unsafe-api');
+    expect(unsafe.length).toBe(1);
+    expect(unsafe[0]!.severity).toBe('info');
+  });
+
+  it('downgrades dangerous syscalls to info on iOS', () => {
+    const findings = runSecurityScan(
+      baseParams({
+        symbols: [makeSym('_system'), makeSym('_fork')],
+        platform: 2, // iOS
+      }),
+    );
+    const dangerous = findings.filter((f) => f.category === 'dangerous-api');
+    expect(dangerous.length).toBe(2);
+    expect(dangerous.every((f) => f.severity === 'info')).toBe(true);
+  });
+
+  // ── Google/Firebase key severity ──
+
+  it('reports Google/Firebase API key as warning not critical', () => {
+    const findings = runSecurityScan(
+      baseParams({
+        strings: [makeStr('AIzaSyA1234567890abcdefghijklmnopqrstuv')],
+      }),
+    );
+    const google = findings.filter(
+      (f) => f.category === 'credential-leak' && f.evidence.includes('AIza'),
+    );
+    expect(google.length).toBeGreaterThanOrEqual(1);
+    expect(google[0]!.severity).toBe('warning');
   });
 });

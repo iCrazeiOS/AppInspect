@@ -24,6 +24,7 @@ const MH_PIE = 0x200000;
 const SECRET_PATTERNS: Array<{
   name: string;
   pattern: RegExp;
+  severity?: SecurityFinding['severity'];
   message: string;
 }> = [
   {
@@ -74,6 +75,7 @@ const SECRET_PATTERNS: Array<{
   {
     name: 'Google/Firebase API Key',
     pattern: /AIza[0-9A-Za-z\-_]{35}/,
+    severity: 'warning',
     message: 'Google/Firebase/Gemini API key found',
   },
   {
@@ -99,24 +101,28 @@ const UNSAFE_API_SYMBOLS: Array<{
   names: string[];
   category: string;
   severity: SecurityFinding['severity'];
+  /** If set, use this severity on iOS instead of the default */
+  iosSeverity?: SecurityFinding['severity'];
   message: string;
 }> = [
   {
     names: ['_strcpy', '_strcat', '_sprintf', '_gets', '_scanf', '_vsprintf'],
     category: 'unsafe-api',
     severity: 'warning',
+    iosSeverity: 'info',
     message: 'Memory-unsafe function used',
   },
   {
     names: ['_CC_MD5', '_CC_SHA1', '_MD5_Init', '_SHA1_Init'],
     category: 'weak-crypto',
-    severity: 'warning',
+    severity: 'info',
     message: 'Weak cryptographic function used',
   },
   {
     names: ['_system', '_popen', '_fork', '_execve'],
     category: 'dangerous-api',
     severity: 'warning',
+    iosSeverity: 'info',
     message: 'Dangerous system call used',
   },
   {
@@ -243,14 +249,14 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
       }
 
       // Check secret patterns
-      for (const { pattern, message } of SECRET_PATTERNS) {
+      for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
         const match = pattern.exec(line);
         if (match) {
           const key = `credential-leak|${truncate(match[0])}|${file.relativePath}`;
           if (!seen.has(key)) {
             seen.add(key);
             findings.push({
-              severity: 'critical',
+              severity: patSeverity ?? 'critical',
               category: 'credential-leak',
               message: `${message} (in bundle file)`,
               evidence: truncate(match[0]),
@@ -285,12 +291,17 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
 
 // ── Public API ──
 
+// iOS-family platforms (from LC_BUILD_VERSION)
+const IOS_PLATFORMS = new Set([2, 3, 4, 7, 8, 9, 11, 12]); // iOS, tvOS, watchOS, simulators, visionOS
+
 export interface SecurityScanParams {
   strings: StringEntry[];
   symbols: Symbol[];
   headerFlags: number;
   encryption: EncryptionInfo | null;
   loadCommands: Array<{ cmd: number; [key: string]: unknown }>;
+  /** Platform from LC_BUILD_VERSION (2 = iOS, 1 = macOS, etc.) */
+  platform?: number;
 }
 
 /**
@@ -298,10 +309,11 @@ export interface SecurityScanParams {
  */
 export function runSecurityScan(params: SecurityScanParams): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
+  const isIOS = params.platform != null && IOS_PLATFORMS.has(params.platform);
 
   findings.push(...checkBinaryHardeningFindings(params));
   findings.push(...checkSecretPatterns(params.strings));
-  findings.push(...checkInsecureAPIs(params.symbols));
+  findings.push(...checkInsecureAPIs(params.symbols, isIOS));
   findings.push(...checkJailbreakDetection(params.strings));
 
   return findings;
@@ -353,17 +365,21 @@ function checkBinaryHardeningFindings(
 ): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
   const symbolNames = new Set(params.symbols.map((s) => s.name));
+  const isIOS = params.platform != null && IOS_PLATFORMS.has(params.platform);
+  const isMacOS = params.platform === 1 || params.platform === 6; // macOS, Mac Catalyst
 
-  // PIE
-  const pieEnabled = (params.headerFlags & MH_PIE) !== 0;
-  findings.push({
-    severity: pieEnabled ? 'info' : 'warning',
-    category: 'binary-hardening',
-    message: pieEnabled
-      ? 'PIE (Position Independent Executable) enabled'
-      : 'PIE (Position Independent Executable) is NOT enabled',
-    evidence: `headerFlags=0x${params.headerFlags.toString(16)}`,
-  });
+  // PIE (skip on iOS — always required by App Store)
+  if (!isIOS) {
+    const pieEnabled = (params.headerFlags & MH_PIE) !== 0;
+    findings.push({
+      severity: 'info',
+      category: 'binary-hardening',
+      message: pieEnabled
+        ? 'PIE (Position Independent Executable) enabled'
+        : 'PIE (Position Independent Executable) is NOT enabled',
+      evidence: `headerFlags=0x${params.headerFlags.toString(16)}`,
+    });
+  }
 
   // Stack canaries
   const canaries = hasStackCanaries(symbolNames);
@@ -395,7 +411,7 @@ function checkBinaryHardeningFindings(
   if (params.encryption) {
     const encrypted = params.encryption.cryptid !== 0;
     findings.push({
-      severity: encrypted ? 'warning' : 'info',
+      severity: 'info',
       category: 'binary-hardening',
       message: encrypted
         ? 'Binary is encrypted (cryptid != 0) — likely from App Store'
@@ -414,13 +430,15 @@ function checkBinaryHardeningFindings(
     });
   }
 
-  // Rpath
+  // Rpath (warning on macOS only — potential hijack vector; skip on iOS — sandboxed)
   const hasRpath = params.loadCommands.some((lc) => lc.cmd === LC_RPATH);
-  if (hasRpath) {
+  if (hasRpath && !isIOS) {
     findings.push({
-      severity: 'info',
+      severity: isMacOS ? 'warning' : 'info',
       category: 'binary-hardening',
-      message: 'Rpath present (potential hijack vector)',
+      message: isMacOS
+        ? 'Rpath present — potential hijack vector on macOS'
+        : 'Rpath present',
       evidence: 'LC_RPATH load command found',
     });
   }
@@ -506,11 +524,11 @@ function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
     }
 
     // ── Standard secret patterns ──
-    for (const { pattern, message } of SECRET_PATTERNS) {
+    for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
       const match = pattern.exec(entry.value);
       if (match) {
         findings.push({
-          severity: 'critical',
+          severity: patSeverity ?? 'critical',
           category: 'credential-leak',
           message,
           evidence: truncate(match[0]),
@@ -522,11 +540,11 @@ function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
     // Also check base64-encoded strings
     const decoded = tryBase64Decode(entry.value);
     if (decoded) {
-      for (const { pattern, message } of SECRET_PATTERNS) {
+      for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
         const match = pattern.exec(decoded);
         if (match) {
           findings.push({
-            severity: 'critical',
+            severity: patSeverity ?? 'critical',
             category: 'credential-leak',
             message: `${message} (base64 encoded)`,
             evidence: truncate(match[0]),
@@ -540,14 +558,14 @@ function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
   return findings;
 }
 
-function checkInsecureAPIs(symbols: Symbol[]): SecurityFinding[] {
+function checkInsecureAPIs(symbols: Symbol[], isIOS: boolean): SecurityFinding[] {
   const findings: SecurityFinding[] = [];
 
   for (const sym of symbols) {
     for (const group of UNSAFE_API_SYMBOLS) {
       if (group.names.includes(sym.name)) {
         findings.push({
-          severity: group.severity,
+          severity: (isIOS && group.iosSeverity) ? group.iosSeverity : group.severity,
           category: group.category,
           message: `${group.message}: ${sym.name}`,
           evidence: sym.name,
