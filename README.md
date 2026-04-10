@@ -22,7 +22,7 @@ File type is detected automatically by magic bytes.
 | **Overview** | Mach-O header summary, binary hardening status (PIE, ARC, stack canaries, encryption, stripped), build version, UUID, team ID, detected frameworks |
 | **Strings** | All embedded strings with section attribution and file offsets |
 | **Headers** | Mach-O header fields, fat architecture list, full load command dump |
-| **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags |
+| **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags. Interactive force-directed dependency graph view showing inter-binary relationships, with pan/zoom, node dragging, and category filtering |
 | **Symbols** | Exported, imported, and local symbols with addresses |
 | **Classes** | ObjC class names, instance and class methods with decoded type signatures, protocols, Logos hook generation |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
@@ -34,8 +34,11 @@ File type is detected automatically by magic bytes.
 
 ### Other capabilities
 
+- **Tabbed multi-file sessions** — open multiple files simultaneously in separate tabs, each with independent analysis state
 - **Multi-binary switching** — select between main app, frameworks, extensions, or multiple dylibs in a DEB
+- **Cross-binary search** — search classes, strings, symbols, or libraries across all binaries in a container at once
 - **Fat binary architecture selector** — choose which slice to analyse in universal binaries
+- **Jailbreak tweak detection** — identifies binaries linking hooking frameworks (Substrate, Libhooker, Substitute, ElleKit) and marks them as tweaks in the dependency graph
 - **FairPlay encryption detection** — warns when a binary is still encrypted (App Store builds)
 - **App framework detection** — identifies cross-platform frameworks (React Native, Expo, Flutter, Cordova, Capacitor, Xamarin/.NET MAUI, Kotlin Multiplatform, NativeScript, Titanium, Qt, Electron) and game engines (Unity, Unreal Engine, Godot, Cocos2d, GameMaker, Solar2D), plus linked system frameworks (SwiftUI, UIKit, ARKit, Metal, SceneKit, SpriteKit, RealityKit, GameKit, AppKit)
 - **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings and scans bundle files (JS bundles, JSON configs, plists)
@@ -44,6 +47,7 @@ File type is detected automatically by magic bytes.
 - **Drag-and-drop** — drop files onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
 - **Settings** — configurable options including multi-binary scanning
+- **Keyboard navigation** — Ctrl/Cmd+F for search, Ctrl+Tab to cycle file tabs, Alt+1-9 for section tabs, arrow keys in sidebar and lists
 - **Copy on double-click** — double-click any table cell to copy its contents
 
 ## Setup & Building
