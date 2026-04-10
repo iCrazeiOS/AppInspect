@@ -31,6 +31,7 @@ function createWindow(): BrowserWindow {
 	});
 
 	win.loadFile(path.join(APP_ROOT, "src/renderer/index.html"));
+	win.maximize();
 
 	if (process.platform === "darwin") {
 		win.webContents.on("dom-ready", () => {

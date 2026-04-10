@@ -14,7 +14,6 @@
     <!-- Drop zone overlay -->
     <div id="drop-overlay" class="drop-overlay hidden">
       <div class="drop-overlay-content">
-        <div class="drop-icon">&#x1F4E5;</div>
         <div class="drop-text">Drop file here</div>
       </div>
     </div>
@@ -42,10 +41,7 @@
               <input type="number" id="opt-max-file-size" class="settings-number" min="1" max="500" step="5" />
             </label>
           </div>
-          <button id="btn-open-ipa" class="btn-open-ipa">
-            <span class="btn-icon">&#x1F4C2;</span>
-            Open File
-          </button>
+          <button id="btn-open-ipa" class="btn-open-ipa">Open File</button>
           <!-- Binary selector (hidden until multiple binaries) -->
           <div id="binary-selector" class="binary-selector hidden">
             <label for="binary-dropdown" class="binary-label">Binary:</label>
@@ -59,70 +55,55 @@
         </div>
         <nav class="sidebar-nav">
           <button class="tab-btn active" data-tab="overview">
-            <span class="tab-icon">&#x1F4CA;</span>
             <span class="tab-label">Overview</span>
             <button class="export-tab-btn hidden" data-export-tab="overview" title="Export Overview as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="strings">
-            <span class="tab-icon">&#x1F524;</span>
             <span class="tab-label">Strings</span>
             <button class="export-tab-btn hidden" data-export-tab="strings" title="Export Strings as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="headers">
-            <span class="tab-icon">&#x1F4D1;</span>
             <span class="tab-label">Headers</span>
             <button class="export-tab-btn hidden" data-export-tab="headers" title="Export Headers as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="hex">
-            <span class="tab-icon">&#x1F50D;</span>
             <span class="tab-label">Hex</span>
           </button>
           <button class="tab-btn" data-tab="libraries">
-            <span class="tab-icon">&#x1F4DA;</span>
             <span class="tab-label">Libraries</span>
             <button class="export-tab-btn hidden" data-export-tab="libraries" title="Export Libraries as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="symbols">
-            <span class="tab-icon">&#x1F523;</span>
             <span class="tab-label">Symbols</span>
             <button class="export-tab-btn hidden" data-export-tab="symbols" title="Export Symbols as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="classes">
-            <span class="tab-icon">&#x1F3D7;</span>
             <span class="tab-label">Classes</span>
             <button class="export-tab-btn hidden" data-export-tab="classes" title="Export Classes as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="entitlements">
-            <span class="tab-icon">&#x1F512;</span>
             <span class="tab-label">Entitlements</span>
             <button class="export-tab-btn hidden" data-export-tab="entitlements" title="Export Entitlements as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="infoplist" id="tab-btn-infoplist">
-            <span class="tab-icon">&#x2699;</span>
             <span class="tab-label">Info.plist</span>
             <button class="export-tab-btn hidden" data-export-tab="infoPlist" title="Export Info.plist as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn hidden" data-tab="hooks" id="tab-btn-hooks">
-            <span class="tab-icon">&#x1F517;</span>
             <span class="tab-label">Hooks</span>
             <button class="export-tab-btn hidden" data-export-tab="hooks" title="Export Hooks as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="security">
-            <span class="tab-icon">&#x1F6E1;</span>
             <span class="tab-label">Security</span>
             <button class="export-tab-btn hidden" data-export-tab="security" title="Export Security as JSON">&#x2B07;</button>
           </button>
           <button class="tab-btn" data-tab="files">
-            <span class="tab-icon">&#x1F4C1;</span>
             <span class="tab-label">Files</span>
             <button class="export-tab-btn hidden" data-export-tab="files" title="Export Files as JSON">&#x2B07;</button>
           </button>
         </nav>
         <div class="sidebar-footer hidden" id="sidebar-footer">
-          <button id="btn-export-all" class="btn-export-all">
-            <span class="btn-icon">&#x1F4E4;</span>
-            Export All
-          </button>
+          <button id="btn-export-all" class="btn-export-all">Export All</button>
         </div>
       </aside>
 
@@ -147,12 +128,8 @@
 
         <!-- Empty state -->
         <div id="empty-state" class="empty-state">
-          <div class="empty-icon">&#x1F50D;</div>
           <p class="empty-text">Open or drop an IPA, .app bundle, DEB, or Mach-O binary to begin analysis</p>
-          <button id="btn-open-ipa-empty" class="btn-open-ipa-alt">
-            <span class="btn-icon">&#x1F4C2;</span>
-            Open File
-          </button>
+          <button id="btn-open-ipa-empty" class="btn-open-ipa-alt">Open File</button>
         </div>
 
         <!-- Tab content panels -->
