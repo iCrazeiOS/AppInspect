@@ -236,6 +236,14 @@ export interface ObjCClass {
   protocols?: string[];
 }
 
+export interface ObjCProtocol {
+  name: string;
+  instanceMethods: ObjCMethod[];
+  classMethods: ObjCMethod[];
+  optionalInstanceMethods: ObjCMethod[];
+  optionalClassMethods: ObjCMethod[];
+}
+
 // ── Entitlements ──
 
 /** Valid plist value types (recursive) */
@@ -391,6 +399,7 @@ export interface AnalysisResult {
   symbols: Symbol[];
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
   entitlements: Entitlement[];
   infoPlist: { [key: string]: PlistValue };
   security: {

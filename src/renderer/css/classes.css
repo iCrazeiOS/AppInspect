@@ -385,6 +385,19 @@
   color: var(--accent);
 }
 
+.cls-proto-method-group {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 12px 8px 4px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.cls-proto-method-group:first-child {
+  padding-top: 4px;
+}
+
 /* ── Method Detail Sidebar (cls-sb-) ── */
 
 .cls-sidebar {

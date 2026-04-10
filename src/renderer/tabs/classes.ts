@@ -25,9 +25,18 @@ interface ObjCClass {
   protocols?: string[];
 }
 
+interface ObjCProtocol {
+  name: string;
+  instanceMethods: ObjCMethod[];
+  classMethods: ObjCMethod[];
+  optionalInstanceMethods: ObjCMethod[];
+  optionalClassMethods: ObjCMethod[];
+}
+
 interface ClassesData {
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
 }
 
 const ROW_HEIGHT = 28;
@@ -70,10 +79,15 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
 
   const allClasses = [...(classesData.classes ?? [])].sort((a, b) => a.name.localeCompare(b.name));
   const allProtocols = [...(classesData.protocols ?? [])].sort((a, b) => a.localeCompare(b));
+  const protocolDetailsMap = new Map<string, ObjCProtocol>();
+  for (const p of classesData.protocolDetails ?? []) {
+    protocolDetailsMap.set(p.name, p);
+  }
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
   let selectedMethod: ObjCMethod | null = null;
   let selectedClassIndex = -1;
+  let selectedProtocol: ObjCProtocol | null = null;
 
   // ── Cross-binary search state ──
   const xbin = createCrossBinaryState();
@@ -489,6 +503,70 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     // Highlight and scroll
     item.classList.add("cls-proto-item-active");
     item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+    // Show protocol details
+    const proto = protocolDetailsMap.get(name);
+    if (proto) {
+      selectedProtocol = proto;
+      selectedClass = null;
+      selectedClassIndex = -1;
+      // Clear class selection UI
+      const activeClassItem = document.querySelector(".cls-item-active");
+      if (activeClassItem) activeClassItem.classList.remove("cls-item-active");
+      renderProtocolDetail();
+    }
+  }
+
+  function renderProtocolDetail(): void {
+    if (!selectedProtocol) return;
+
+    methodListContainer.innerHTML = "";
+    detailHeader.innerHTML = "";
+
+    const heading = document.createElement("h3");
+    heading.className = "cls-detail-name";
+    heading.textContent = `@protocol ${selectedProtocol.name}`;
+    detailHeader.appendChild(heading);
+
+    const hasAnyMethods =
+      selectedProtocol.instanceMethods.length > 0 ||
+      selectedProtocol.classMethods.length > 0 ||
+      selectedProtocol.optionalInstanceMethods.length > 0 ||
+      selectedProtocol.optionalClassMethods.length > 0;
+
+    if (!hasAnyMethods) {
+      const hint = document.createElement("div");
+      hint.className = "cls-detail-hint";
+      hint.textContent = "No methods defined in this protocol.";
+      methodListContainer.appendChild(hint);
+      return;
+    }
+
+    const methodList = document.createElement("ul");
+    methodList.className = "cls-method-list";
+
+    const addMethodGroup = (title: string, methods: ObjCMethod[], prefix: string) => {
+      if (methods.length === 0) return;
+      const groupHeader = document.createElement("li");
+      groupHeader.className = "cls-proto-method-group";
+      groupHeader.textContent = `${title} (${methods.length})`;
+      methodList.appendChild(groupHeader);
+
+      for (const m of methods) {
+        const li = document.createElement("li");
+        li.className = "cls-method-item";
+        li.textContent = `${prefix}${m.selector}`;
+        li.title = m.signature || m.selector;
+        methodList.appendChild(li);
+      }
+    };
+
+    addMethodGroup("Required Instance Methods", selectedProtocol.instanceMethods, "-");
+    addMethodGroup("Required Class Methods", selectedProtocol.classMethods, "+");
+    addMethodGroup("Optional Instance Methods", selectedProtocol.optionalInstanceMethods, "-");
+    addMethodGroup("Optional Class Methods", selectedProtocol.optionalClassMethods, "+");
+
+    methodListContainer.appendChild(methodList);
   }
 
   // ── Middle panel (method list) ──
@@ -680,6 +758,13 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   }
 
   function renderDetail(): void {
+    // Clear protocol selection when showing class detail
+    if (selectedProtocol) {
+      selectedProtocol = null;
+      for (const el of protoItems.values()) {
+        el.classList.remove("cls-proto-item-active");
+      }
+    }
     detailHeader.innerHTML = "";
     if (!selectedClass && !(searchAllClasses && methodSearchTerm)) {
       detailHeader.innerHTML = "";

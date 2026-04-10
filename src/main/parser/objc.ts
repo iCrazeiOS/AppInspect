@@ -31,9 +31,18 @@ export interface ObjCClass {
   protocols?: string[];
 }
 
+export interface ObjCProtocol {
+  name: string;
+  instanceMethods: ObjCMethod[];
+  classMethods: ObjCMethod[];
+  optionalInstanceMethods: ObjCMethod[];
+  optionalClassMethods: ObjCMethod[];
+}
+
 export interface ObjCMetadata {
   classes: ObjCClass[];
   protocols: string[];
+  protocolDetails: ObjCProtocol[];
 }
 
 // ── Pointer mask ─────────────────────────────────────────────────────
@@ -62,10 +71,19 @@ const CLASS_RO_BASEPROTOCOLS_OFFSET_64 = 40;  // baseMethods(8) after methods of
 const CLASS_RO_BASEPROTOCOLS_OFFSET_32 = 28;  // baseMethods(4) after methods offset
 
 // protocol_t layout:
-// 64-bit: isa(8) + mangledName(8) ...
-// 32-bit: isa(4) + mangledName(4) ...
+// 64-bit: isa(8) + mangledName(8) + protocols(8) + instanceMethods(8) + classMethods(8) +
+//         optionalInstanceMethods(8) + optionalClassMethods(8) + instanceProperties(8) + size(4) + flags(4)
+// 32-bit: same fields with 4-byte pointers
 const PROTOCOL_NAME_OFFSET_64 = 8;
 const PROTOCOL_NAME_OFFSET_32 = 4;
+const PROTOCOL_INSTANCE_METHODS_OFFSET_64 = 24;
+const PROTOCOL_INSTANCE_METHODS_OFFSET_32 = 12;
+const PROTOCOL_CLASS_METHODS_OFFSET_64 = 32;
+const PROTOCOL_CLASS_METHODS_OFFSET_32 = 16;
+const PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_64 = 40;
+const PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_32 = 20;
+const PROTOCOL_OPT_CLASS_METHODS_OFFSET_64 = 48;
+const PROTOCOL_OPT_CLASS_METHODS_OFFSET_32 = 24;
 
 // Absolute method entry size:
 // 64-bit: name_ptr(8) + types_ptr(8) + imp_ptr(8) = 24 bytes
@@ -703,6 +721,95 @@ function parseProtocolListAt(
 }
 
 /**
+ * Parse a single protocol_t structure to extract its full details.
+ */
+function parseProtocolDetail(
+  view: DataView,
+  protoFileOffset: number,
+  segments: Segment64[],
+  rebaseMap: Map<number, bigint>,
+  le: boolean,
+  is64Bit: boolean,
+): ObjCProtocol | null {
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  const nameOffset = is64Bit ? PROTOCOL_NAME_OFFSET_64 : PROTOCOL_NAME_OFFSET_32;
+  const instMethodsOffset = is64Bit ? PROTOCOL_INSTANCE_METHODS_OFFSET_64 : PROTOCOL_INSTANCE_METHODS_OFFSET_32;
+  const classMethodsOffset = is64Bit ? PROTOCOL_CLASS_METHODS_OFFSET_64 : PROTOCOL_CLASS_METHODS_OFFSET_32;
+  const optInstMethodsOffset = is64Bit ? PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_64 : PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_32;
+  const optClassMethodsOffset = is64Bit ? PROTOCOL_OPT_CLASS_METHODS_OFFSET_64 : PROTOCOL_OPT_CLASS_METHODS_OFFSET_32;
+
+  // Read name
+  if (protoFileOffset + nameOffset + ptrSize > view.byteLength) return null;
+  const nameVmaddr = resolvePointer(view, protoFileOffset + nameOffset, rebaseMap, le, segments, is64Bit);
+  if (nameVmaddr === 0n) return null;
+  const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
+  if (nameFileOffset === null) return null;
+  const name = readString(view, nameFileOffset);
+  if (name.length === 0) return null;
+
+  // Helper to parse a method list pointer
+  const parseMethodsAt = (offset: number, isClassMethod: boolean): ObjCMethod[] => {
+    if (protoFileOffset + offset + ptrSize > view.byteLength) return [];
+    const methodsVmaddr = resolvePointer(view, protoFileOffset + offset, rebaseMap, le, segments, is64Bit);
+    if (methodsVmaddr === 0n) return [];
+    const methodsFileOffset = vmaddrToFileOffset(methodsVmaddr, segments);
+    if (methodsFileOffset === null) return [];
+    return parseMethodList(view, methodsFileOffset, segments, rebaseMap, le, methodsVmaddr, !isClassMethod, is64Bit);
+  };
+
+  return {
+    name,
+    instanceMethods: parseMethodsAt(instMethodsOffset, false),
+    classMethods: parseMethodsAt(classMethodsOffset, true),
+    optionalInstanceMethods: parseMethodsAt(optInstMethodsOffset, false),
+    optionalClassMethods: parseMethodsAt(optClassMethodsOffset, true),
+  };
+}
+
+/**
+ * Parse __objc_protolist to extract protocol names and details.
+ */
+function parseProtocolsWithDetails(
+  view: DataView,
+  sections: Section64[],
+  segments: Segment64[],
+  rebaseMap: Map<number, bigint>,
+  le: boolean,
+  is64Bit: boolean,
+): { names: string[]; details: ObjCProtocol[] } {
+  const protolistSection = findObjCSection(sections, "__objc_protolist");
+  if (!protolistSection) return { names: [], details: [] };
+
+  const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+  const sectionOffset = vmaddrToFileOffset(protolistSection.addr, segments) ?? protolistSection.offset;
+  const sectionSize = Number(protolistSection.size);
+  const pointerCount = Math.floor(sectionSize / ptrSize);
+
+  const names: string[] = [];
+  const details: ObjCProtocol[] = [];
+
+  for (let i = 0; i < pointerCount; i++) {
+    const ptrFileOffset = sectionOffset + i * ptrSize;
+    if (ptrFileOffset + ptrSize > view.byteLength) break;
+
+    let protoVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
+    protoVmaddr = protoVmaddr & POINTER_MASK;
+    if (protoVmaddr === 0n) continue;
+
+    const protoFileOffset = vmaddrToFileOffset(protoVmaddr, segments);
+    if (protoFileOffset === null) continue;
+
+    const proto = parseProtocolDetail(view, protoFileOffset, segments, rebaseMap, le, is64Bit);
+    if (proto) {
+      names.push(proto.name);
+      details.push(proto);
+    }
+  }
+
+  return { names, details };
+}
+
+/**
  * Parse __objc_protolist to extract protocol names.
  *
  * protocol_t layout (simplified):
@@ -796,6 +903,7 @@ export function extractObjCMetadata(
   const result: ObjCMetadata = {
     classes: [],
     protocols: [],
+    protocolDetails: [],
   };
 
   // Step 1: Find __objc_classlist section
@@ -831,8 +939,10 @@ export function extractObjCMetadata(
     }
   }
 
-  // Step 6: Parse protocols
-  result.protocols = parseProtocols(view, sections, segments, rebaseMap, le, is64Bit);
+  // Step 6: Parse protocols with details
+  const protoResult = parseProtocolsWithDetails(view, sections, segments, rebaseMap, le, is64Bit);
+  result.protocols = protoResult.names;
+  result.protocolDetails = protoResult.details;
 
   return result;
 }
