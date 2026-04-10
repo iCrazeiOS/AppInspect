@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("close-session", { sessionId }),
   getLibraryGraph: (sessionId: string) =>
     ipcRenderer.invoke("get-library-graph", { sessionId }),
+  readHex: (sessionId: string, offset: number, length: number) =>
+    ipcRenderer.invoke("read-hex", { sessionId, offset, length }),
+  searchHex: (sessionId: string, regionOffset: number, regionSize: number, pattern: number[], caseInsensitive?: boolean) =>
+    ipcRenderer.invoke("search-hex", { sessionId, regionOffset, regionSize, pattern, caseInsensitive }),
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
   openFile: (filePath: string) =>

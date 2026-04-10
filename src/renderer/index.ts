@@ -5,6 +5,7 @@ import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { renderOverview } from "./tabs/overview";
 import { renderLibraries, cleanupLibrariesSession } from "./tabs/libraries";
 import { renderHeaders } from "./tabs/headers";
+import { renderHex } from "./tabs/hex";
 import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
 import { renderSecurity } from "./tabs/security";
@@ -331,6 +332,16 @@ function switchSectionTab(tabId: string): void {
 async function loadTabData(tabId: string): Promise<void> {
   const tab = getActiveFileTab();
   if (!tab) return;
+
+  // Hex tab uses analysis result directly — no IPC round-trip needed
+  if (tabId === "hex") {
+    tab.loadedSectionTabs.add(tabId);
+    const panel = document.getElementById("tab-hex");
+    if (panel && tab.analysisResult) {
+      renderHex(panel, { loadCommands: tab.analysisResult.headers.loadCommands }, tab.sessionId);
+    }
+    return;
+  }
 
   try {
     const tabData = await window.api.getTabData(tab.sessionId, tabId as import("../shared/ipc-types").TabName);

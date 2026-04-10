@@ -23,7 +23,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { AnalysisSession, pruneCache } from "../main/analysis/orchestrator";
+import { AnalysisSession, pruneCache, formatHexdump } from "../main/analysis/orchestrator";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import type { AnalysisResult } from "../shared/types";
 
@@ -199,6 +199,34 @@ const TOOLS = [
       required: ["binaryIndex"],
     },
   },
+  {
+    name: "read_hex",
+    description:
+      "Read raw hex bytes from the active binary at a given offset. " +
+      "Returns formatted hex dump or raw byte array. Use for inspecting " +
+      "raw binary content at specific offsets (e.g. segment/section data). " +
+      "Max 65536 bytes per request.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        offset: {
+          type: "number",
+          description: "Byte offset within the binary (e.g. segment fileoff or section offset)",
+        },
+        length: {
+          type: "number",
+          description: "Number of bytes to read (max 65536, default 256)",
+        },
+        format: {
+          type: "string",
+          enum: ["raw", "hexdump"],
+          description: "Output format: 'hexdump' returns formatted text (default), 'raw' returns byte array",
+        },
+        path: PATH_PARAM,
+      },
+      required: ["offset"],
+    },
+  },
 ];
 
 // ── Section data helpers ─────────────────────────────────────────────
@@ -361,6 +389,30 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
       }
       const result = await session.analyseBinary(index, noop);
       return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+    }
+
+    case "read_hex": {
+      const session = getSession(args.path as string | undefined);
+      const offset = args.offset as number;
+      if (offset === undefined || offset === null) {
+        return fail("Missing required parameter: offset");
+      }
+      const length = (args.length as number) ?? 256;
+      const format = (args.format as string) ?? "hexdump";
+
+      const result = session.readHex(offset, length);
+      if (!result) return fail("No binary loaded or offset out of range.");
+
+      if (format === "hexdump") {
+        return ok({
+          offset: result.offset,
+          length: result.length,
+          fileSize: result.fileSize,
+          hexdump: formatHexdump(result.data, result.offset),
+        });
+      }
+
+      return ok(result);
     }
 
     default:
