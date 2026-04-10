@@ -382,8 +382,8 @@
   text-overflow: ellipsis;
   color: var(--text);
   transition: background-color 100ms ease;
-  cursor: default;
-  user-select: text;
+  cursor: pointer;
+  user-select: none;
 }
 
 .cls-method-item:hover {
