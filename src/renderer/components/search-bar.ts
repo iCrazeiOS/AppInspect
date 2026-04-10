@@ -17,6 +17,9 @@ export class SearchBar {
   private regexMode = false;
   private caseSensitive = false;
 
+  /** Called when the user presses Escape in the search input. */
+  onEscape?: () => void;
+
   private static DEBOUNCE_MS = 200;
   private static DEBOUNCE_REGEX_MS = 400;
 
@@ -49,6 +52,13 @@ export class SearchBar {
     input.placeholder = "Search\u2026";
     input.spellcheck = false;
     input.addEventListener("input", () => this.handleInput());
+    input.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        input.blur();
+        this.onEscape?.();
+      }
+    });
     this.input = input;
     inputWrap.appendChild(input);
 

@@ -5,6 +5,10 @@
   box-sizing: border-box;
 }
 
+*:focus {
+  outline: none;
+}
+
 /* ── Variables ── */
 :root {
   --bg: #0d1117;
@@ -531,9 +535,6 @@ body.platform-darwin .app-title-row {
   padding: 0;
 }
 
-.file-tab-add:focus {
-  outline: none;
-}
 
 .file-tab-add:hover {
   color: var(--text);
@@ -879,6 +880,14 @@ body.platform-darwin .app-title-row {
 
 .dt-row:hover {
   background-color: rgba(88, 166, 255, 0.06);
+}
+
+.dt-row-selected {
+  background-color: rgba(88, 166, 255, 0.15);
+}
+
+.dt-row-selected:hover {
+  background-color: rgba(88, 166, 255, 0.18);
 }
 
 .dt-cell {

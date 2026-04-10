@@ -238,6 +238,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   let filteredClasses = allClasses;
   let selectedClass: ObjCClass | null = null;
   let selectedMethod: ObjCMethod | null = null;
+  let selectedClassIndex = -1;
 
   // ── Cross-binary search state ──
   const xbin = createCrossBinaryState();
@@ -274,6 +275,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       return;
     }
 
+    selectedClassIndex = -1;
     if (!term) {
       filteredClasses = allClasses;
     } else {
@@ -310,6 +312,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
   // Virtual scroll container for class list
   const scrollContainer = document.createElement("div");
   scrollContainer.className = "cls-scroll";
+  scrollContainer.tabIndex = 0;
   leftPanel.appendChild(scrollContainer);
 
   const spacer = document.createElement("div");
@@ -364,8 +367,10 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       row.textContent = cls.name;
       row.title = cls.name;
       row.addEventListener("click", () => {
+        selectedClassIndex = i;
         selectedClass = cls;
         selectedMethod = null;
+        scrollContainer.focus();
         renderVisibleRows();
         renderDetail();
         renderSidebar();
@@ -488,6 +493,103 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     },
     { passive: true }
   );
+
+  // ── Class list keyboard navigation ──
+
+  function moveClassSelection(delta: number): void {
+    const total = xbin.active ? xbin.results.length : filteredClasses.length;
+    if (total === 0) return;
+    let next = selectedClassIndex + delta;
+    if (selectedClassIndex === -1) next = delta > 0 ? 0 : total - 1;
+    if (next < 0) next = total - 1;
+    if (next >= total) next = 0;
+    setClassSelection(next);
+  }
+
+  function setClassSelection(index: number): void {
+    if (index === selectedClassIndex) return;
+    selectedClassIndex = index;
+
+    // Scroll into view
+    const rh = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
+    const rowTop = index * rh;
+    const rowBottom = rowTop + rh;
+    const viewTop = scrollContainer.scrollTop;
+    const viewBottom = viewTop + scrollContainer.clientHeight;
+    if (rowTop < viewTop) {
+      scrollContainer.scrollTop = rowTop;
+    } else if (rowBottom > viewBottom) {
+      scrollContainer.scrollTop = rowBottom - scrollContainer.clientHeight;
+    }
+
+    // Auto-select the class on navigation
+    if (!xbin.active) {
+      const cls = filteredClasses[index];
+      if (cls) {
+        selectedClass = cls;
+        selectedMethod = null;
+        renderDetail();
+        renderSidebar();
+      }
+    }
+
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    renderVisibleRows();
+  }
+
+  scrollContainer.addEventListener("keydown", (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+    const total = xbin.active ? xbin.results.length : filteredClasses.length;
+    if (total === 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        moveClassSelection(1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        moveClassSelection(-1);
+        break;
+      case "Home":
+        e.preventDefault();
+        setClassSelection(0);
+        break;
+      case "End":
+        e.preventDefault();
+        setClassSelection(total - 1);
+        break;
+      case "PageDown": {
+        e.preventDefault();
+        const rh = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
+        const page = Math.floor(scrollContainer.clientHeight / rh);
+        moveClassSelection(page);
+        break;
+      }
+      case "PageUp": {
+        e.preventDefault();
+        const rh = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
+        const page = Math.floor(scrollContainer.clientHeight / rh);
+        moveClassSelection(-page);
+        break;
+      }
+      case "Enter":
+        if (selectedClassIndex >= 0 && !xbin.active) {
+          const cls = filteredClasses[selectedClassIndex];
+          if (cls) {
+            selectedClass = cls;
+            selectedMethod = null;
+            renderVisibleRows();
+            renderDetail();
+            renderSidebar();
+          }
+        }
+        break;
+    }
+  });
+
+  searchBar.onEscape = () => scrollContainer.focus();
 
   // Restore saved search state (must happen after spacer/rowContainer are created)
   const savedState = getSearchState(sessionId, "classes");

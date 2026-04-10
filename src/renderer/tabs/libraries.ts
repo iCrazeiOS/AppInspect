@@ -103,6 +103,7 @@ export function renderLibraries(container: HTMLElement, data: LinkedLibrary[] | 
   });
   searchBar.mount(searchContainer);
   registerSearchBar(sessionId, "libraries", searchBar);
+  searchBar.onEscape = () => table.focus();
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {

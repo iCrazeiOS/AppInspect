@@ -152,6 +152,7 @@ export function renderStrings(container: HTMLElement, data: unknown, binaryCount
   });
   searchBar.mount(wrapper);
   registerSearchBar(sessionId, "strings", searchBar);
+  searchBar.onEscape = () => table.focus();
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {

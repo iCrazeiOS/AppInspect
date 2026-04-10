@@ -79,6 +79,7 @@ export function renderSymbols(container: HTMLElement, data: unknown, binaryCount
   });
   searchBar.mount(wrapper);
   registerSearchBar(sessionId, "symbols", searchBar);
+  searchBar.onEscape = () => table.focus();
 
   addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
     if (!xbin.active) {

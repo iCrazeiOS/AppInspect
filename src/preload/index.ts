@@ -40,4 +40,7 @@ contextBridge.exposeInMainWorld("api", {
   onCloseActiveTab: (cb: () => void) => {
     ipcRenderer.on("close-active-tab", () => cb());
   },
+  onOpenFile: (cb: () => void) => {
+    ipcRenderer.on("open-file-menu", () => cb());
+  },
 });

@@ -20,6 +20,7 @@ export interface AppInspectAPI {
   onComplete(cb: (data: AnalysisCompletePayload) => void): void;
   onError(cb: (data: AnalysisErrorPayload) => void): void;
   onCloseActiveTab(cb: () => void): void;
+  onOpenFile(cb: () => void): void;
 }
 
 declare global {

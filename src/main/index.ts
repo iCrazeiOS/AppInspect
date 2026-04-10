@@ -58,6 +58,11 @@ function buildMenuTemplate(win: BrowserWindow): Electron.MenuItemConstructorOpti
       label: "File",
       submenu: [
         {
+          label: "Open File",
+          accelerator: "CmdOrCtrl+O",
+          click: () => win.webContents.send("open-file-menu"),
+        },
+        {
           label: "Close Tab",
           accelerator: "CmdOrCtrl+W",
           click: () => win.webContents.send("close-active-tab"),

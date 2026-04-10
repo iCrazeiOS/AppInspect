@@ -39,6 +39,9 @@ export class DataTable {
   private isCapped = false;
   private showMoreEl: HTMLElement | null = null;
 
+  /** Currently selected row index (-1 = none). */
+  private selectedIndex = -1;
+
   onRowClick?: (row: Record<string, string | number>, index: number) => void;
 
   private static BUFFER = 20;
@@ -107,7 +110,9 @@ export class DataTable {
     this.rowContainer = rowContainer;
     scroll.appendChild(rowContainer);
 
+    scroll.tabIndex = 0;
     scroll.addEventListener("scroll", this.boundOnScroll, { passive: true });
+    scroll.addEventListener("keydown", (e: KeyboardEvent) => this.handleKeyDown(e));
     root.appendChild(scroll);
 
     container.appendChild(root);
@@ -246,6 +251,7 @@ export class DataTable {
       this.sortKey = key;
       this.sortAsc = true;
     }
+    this.selectedIndex = -1;
     this.applySort();
     this.renderHeader();
     this.renderVisibleRows();
@@ -272,6 +278,7 @@ export class DataTable {
 
   setData(data: Record<string, string | number>[]): void {
     this.allData = data;
+    this.selectedIndex = -1;
     this.applyFilter();
     this.applySort();
     this.updateSpacer();
@@ -280,6 +287,7 @@ export class DataTable {
 
   setFilter(filterFn: ((row: Record<string, string | number>) => boolean) | null): void {
     this.filterFn = filterFn;
+    this.selectedIndex = -1;
     this.applyFilter();
     this.applySort();
     this.updateSpacer();
@@ -326,6 +334,7 @@ export class DataTable {
         btn.className = "dt-show-more";
         btn.addEventListener("click", () => {
           this.isCapped = false;
+          this.selectedIndex = -1;
           this.filteredData = this.filterFn
             ? this.allData.filter(this.filterFn)
             : this.allData.slice();
@@ -365,6 +374,97 @@ export class DataTable {
     });
   }
 
+  private handleKeyDown(e: KeyboardEvent): void {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+    if (this.filteredData.length === 0) return;
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        this.moveSelection(1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        this.moveSelection(-1);
+        break;
+      case "Home":
+        e.preventDefault();
+        this.setSelection(0);
+        break;
+      case "End":
+        e.preventDefault();
+        this.setSelection(this.filteredData.length - 1);
+        break;
+      case "PageDown": {
+        e.preventDefault();
+        const page = Math.floor((this.scrollContainer?.clientHeight ?? 200) / this.rowHeight);
+        this.moveSelection(page);
+        break;
+      }
+      case "PageUp": {
+        e.preventDefault();
+        const page = Math.floor((this.scrollContainer?.clientHeight ?? 200) / this.rowHeight);
+        this.moveSelection(-page);
+        break;
+      }
+      case "Enter":
+        if (this.selectedIndex >= 0) {
+          const row = this.filteredData[this.selectedIndex];
+          if (row) this.onRowClick?.(row, this.selectedIndex);
+        }
+        break;
+    }
+  }
+
+  private moveSelection(delta: number): void {
+    const max = this.filteredData.length - 1;
+    if (max < 0) return;
+    let next = this.selectedIndex + delta;
+    if (this.selectedIndex === -1) next = delta > 0 ? 0 : max;
+    if (next < 0) next = max;
+    if (next > max) next = 0;
+    this.setSelection(next);
+  }
+
+  private setSelection(index: number): void {
+    if (index === this.selectedIndex) return;
+    this.selectedIndex = index;
+    this.scrollToIndex(index);
+    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = 0; }
+    this.renderVisibleRows();
+  }
+
+  private scrollToIndex(index: number): void {
+    if (!this.scrollContainer) return;
+    const rowTop = index * this.rowHeight;
+    const rowBottom = rowTop + this.rowHeight;
+    const viewTop = this.scrollContainer.scrollTop;
+    const viewBottom = viewTop + this.scrollContainer.clientHeight;
+
+    if (rowTop < viewTop) {
+      this.scrollContainer.scrollTop = rowTop;
+    } else if (rowBottom > viewBottom) {
+      this.scrollContainer.scrollTop = rowBottom - this.scrollContainer.clientHeight;
+    }
+  }
+
+  /** Programmatically select a row by index. */
+  selectRow(index: number): void {
+    this.setSelection(Math.max(0, Math.min(index, this.filteredData.length - 1)));
+  }
+
+  /** Clear the current row selection. */
+  clearSelection(): void {
+    this.selectedIndex = -1;
+    this.renderVisibleRows();
+  }
+
+  /** Focus the table's scroll container for keyboard navigation. */
+  focus(): void {
+    this.scrollContainer?.focus();
+  }
+
   private renderVisibleRows(): void {
     if (!this.scrollContainer || !this.rowContainer) return;
 
@@ -385,7 +485,7 @@ export class DataTable {
       const row = this.filteredData[i];
       if (!row) continue;
       const rowEl = document.createElement("div");
-      rowEl.className = "dt-row";
+      rowEl.className = i === this.selectedIndex ? "dt-row dt-row-selected" : "dt-row";
       rowEl.style.height = `${this.rowHeight}px`;
 
       for (const col of this.columns) {
@@ -408,7 +508,16 @@ export class DataTable {
         rowEl.style.cursor = "pointer";
         const idx = i;
         rowEl.addEventListener("click", () => {
+          this.selectedIndex = idx;
+          this.renderVisibleRows();
+          this.scrollContainer?.focus();
           this.onRowClick?.(row, idx);
+        });
+      } else {
+        rowEl.addEventListener("click", () => {
+          this.selectedIndex = i;
+          this.renderVisibleRows();
+          this.scrollContainer?.focus();
         });
       }
 

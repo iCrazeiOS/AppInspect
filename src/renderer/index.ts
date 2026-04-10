@@ -26,6 +26,7 @@ import {
   createFileTab,
   removeFileTab,
   setActiveFileTabId,
+  getOpenFileTabs,
 } from "./file-tabs";
 import type { FileTabState } from "./file-tabs";
 import {
@@ -74,7 +75,9 @@ console.log("[AppInspect] Renderer loaded. window.api =", typeof window.api, win
 
 // ── Keyboard shortcuts ──
 document.addEventListener("keydown", (e: KeyboardEvent) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+  const mod = e.metaKey || e.ctrlKey;
+
+  if (mod && e.key === "f") {
     e.preventDefault();
     const tab = getActiveFileTab();
     if (tab) {
@@ -82,9 +85,144 @@ document.addEventListener("keydown", (e: KeyboardEvent) => {
       if (bar) bar.focus();
     }
   }
-  if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+
+  if (mod && e.key === "w") {
     e.preventDefault();
     if (activeFileTabId) closeFileTab(activeFileTabId);
+  }
+
+  // Ctrl/Cmd+O: open file
+  if (mod && e.key === "o") {
+    e.preventDefault();
+    handleOpenIPA();
+  }
+
+  // Ctrl+Tab / Ctrl+Shift+Tab: cycle file tabs
+  if (e.ctrlKey && e.key === "Tab") {
+    e.preventDefault();
+    cycleFileTab(e.shiftKey ? -1 : 1);
+  }
+
+  // Ctrl/Cmd+1-9: jump to file tab by position
+  if (mod && !e.shiftKey && !e.altKey && e.key >= "1" && e.key <= "9") {
+    e.preventDefault();
+    jumpToFileTab(parseInt(e.key, 10) - 1);
+  }
+
+  // Alt+1-9: jump to section tab by position
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key >= "1" && e.key <= "9") {
+    e.preventDefault();
+    jumpToSectionTab(parseInt(e.key, 10) - 1);
+  }
+
+
+});
+
+// ── Tab cycling helpers ──
+
+function cycleFileTab(direction: number): void {
+  const tabs = getOpenFileTabs();
+  if (tabs.length <= 1) return;
+  const currentIdx = tabs.findIndex((t) => t.sessionId === activeFileTabId);
+  let nextIdx = currentIdx + direction;
+  if (nextIdx < 0) nextIdx = tabs.length - 1;
+  if (nextIdx >= tabs.length) nextIdx = 0;
+  const next = tabs[nextIdx];
+  if (next) switchFileTab(next.sessionId);
+}
+
+function jumpToFileTab(index: number): void {
+  const tabs = getOpenFileTabs();
+  const tab = tabs[index];
+  if (tab) switchFileTab(tab.sessionId);
+}
+
+function jumpToSectionTab(index: number): void {
+  const visibleBtns = Array.from(tabButtons).filter(
+    (btn) => !btn.classList.contains("hidden"),
+  );
+  const btn = visibleBtns[index];
+  if (btn) {
+    const tabId = btn.dataset["tab"];
+    if (tabId) switchSectionTab(tabId);
+  }
+}
+
+// ── Focus tab content ──
+
+/** When true, the next tab render should auto-focus the main interactive element. */
+let pendingContentFocus = false;
+
+/** Try to focus the primary interactive element in a tab panel. Returns true if found. */
+function focusTabContent(tabId: string): boolean {
+  const panel = document.getElementById(`tab-${tabId}`);
+  if (!panel) return false;
+
+  const dt = panel.querySelector<HTMLElement>(".dt-scroll");
+  if (dt) { dt.focus(); return true; }
+
+  const cls = panel.querySelector<HTMLElement>(".cls-scroll");
+  if (cls) { cls.focus(); return true; }
+
+  return false;
+}
+
+// ── Sidebar keyboard navigation ──
+
+/** Build ordered list of focusable sidebar elements (selectors, tabs, export). */
+function getSidebarFocusables(): HTMLElement[] {
+  const items: HTMLElement[] = [];
+  if (!binarySelector.classList.contains("hidden")) items.push(binaryDropdown);
+  if (!archSelector.classList.contains("hidden")) items.push(archDropdown);
+  tabButtons.forEach((btn) => {
+    if (!btn.classList.contains("hidden")) items.push(btn);
+  });
+  if (!sidebarFooter.classList.contains("hidden")) {
+    items.push($<HTMLElement>("#btn-export-all"));
+  }
+  return items;
+}
+
+$<HTMLElement>("#sidebar").addEventListener("keydown", (e: KeyboardEvent) => {
+  const target = e.target as HTMLElement;
+
+  // Enter on a tab button → focus the tab's main content
+  if (e.key === "Enter" && target.classList.contains("tab-btn")) {
+    e.preventDefault();
+    const tabId = (target as HTMLButtonElement).dataset["tab"];
+    if (!tabId) return;
+    switchSectionTab(tabId);
+    // Try focusing immediately (already-loaded tab); if not ready, set pending flag
+    requestAnimationFrame(() => {
+      if (!focusTabContent(tabId)) {
+        pendingContentFocus = true;
+      }
+    });
+    return;
+  }
+
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+
+  // Don't intercept arrows on <select> — they need native dropdown behavior
+  if (target.tagName === "SELECT") return;
+
+  const items = getSidebarFocusables();
+  const currentIdx = items.indexOf(target);
+  if (currentIdx === -1) return;
+
+  e.preventDefault();
+  const nextIdx = e.key === "ArrowDown"
+    ? Math.min(currentIdx + 1, items.length - 1)
+    : Math.max(currentIdx - 1, 0);
+
+  const next = items[nextIdx];
+  if (next) {
+    next.focus();
+    // If it's a section tab button, also activate it
+    if (next.classList.contains("tab-btn")) {
+      const tabId = (next as HTMLButtonElement).dataset["tab"];
+      if (tabId) switchSectionTab(tabId);
+    }
   }
 });
 
@@ -241,6 +379,12 @@ async function loadTabData(tabId: string): Promise<void> {
       }
     }
 
+    // Auto-focus content if Enter was pressed on the sidebar tab
+    if (pendingContentFocus) {
+      pendingContentFocus = false;
+      focusTabContent(tabId);
+    }
+
     console.log(`[AppInspect] Tab data loaded for: ${tabId}`, tabData);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -253,6 +397,7 @@ tabButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
     const tabId = btn.dataset["tab"];
     if (tabId) switchSectionTab(tabId);
+    btn.blur();
   });
 });
 
@@ -528,10 +673,11 @@ function closeFileTab(sessionId: string): void {
 // Wire up file tab bar callbacks
 setFileTabCallbacks(switchFileTab, closeFileTab);
 
-// Handle close-active-tab from app menu
+// Handle menu events from app menu
 window.api.onCloseActiveTab(() => {
   if (activeFileTabId) closeFileTab(activeFileTabId);
 });
+window.api.onOpenFile(() => handleOpenIPA());
 
 // ── Analysis ──
 async function startAnalysis(filePath: string): Promise<void> {
@@ -694,6 +840,9 @@ window.api.onProgress((data) => {
 
 window.api.onComplete((data) => {
   setTabLoading(data.sessionId, false);
+  if (data.sessionId === activeFileTabId) {
+    titlebarStatus.classList.add("hidden");
+  }
   console.log("[AppInspect] Analysis complete signal received for", data.sessionId);
 });
 
