@@ -277,7 +277,7 @@
   white-space: pre;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
-  padding: 4px 16px;
+  padding: 4px 16px !important;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 12px;
   flex-shrink: 0;
