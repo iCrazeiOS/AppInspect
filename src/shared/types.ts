@@ -155,6 +155,24 @@ export interface LCSourceVersion {
   version: string;
 }
 
+export interface LCDyldInfo {
+  type: 'dyld_info';
+  cmd: number;
+  cmdsize: number;
+  exportSize: number;
+  bindSize: number;
+  rebaseSize: number;
+}
+
+export interface LCIdDylib {
+  type: 'id_dylib';
+  cmd: number;
+  cmdsize: number;
+  name: string;
+  currentVersion: string;
+  compatVersion: string;
+}
+
 export type LoadCommand =
   | LCSegment
   | LCDylib
@@ -165,6 +183,8 @@ export type LoadCommand =
   | LCMain
   | LCRpath
   | LCSourceVersion
+  | LCDyldInfo
+  | LCIdDylib
   | LCGeneric;
 
 // ── Strings ──

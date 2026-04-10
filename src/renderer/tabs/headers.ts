@@ -109,6 +109,10 @@ function lcDetail(lc: LoadCommand): string {
       return lc.path;
     case "source_version":
       return lc.version;
+    case "dyld_info":
+      return `exports=${lc.exportSize}B bind=${lc.bindSize}B`;
+    case "id_dylib":
+      return `${lc.name} (${lc.currentVersion})`;
     case "generic":
       return "";
   }

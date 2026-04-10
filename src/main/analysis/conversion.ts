@@ -200,6 +200,32 @@ export function convertLoadCommands(lcResult: LoadCommandsResult): SharedLoadCom
       continue;
     }
 
+    // LC_DYLD_INFO / LC_DYLD_INFO_ONLY
+    if ("exportSize" in lc && typeof lc.exportSize === "number") {
+      result.push({
+        type: "dyld_info",
+        cmd,
+        cmdsize: lc.cmdsize,
+        exportSize: lc.exportSize,
+        bindSize: lc.bindSize,
+        rebaseSize: lc.rebaseSize,
+      });
+      continue;
+    }
+
+    // LC_ID_DYLIB (dylib identifying itself - has name but wasn't added to libraries)
+    if ("name" in lc && "currentVersion" in lc && "compatVersion" in lc && cmd === 0xd) {
+      result.push({
+        type: "id_dylib",
+        cmd,
+        cmdsize: lc.cmdsize,
+        name: lc.name as string,
+        currentVersion: lc.currentVersion as string,
+        compatVersion: lc.compatVersion as string,
+      });
+      continue;
+    }
+
     // Generic fallback
     result.push({
       type: "generic",

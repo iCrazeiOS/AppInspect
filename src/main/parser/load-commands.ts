@@ -15,17 +15,23 @@ export const LC_SEGMENT = 0x1;
 export const LC_SYMTAB = 0x2;
 export const LC_DYSYMTAB = 0xb;
 export const LC_LOAD_DYLIB = 0xc;
+export const LC_ID_DYLIB = 0xd;
 export const LC_UUID = 0x1b;
 export const LC_CODE_SIGNATURE = 0x1d;
 export const LC_SEGMENT_64 = 0x19;
+export const LC_LAZY_LOAD_DYLIB = 0x20;
+export const LC_DYLD_INFO = 0x22;
 export const LC_FUNCTION_STARTS = 0x26;
 export const LC_SOURCE_VERSION = 0x2a;
 export const LC_ENCRYPTION_INFO = 0x21;
 export const LC_ENCRYPTION_INFO_64 = 0x2c;
 export const LC_BUILD_VERSION = 0x32;
 export const LC_MAIN = 0x80000028;
-export const LC_LOAD_WEAK_DYLIB = 0x8000001d;
+export const LC_LOAD_WEAK_DYLIB = 0x80000018;
 export const LC_RPATH = 0x8000001c;
+export const LC_REEXPORT_DYLIB = 0x8000001f;
+export const LC_DYLD_INFO_ONLY = 0x80000022;
+export const LC_LOAD_UPWARD_DYLIB = 0x80000023;
 export const LC_DYLD_CHAINED_FIXUPS = 0x80000034;
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -138,6 +144,21 @@ export interface SourceVersionCommand {
   version: bigint;
 }
 
+export interface DyldInfoCommand {
+  cmd: number;
+  cmdsize: number;
+  rebaseOff: number;
+  rebaseSize: number;
+  bindOff: number;
+  bindSize: number;
+  weakBindOff: number;
+  weakBindSize: number;
+  lazyBindOff: number;
+  lazyBindSize: number;
+  exportOff: number;
+  exportSize: number;
+}
+
 export interface GenericLoadCommand {
   cmd: number;
   cmdsize: number;
@@ -155,6 +176,7 @@ export type LoadCommand =
   | LinkeditDataCommand
   | RpathCommand
   | SourceVersionCommand
+  | DyldInfoCommand
   | GenericLoadCommand;
 
 export interface LoadCommandsResult {
@@ -406,7 +428,11 @@ export function parseLoadCommands(
       }
 
       case LC_LOAD_DYLIB:
-      case LC_LOAD_WEAK_DYLIB: {
+      case LC_ID_DYLIB:
+      case LC_LOAD_WEAK_DYLIB:
+      case LC_REEXPORT_DYLIB:
+      case LC_LAZY_LOAD_DYLIB:
+      case LC_LOAD_UPWARD_DYLIB: {
         const nameOffset = view.getUint32(cursor + 8, le);
         // timestamp at cursor + 12 (skip)
         const currentVersion = readVersion(view.getUint32(cursor + 16, le));
@@ -421,8 +447,31 @@ export function parseLoadCommands(
           compatVersion,
           weak: cmd === LC_LOAD_WEAK_DYLIB,
         };
-        result.libraries.push(dylib);
+        // Only add to libraries list for load commands, not LC_ID_DYLIB
+        if (cmd !== LC_ID_DYLIB) {
+          result.libraries.push(dylib);
+        }
         parsed = dylib;
+        break;
+      }
+
+      case LC_DYLD_INFO:
+      case LC_DYLD_INFO_ONLY: {
+        const dyldInfo: DyldInfoCommand = {
+          cmd,
+          cmdsize,
+          rebaseOff: view.getUint32(cursor + 8, le),
+          rebaseSize: view.getUint32(cursor + 12, le),
+          bindOff: view.getUint32(cursor + 16, le),
+          bindSize: view.getUint32(cursor + 20, le),
+          weakBindOff: view.getUint32(cursor + 24, le),
+          weakBindSize: view.getUint32(cursor + 28, le),
+          lazyBindOff: view.getUint32(cursor + 32, le),
+          lazyBindSize: view.getUint32(cursor + 36, le),
+          exportOff: view.getUint32(cursor + 40, le),
+          exportSize: view.getUint32(cursor + 44, le),
+        };
+        parsed = dyldInfo;
         break;
       }
 
