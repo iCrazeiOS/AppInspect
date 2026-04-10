@@ -9,7 +9,7 @@ Built with Electron and TypeScript. All analysis runs locally, offline, with no 
 ### File format support
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
-- **macOS .app** — supports macOS app bundles (`Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
+- **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (64-bit, fat/universal)
 
