@@ -468,6 +468,7 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       const item = document.createElement("div");
       item.className = "cls-proto-item";
       item.textContent = p;
+      item.addEventListener("click", () => selectProtocol(p));
       protoList.appendChild(item);
       protoItems.set(p, item);
     }
@@ -483,26 +484,17 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     leftPanel.appendChild(protoSection);
   }
 
-  function scrollToProtocol(name: string): void {
-    if (!protoHeader || !protoList) return;
-    const item = protoItems.get(name);
-    if (!item) return;
-
-    // Expand if collapsed
-    if (!protoExpanded) {
-      protoExpanded = true;
-      protoHeader.textContent = `\u25BC Protocols (${allProtocols.length})`;
-      protoList.style.display = "block";
-    }
-
+  function selectProtocol(name: string): void {
     // Remove previous highlight
     for (const el of protoItems.values()) {
       el.classList.remove("cls-proto-item-active");
     }
 
-    // Highlight and scroll
-    item.classList.add("cls-proto-item-active");
-    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Highlight selected
+    const item = protoItems.get(name);
+    if (item) {
+      item.classList.add("cls-proto-item-active");
+    }
 
     // Show protocol details
     const proto = protocolDetailsMap.get(name);
@@ -515,6 +507,23 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       if (activeClassItem) activeClassItem.classList.remove("cls-item-active");
       renderProtocolDetail();
     }
+  }
+
+  function scrollToProtocol(name: string): void {
+    if (!protoHeader || !protoList) return;
+    const item = protoItems.get(name);
+    if (!item) return;
+
+    // Expand if collapsed
+    if (!protoExpanded) {
+      protoExpanded = true;
+      protoHeader.textContent = `\u25BC Protocols (${allProtocols.length})`;
+      protoList.style.display = "block";
+    }
+
+    // Select and scroll
+    selectProtocol(name);
+    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   function renderProtocolDetail(): void {

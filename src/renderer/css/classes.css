@@ -296,11 +296,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.cls-proto-item:hover {
+  background-color: var(--bg-hover);
 }
 
 .cls-proto-item-active {
   background-color: var(--accent-subtle);
   color: var(--accent);
+}
+
+.cls-proto-item-active:hover {
+  background-color: var(--accent-subtle);
 }
 
 .cls-detail-hint {
