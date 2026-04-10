@@ -5,9 +5,9 @@
  * Bridges renderer requests to the analysis orchestrator.
  */
 
+import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { writeFileSync } from "fs";
-import path from "path";
 import type { TabName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
 import type { SearchableTab } from "../analysis/orchestrator";

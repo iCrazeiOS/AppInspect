@@ -5,9 +5,9 @@
  * (CMS/DER envelope containing XML plist) from an extracted .app bundle.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import bplist from "bplist-parser";
-import * as fs from "fs";
-import * as path from "path";
 import plist from "plist";
 
 // ── Result Types ──────────────────────────────────────────────────────

@@ -8,7 +8,7 @@
  * Does NOT parse load commands or read files from disk.
  */
 
-import * as fs from "fs";
+import * as fs from "node:fs";
 
 // ── Constants ──────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
-import path from "path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { AnalysisSession, formatHexdump } from "../orchestrator";
 
 const TMP_DIR = path.join(import.meta.dir, ".tmp-hex-test");

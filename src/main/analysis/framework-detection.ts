@@ -5,8 +5,8 @@
  * to detect cross-platform frameworks, game engines, and system frameworks.
  */
 
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 export function detectAppFrameworks(appBundlePath: string, linkedLibs: string[] = []): string[] {
 	const frameworksDir = path.join(appBundlePath, "Frameworks");

@@ -1,5 +1,5 @@
+import path from "node:path";
 import { app, BrowserWindow, Menu } from "electron";
-import path from "path";
 import { pruneCache } from "./analysis/orchestrator";
 import { registerIPCHandlers } from "./ipc/handlers";
 
