@@ -3375,8 +3375,17 @@ body.platform-darwin .app-title-row {
 
 .hv-offset {
   color: #79c0ff;
-  min-width: 9ch;
+  min-width: 11ch;
   flex-shrink: 0;
+}
+
+.hv-offset-toggle {
+  cursor: pointer;
+  transition: color 100ms ease;
+}
+
+.hv-offset-toggle:hover {
+  color: var(--accent-hover);
 }
 
 .hv-hex {

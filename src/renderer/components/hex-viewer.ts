@@ -96,6 +96,9 @@ export class HexViewer {
   private chunks = new Map<number, number[]>();
   private pendingChunks = new Set<number>();
 
+  // Display state
+  private offsetMode: "hex" | "dec" = "hex";
+
   // Search state
   private searchMode: "hex" | "text" = "hex";
   private matches: number[] = [];
@@ -310,7 +313,20 @@ export class HexViewer {
 
   private buildHeader(): HTMLElement {
     const header = el("div", "hv-row hv-header-row");
-    header.appendChild(el("span", "hv-offset", "Offset  "));
+    const offsetLabel = el("span", "hv-offset hv-offset-toggle",
+      this.offsetMode === "hex" ? "Offset  " : "Offset  ",
+    );
+    offsetLabel.title = "Click to toggle hex/decimal offsets";
+    offsetLabel.addEventListener("click", () => {
+      this.offsetMode = this.offsetMode === "hex" ? "dec" : "hex";
+      // Rebuild header and re-render rows
+      if (this.headerWrap) {
+        this.headerWrap.innerHTML = "";
+        this.headerWrap.appendChild(this.buildHeader());
+      }
+      this.forceRerender();
+    });
+    header.appendChild(offsetLabel);
     const hexH = el("span", "hv-hex");
     for (let i = 0; i < this.bytesPerRow; i++) {
       if (i > 0 && i % 8 === 0) hexH.appendChild(el("span", "hv-hex-gap", " "));
@@ -527,7 +543,10 @@ export class HexViewer {
     row.style.height = `${ROW_HEIGHT}px`;
 
     // Offset column
-    row.appendChild(el("span", "hv-offset", hexOffset(fileOffset)));
+    const offsetText = this.offsetMode === "hex"
+      ? hexOffset(fileOffset)
+      : String(fileOffset).padStart(10, " ");
+    row.appendChild(el("span", "hv-offset", offsetText));
 
     // Hex column
     const hexCol = el("span", "hv-hex");
