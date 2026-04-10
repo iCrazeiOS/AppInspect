@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { writeFileSync, mkdirSync, rmSync } from "fs";
 import path from "path";
-import { AnalysisSession } from "../orchestrator";
+import { AnalysisSession, formatHexdump } from "../orchestrator";
 
 const TMP_DIR = path.join(import.meta.dir, ".tmp-hex-test");
 const TEST_FILE = path.join(TMP_DIR, "test.bin");
@@ -135,5 +135,46 @@ describe("AnalysisSession.searchHex", () => {
     const result = session.searchHex(0, 32, pattern);
     expect(result).not.toBeNull();
     expect(result!.matches).toEqual([]);
+  });
+});
+
+describe("formatHexdump", () => {
+  it("formats a full 16-byte row", () => {
+    const data = [
+      0x48, 0x45, 0x4c, 0x4c, 0x4f, 0x5f, 0x48, 0x45,
+      0x58, 0x00, 0x01, 0x02, 0xff, 0x7e, 0x20, 0x7f,
+    ];
+    const result = formatHexdump(data, 0x100);
+    expect(result).toBe(
+      "00000100  48 45 4C 4C 4F 5F 48 45  58 00 01 02 FF 7E 20 7F  |HELLO_HEX....~ .|",
+    );
+  });
+
+  it("pads a partial last row", () => {
+    const data = [0x41, 0x42, 0x43];
+    const result = formatHexdump(data, 0);
+    // 3 bytes + 13 empty slots
+    expect(result).toBe(
+      "00000000  41 42 43                                          |ABC|",
+    );
+  });
+
+  it("formats multiple rows", () => {
+    const data = new Array(32).fill(0).map((_, i) => i);
+    const lines = formatHexdump(data, 0).split("\n");
+    expect(lines.length).toBe(2);
+    expect(lines[0]!.startsWith("00000000")).toBe(true);
+    expect(lines[1]!.startsWith("00000010")).toBe(true);
+  });
+
+  it("replaces non-printable bytes with dots in ASCII column", () => {
+    const data = [0x00, 0x1f, 0x20, 0x7e, 0x7f, 0x80, 0xff];
+    const result = formatHexdump(data, 0);
+    // 0x00=. 0x1f=. 0x20=space 0x7e=~ 0x7f=. 0x80=. 0xff=.
+    expect(result).toContain("|.. ~...|");
+  });
+
+  it("returns empty string for empty data", () => {
+    expect(formatHexdump([], 0)).toBe("");
   });
 });

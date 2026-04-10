@@ -23,7 +23,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { AnalysisSession, pruneCache } from "../main/analysis/orchestrator";
+import { AnalysisSession, pruneCache, formatHexdump } from "../main/analysis/orchestrator";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import type { AnalysisResult } from "../shared/types";
 
@@ -404,30 +404,11 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
       if (!result) return fail("No binary loaded or offset out of range.");
 
       if (format === "hexdump") {
-        const lines: string[] = [];
-        for (let i = 0; i < result.data.length; i += 16) {
-          const rowBytes = result.data.slice(i, i + 16);
-          const addr = (result.offset + i).toString(16).padStart(8, "0").toUpperCase();
-          const hexParts: string[] = [];
-          for (let j = 0; j < 16; j++) {
-            if (j < rowBytes.length) {
-              hexParts.push(rowBytes[j]!.toString(16).padStart(2, "0").toUpperCase());
-            } else {
-              hexParts.push("  ");
-            }
-          }
-          const hexLeft = hexParts.slice(0, 8).join(" ");
-          const hexRight = hexParts.slice(8).join(" ");
-          const ascii = rowBytes
-            .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
-            .join("");
-          lines.push(`${addr}  ${hexLeft}  ${hexRight}  |${ascii}|`);
-        }
         return ok({
           offset: result.offset,
           length: result.length,
           fileSize: result.fileSize,
-          hexdump: lines.join("\n"),
+          hexdump: formatHexdump(result.data, result.offset),
         });
       }
 
