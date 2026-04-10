@@ -369,6 +369,7 @@ async function analyseBinaryFile(
       lcResult.segments,
       rebaseMap,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     strings = convertStrings(rawStrings);
   } catch (err) {
@@ -392,6 +393,7 @@ async function analyseBinaryFile(
           }
         : null,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     symbols = convertSymbols(rawSymbols);
   } catch (err) {
@@ -409,6 +411,7 @@ async function analyseBinaryFile(
       lcResult.segments,
       rebaseMap,
       machoFile.littleEndian,
+      machoFile.is64Bit,
     );
     classes = objcMeta.classes;
     protocols = objcMeta.protocols;

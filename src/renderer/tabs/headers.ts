@@ -48,23 +48,33 @@ const LC_NAMES: Record<number, string> = {
   0xd: "LC_ID_DYLIB",
   0xe: "LC_LOAD_DYLINKER",
   0xf: "LC_ID_DYLINKER",
+  0x11: "LC_ROUTINES",
   0x19: "LC_SEGMENT_64",
   0x1a: "LC_ROUTINES_64",
-  0x1d: "LC_UUID",
-  0x1e: "LC_RPATH",
+  0x1b: "LC_UUID",
+  0x1d: "LC_CODE_SIGNATURE",
+  0x1e: "LC_SEGMENT_SPLIT_INFO",
+  0x20: "LC_LAZY_LOAD_DYLIB",
   0x21: "LC_ENCRYPTION_INFO",
-  0x24: "LC_VERSION_MIN_IPHONEOS",
-  0x25: "LC_VERSION_MIN_MACOSX",
+  0x22: "LC_DYLD_INFO",
+  0x24: "LC_VERSION_MIN_MACOSX",
+  0x25: "LC_VERSION_MIN_IPHONEOS",
   0x26: "LC_FUNCTION_STARTS",
+  0x27: "LC_DYLD_ENVIRONMENT",
   0x29: "LC_DATA_IN_CODE",
   0x2a: "LC_SOURCE_VERSION",
-  0x2e: "LC_MAIN",
-  0x32: "LC_BUILD_VERSION",
+  0x2b: "LC_DYLIB_CODE_SIGN_DRS",
   0x2c: "LC_ENCRYPTION_INFO_64",
+  0x2d: "LC_LINKER_OPTION",
+  0x2e: "LC_LINKER_OPTIMIZATION_HINT",
+  0x2f: "LC_VERSION_MIN_TVOS",
+  0x30: "LC_VERSION_MIN_WATCHOS",
+  0x32: "LC_BUILD_VERSION",
   0x80000018: "LC_LOAD_WEAK_DYLIB",
-  0x8000001c: "LC_REEXPORT_DYLIB",
+  0x8000001c: "LC_RPATH",
+  0x8000001d: "LC_REEXPORT_DYLIB",
   0x80000022: "LC_DYLD_INFO_ONLY",
-  0x80000028: "LC_LOAD_UPWARD_DYLIB",
+  0x80000028: "LC_MAIN",
   0x80000033: "LC_DYLD_EXPORTS_TRIE",
   0x80000034: "LC_DYLD_CHAINED_FIXUPS",
 };
@@ -249,8 +259,7 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
   const tbody = el("tbody");
   for (const lc of data.loadCommands) {
     const tr = el("tr", "hdr-lc-row");
-    const cmdName = lc.type === "generic" ? lc.cmdName : decodeLCName(lc.cmd);
-    tr.appendChild(el("td", "hdr-lc-td", cmdName));
+    tr.appendChild(el("td", "hdr-lc-td", decodeLCName(lc.cmd)));
     tr.appendChild(el("td", "hdr-lc-td", `${lc.cmdsize} B`));
     tr.appendChild(el("td", "hdr-lc-td hdr-lc-detail", lcDetail(lc)));
     tbody.appendChild(tr);
