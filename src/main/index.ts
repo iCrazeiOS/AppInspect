@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu } from "electron";
 import path from "path";
 import { registerIPCHandlers } from "./ipc/handlers";
+import { pruneCache } from "./analysis/orchestrator";
 
 const APP_ROOT = path.join(app.getAppPath());
 
@@ -89,6 +90,7 @@ app.whenReady().then(() => {
   const menu = Menu.buildFromTemplate(menuTemplate);
   Menu.setApplicationMenu(menu);
 
+  pruneCache();
   createWindow();
 
   app.on("activate", () => {

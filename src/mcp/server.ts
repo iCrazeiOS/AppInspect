@@ -23,7 +23,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { AnalysisSession } from "../main/analysis/orchestrator";
+import { AnalysisSession, pruneCache } from "../main/analysis/orchestrator";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import type { AnalysisResult } from "../shared/types";
 
@@ -390,6 +390,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return fail(message);
   }
 });
+
+// Clean up stale cache entries on startup and exit
+pruneCache();
+process.on("exit", () => pruneCache());
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

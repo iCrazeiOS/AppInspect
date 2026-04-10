@@ -95,6 +95,34 @@ function isCacheValid(dir: string): boolean {
   }
 }
 
+/**
+ * Remove cache entries older than `maxAgeDays` days.
+ * Runs best-effort — errors on individual entries are silently ignored.
+ */
+export function pruneCache(maxAgeDays = 7): void {
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(CACHE_BASE);
+  } catch {
+    return; // cache dir doesn't exist yet
+  }
+
+  for (const entry of entries) {
+    try {
+      const entryPath = path.join(CACHE_BASE, entry);
+      const stat = fs.statSync(entryPath);
+      if (stat.isDirectory() && now - stat.mtimeMs > maxAgeMs) {
+        fs.rmSync(entryPath, { recursive: true, force: true });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+}
+
 // ── Per-binary search index type ───────────────────────────────────
 
 interface BinarySearchIndex {
