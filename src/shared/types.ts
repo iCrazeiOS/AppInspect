@@ -233,6 +233,7 @@ export interface ObjCClass {
   name: string;
   superclass?: string;
   methods: ObjCMethod[];
+  protocols?: string[];
 }
 
 // ── Entitlements ──

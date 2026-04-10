@@ -28,6 +28,7 @@ export interface ObjCMethod {
 export interface ObjCClass {
   name: string;
   methods: ObjCMethod[];
+  protocols?: string[];
 }
 
 export interface ObjCMetadata {
@@ -538,6 +539,7 @@ function parseClass(
   const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
   const roNameOffset = is64Bit ? CLASS_RO_NAME_OFFSET_64 : CLASS_RO_NAME_OFFSET_32;
   const roMethodsOffset = is64Bit ? CLASS_RO_METHODS_OFFSET_64 : CLASS_RO_METHODS_OFFSET_32;
+  const roBaseProtocolsOffset = is64Bit ? CLASS_RO_BASEPROTOCOLS_OFFSET_64 : CLASS_RO_BASEPROTOCOLS_OFFSET_32;
 
   // Read class_t.data pointer
   if (classFileOffset + classSize > view.byteLength) return null;
@@ -585,6 +587,26 @@ function parseClass(
     }
   }
 
+  // baseProtocols pointer within class_ro_t
+  let protocols: string[] = [];
+  const baseProtocolsFieldOffset = roFileOffset + roBaseProtocolsOffset;
+  if (baseProtocolsFieldOffset + ptrSize <= view.byteLength) {
+    const baseProtocolsVmaddr = resolvePointer(
+      view,
+      baseProtocolsFieldOffset,
+      rebaseMap,
+      le,
+      segments,
+      is64Bit,
+    );
+    if (baseProtocolsVmaddr !== 0n) {
+      const protocolListFileOffset = vmaddrToFileOffset(baseProtocolsVmaddr, segments);
+      if (protocolListFileOffset !== null) {
+        protocols = parseProtocolListAt(view, protocolListFileOffset, segments, rebaseMap, le, is64Bit);
+      }
+    }
+  }
+
   // Class methods from metaclass (isa pointer at offset 0)
   let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments, is64Bit);
   isaVmaddr = isaVmaddr & POINTER_MASK;
@@ -611,7 +633,7 @@ function parseClass(
     }
   }
 
-  return { name: className, methods };
+  return { name: className, methods, protocols: protocols.length > 0 ? protocols : undefined };
 }
 
 // ── Protocol Parsing ─────────────────────────────────────────────────
