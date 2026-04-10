@@ -208,11 +208,34 @@ src/
   shared/            # Types and IPC channel definitions
 ```
 
+## Development
+
+### Linting & Formatting
+
+We use [Biome](https://biomejs.dev) for linting and formatting. Configuration is in `biome.json`.
+
+```bash
+bun run check       # Lint + format check
+bun run check:fix   # Auto-fix issues
+```
+
+A pre-commit hook automatically runs `check:fix`, TypeScript type checking, and tests before each commit.
+
+### Testing
+
+```bash
+bun test            # Run all tests
+bun run typecheck   # TypeScript type check only
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development guidelines.
+
 ## Tech stack
 
 - **Electron** — desktop shell
-- **TypeScript** — full codebase
+- **TypeScript** — full codebase, strict mode
 - **Bun** — bundler and package manager
+- **Biome** — linting and formatting
 - **fflate** — ZIP decompression (IPA extraction)
 - **bplist-parser** / **plist** — binary and XML plist parsing
 - **@modelcontextprotocol/sdk** — MCP server for AI agent integration
