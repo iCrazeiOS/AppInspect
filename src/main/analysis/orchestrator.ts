@@ -86,10 +86,16 @@ function getCacheDir(filePath: string): string {
   return path.join(CACHE_BASE, key);
 }
 
-/** True when a cache dir exists and has content from a previous extraction. */
+/** True when a cache dir exists and has content from a previous extraction.
+ *  Touches the directory mtime on hit so pruneCache() uses last-accessed age. */
 function isCacheValid(dir: string): boolean {
   try {
-    return fs.readdirSync(dir).length > 0;
+    if (fs.readdirSync(dir).length > 0) {
+      const now = new Date();
+      fs.utimesSync(dir, now, now);
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
