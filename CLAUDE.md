@@ -63,7 +63,7 @@ Framework: `bun:test` (`describe`, `it`, `expect`). Tests live in `__tests__/` d
 - `src/main/analysis/__tests__/` — security scan tests
 - `src/main/ipa/__tests__/` — IPA extraction tests
 
-When adding new features or modifying analysis logic, add or update corresponding tests.
+When adding new features or modifying analysis logic, add or update corresponding tests. New scan/analysis features must also be exposed via the MCP server (`src/mcp/`) so AI agents can access them.
 
 ## Pre-commit hook
 
