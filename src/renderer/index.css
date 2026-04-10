@@ -472,6 +472,7 @@ body.platform-darwin .app-title-row {
 .file-tab--active {
   background-color: var(--bg);
   color: var(--text);
+  border-top: 2px solid transparent;
   border-bottom: 2px solid var(--accent);
 }
 
