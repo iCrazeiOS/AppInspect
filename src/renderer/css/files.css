@@ -26,7 +26,7 @@
 
 .ft-row:hover,
 .ft-row-focus {
-  background-color: rgba(88, 166, 255, 0.06);
+  background-color: var(--accent-subtle);
 }
 
 .ft-toggle {
@@ -136,5 +136,5 @@
 }
 
 .ft-ctx-item:hover {
-  background: rgba(88, 166, 255, 0.12);
+  background: var(--accent-light);
 }

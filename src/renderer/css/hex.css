@@ -10,42 +10,6 @@
   min-height: 0;
 }
 
-.hex-tab-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  flex-shrink: 0;
-}
-
-.hex-tab-label {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.hex-tab-select {
-  flex: 1;
-  padding: 5px 8px;
-  font-size: 12px;
-  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  outline: none;
-  cursor: pointer;
-}
-
-.hex-tab-select:focus {
-  border-color: var(--accent);
-}
-
-.hex-tab-option--section {
-  padding-left: 16px;
-}
-
 .hex-tab-viewer {
   flex: 1;
   min-height: 0;
@@ -78,6 +42,13 @@
   flex-shrink: 0;
 }
 
+.hv-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
 .hv-label {
   font-weight: 600;
   font-size: 13px;
@@ -86,7 +57,82 @@
   white-space: nowrap;
 }
 
-.hv-spacer {
+.hv-label--clickable {
+  cursor: pointer;
+  transition: color 100ms ease;
+}
+
+.hv-label--clickable:hover {
+  color: var(--accent-hover);
+}
+
+.hv-label-chevron {
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 100ms ease;
+  user-select: none;
+}
+
+.hv-label-chevron:hover {
+  color: var(--accent-hover);
+}
+
+/* ── Region picker dropdown ── */
+
+.hv-region-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  min-width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+}
+
+.hv-region-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+
+.hv-region-item:hover {
+  background-color: var(--accent-muted);
+}
+
+.hv-region-item--active {
+  background-color: var(--accent-light);
+}
+
+.hv-region-item--active .hv-region-item-name {
+  color: var(--accent);
+}
+
+.hv-region-item-name {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.hv-region-item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.hv-toolbar-spacer {
   flex: 1;
 }
 
@@ -205,7 +251,7 @@
 }
 
 .hv-search-mode:hover {
-  background-color: rgba(88, 166, 255, 0.1);
+  background-color: var(--accent-faint);
 }
 
 .hv-match-count {
@@ -268,6 +314,11 @@
 .hv-match-nav {
   font-size: 12px;
   padding: 2px 6px;
+}
+
+.hv-match-nav--active {
+  color: var(--accent);
+  background-color: var(--accent-faint);
 }
 
 /* Column header */
@@ -359,7 +410,7 @@
 }
 
 .hv-byte--match {
-  background-color: rgba(88, 166, 255, 0.25);
+  background-color: var(--accent-bold);
   border-radius: 2px;
   color: var(--accent-hover);
 }

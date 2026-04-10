@@ -2,11 +2,10 @@
  * Hex tab renderer — segment/section selector with hex + ASCII dump viewer.
  */
 
-import type { LoadCommand, Segment, Section } from "../../shared/types";
+import type { LoadCommand } from "../../shared/types";
 import type { HexRegion } from "../components/hex-viewer";
 import { EmptyState, HexViewer } from "../components";
 import { el } from "../utils/dom";
-import { hexStr } from "../utils/macho";
 import { registerSearchBar } from "../search-state";
 
 interface HexTabData {
@@ -33,11 +32,6 @@ function isZerofillSection(flags: number): boolean {
   return sectionType === S_ZEROFILL || sectionType === S_GB_ZEROFILL || sectionType === S_THREAD_LOCAL_ZEROFILL;
 }
 
-function humanSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
 
 function buildRegions(loadCommands: LoadCommand[]): Region[] {
   const regions: Region[] = [];
@@ -56,7 +50,7 @@ function buildRegions(loadCommands: LoadCommand[]): Region[] {
     if (s.sections) {
       for (const sec of s.sections) {
         if (isZerofillSection(sec.flags)) continue;
-        const size = typeof sec.size === "string" ? Number(sec.size) : Number(sec.size);
+        const size = Number(sec.size);
         if (size > 0) {
           subRegions.push({ label: `${sec.segname},${sec.sectname}`, offset: sec.offset, size });
         }
@@ -83,7 +77,7 @@ function buildRegions(loadCommands: LoadCommand[]): Region[] {
     if (s.sections) {
       for (const sec of s.sections) {
         if (isZerofillSection(sec.flags)) continue;
-        const size = typeof sec.size === "string" ? Number(sec.size) : Number(sec.size);
+        const size = Number(sec.size);
         if (size > 0) {
           entries.push({ label: `${sec.segname},${sec.sectname}`, offset: sec.offset, size });
         }
@@ -124,32 +118,14 @@ export function renderHex(container: HTMLElement, data: HexTabData | null, sessi
 
   const wrapper = el("div", "hex-tab-wrapper");
 
-  // ── Region selector ──
-  const toolbar = el("div", "hex-tab-toolbar");
-
-  const label = el("label", "hex-tab-label", "Region:");
-  label.setAttribute("for", "hex-region-select");
-  toolbar.appendChild(label);
-
-  const select = el("select", "hex-tab-select") as HTMLSelectElement;
-  select.id = "hex-region-select";
-
-  for (let i = 0; i < regions.length; i++) {
-    const r = regions[i]!;
-    const opt = el("option") as HTMLOptionElement;
-    opt.value = String(i);
-    opt.textContent = `${r.label}  (0x${r.size.toString(16).toUpperCase()} bytes @ ${hexStr(r.offset)})`;
-    select.appendChild(opt);
-  }
-
-  toolbar.appendChild(select);
-  wrapper.appendChild(toolbar);
-
   // ── Hex viewer mount ──
   const viewerMount = el("div", "hex-tab-viewer");
   wrapper.appendChild(viewerMount);
 
   container.appendChild(wrapper);
+
+  // Flat list for the dropdown picker
+  const pickerRegions = regions.map((r) => ({ label: r.label, offset: r.offset, size: r.size }));
 
   // ── Open viewer for selected region ──
   function openRegion(index: number): void {
@@ -167,6 +143,9 @@ export function renderHex(container: HTMLElement, data: HexTabData | null, sessi
       regionSize: region.size,
       label: region.label.trim(),
       regions: region.regions,
+      allRegions: pickerRegions,
+      currentRegionIndex: index,
+      onRegionChange: openRegion,
       onClose: () => {
         activeHexViewer = null;
         viewerMount.innerHTML = "";
@@ -175,10 +154,6 @@ export function renderHex(container: HTMLElement, data: HexTabData | null, sessi
     activeHexViewer.mount(viewerMount);
     registerSearchBar(sessionId, "hex", { focus: () => activeHexViewer?.focusSearch() });
   }
-
-  select.addEventListener("change", () => {
-    openRegion(Number(select.value));
-  });
 
   // Auto-open first region
   openRegion(0);

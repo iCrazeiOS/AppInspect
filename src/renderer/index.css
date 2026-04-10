@@ -18,6 +18,13 @@
   --text-muted: #8b949e;
   --accent: #58a6ff;
   --accent-hover: #79b8ff;
+  --accent-subtle: var(--accent-subtle);
+  --accent-muted: var(--accent-muted);
+  --accent-faint: var(--accent-faint);
+  --accent-light: var(--accent-light);
+  --accent-medium: var(--accent-medium);
+  --accent-strong: var(--accent-strong);
+  --accent-bold: var(--accent-bold);
   --sidebar-width: 220px;
   --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
@@ -133,12 +140,12 @@ body.platform-darwin .app-title-row {
 
 .btn-settings:hover {
   color: var(--text);
-  background-color: rgba(88, 166, 255, 0.08);
+  background-color: var(--accent-muted);
 }
 
 .btn-settings.btn-settings--active {
   color: var(--accent);
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
 }
 
 /* ── Settings panel ── */
@@ -162,7 +169,7 @@ body.platform-darwin .app-title-row {
 }
 
 .settings-option:hover {
-  background-color: rgba(88, 166, 255, 0.06);
+  background-color: var(--accent-subtle);
 }
 
 .settings-option input[type="checkbox"] {
@@ -306,12 +313,12 @@ body.platform-darwin .app-title-row {
 }
 
 .tab-btn:hover:not(.tab-btn--disabled) {
-  background-color: rgba(88, 166, 255, 0.08);
+  background-color: var(--accent-muted);
   color: var(--text);
 }
 
 .tab-btn.active:not(.tab-btn--disabled) {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent);
 }
 
@@ -359,7 +366,7 @@ body.platform-darwin .app-title-row {
 }
 
 .btn-export-all:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent-hover);
 }
 
@@ -404,7 +411,7 @@ body.platform-darwin .app-title-row {
 
 .export-tab-btn:hover {
   opacity: 1 !important;
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -465,7 +472,7 @@ body.platform-darwin .app-title-row {
 }
 
 .file-tab:hover {
-  background-color: rgba(88, 166, 255, 0.06);
+  background-color: var(--accent-subtle);
   color: var(--text);
 }
 
@@ -539,7 +546,7 @@ body.platform-darwin .app-title-row {
 
 .file-tab-add:hover {
   color: var(--text);
-  background-color: rgba(88, 166, 255, 0.08);
+  background-color: var(--accent-muted);
 }
 
 @keyframes tab-loading-pulse {
@@ -624,7 +631,7 @@ body.platform-darwin .app-title-row {
 }
 
 .btn-open-ipa-alt:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent-hover);
 }
 
@@ -880,15 +887,15 @@ body.platform-darwin .app-title-row {
 }
 
 .dt-row:hover {
-  background-color: rgba(88, 166, 255, 0.06);
+  background-color: var(--accent-subtle);
 }
 
 .dt-row-selected {
-  background-color: rgba(88, 166, 255, 0.15);
+  background-color: var(--accent-medium);
 }
 
 .dt-row-selected:hover {
-  background-color: rgba(88, 166, 255, 0.18);
+  background-color: var(--accent-strong);
 }
 
 .dt-cell {
@@ -983,13 +990,13 @@ body.platform-darwin .app-title-row {
 }
 
 .sb-case-btn.sb-case-active {
-  background-color: rgba(88, 166, 255, 0.15);
+  background-color: var(--accent-medium);
   color: var(--accent);
   border-color: var(--accent);
 }
 
 .sb-regex-btn.sb-regex-active {
-  background-color: rgba(88, 166, 255, 0.15);
+  background-color: var(--accent-medium);
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -1015,7 +1022,7 @@ body.platform-darwin .app-title-row {
 }
 
 .sb-extra-toggle--active {
-  background-color: rgba(88, 166, 255, 0.15);
+  background-color: var(--accent-medium);
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -1059,7 +1066,7 @@ body.platform-darwin .app-title-row {
 }
 
 .jt-line:hover {
-  background-color: rgba(88, 166, 255, 0.06);
+  background-color: var(--accent-subtle);
 }
 
 .jt-toggle {
@@ -1207,7 +1214,7 @@ body.platform-darwin .app-title-row {
 }
 
 .es-action:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
 }
 
 /* ══════════════════════════════════════════════
@@ -1244,7 +1251,7 @@ body.platform-darwin .app-title-row {
 }
 
 .filter-chip--active {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -1285,7 +1292,7 @@ body.platform-darwin .app-title-row {
 }
 
 .strings-mode-btn--active {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
   color: var(--accent);
   border-color: var(--accent);
   z-index: 2;
@@ -1365,7 +1372,7 @@ body.platform-darwin .app-title-row {
 }
 
 .sec-badge--info {
-  background-color: rgba(88, 166, 255, 0.18);
+  background-color: var(--accent-strong);
   color: #58a6ff;
 }
 
@@ -1465,7 +1472,7 @@ body.platform-darwin .app-title-row {
 }
 
 .sec-filter-btn--info.sec-filter-btn--active {
-  background-color: rgba(88, 166, 255, 0.18);
+  background-color: var(--accent-strong);
   color: #58a6ff;
   border-color: rgba(88, 166, 255, 0.4);
 }
@@ -1575,9 +1582,9 @@ body.platform-darwin .app-title-row {
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  background-color: rgba(88, 166, 255, 0.1);
+  background-color: var(--accent-faint);
   color: var(--accent);
-  border: 1px solid rgba(88, 166, 255, 0.2);
+  border: 1px solid var(--accent-strong);
   border-radius: 10px;
   font-size: 12px;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;

@@ -21,6 +21,12 @@ export interface HexViewerOptions {
   label: string;
   /** Named sub-regions to show in the label as the user scrolls (e.g. segments) */
   regions?: HexRegion[];
+  /** All selectable regions for the picker dropdown */
+  allRegions?: { label: string; offset: number; size: number }[];
+  /** Index of the currently active region in allRegions */
+  currentRegionIndex?: number;
+  /** Called when the user picks a different region from the dropdown */
+  onRegionChange?: (index: number) => void;
   /** Called when the viewer is closed */
   onClose?: () => void;
 }
@@ -81,7 +87,10 @@ export class HexViewer {
   private rowContainer: HTMLElement | null = null;
   private headerWrap: HTMLElement | null = null;
   private matchInfoEl: HTMLElement | null = null;
+  private matchNavBtns: HTMLElement[] = [];
   private labelEl: HTMLElement | null = null;
+  private dropdown: HTMLElement | null = null;
+  private boundCloseDropdown: (e: MouseEvent) => void;
   private opts: HexViewerOptions;
 
   private bytesPerRow = DEFAULT_BYTES_PER_ROW;
@@ -119,6 +128,12 @@ export class HexViewer {
     this.boundOnScroll = this.onScroll.bind(this);
     this.boundOnResize = this.onResize.bind(this);
     this.boundOnWheel = this.onWheel.bind(this);
+    this.boundCloseDropdown = (e: MouseEvent) => {
+      if (this.dropdown && !this.dropdown.contains(e.target as Node) &&
+          !this.labelEl?.contains(e.target as Node)) {
+        this.closeDropdown();
+      }
+    };
   }
 
   mount(container: HTMLElement): void {
@@ -157,6 +172,7 @@ export class HexViewer {
     if (this.searchDebounceTimer) clearTimeout(this.searchDebounceTimer);
     if (this.rafId) cancelAnimationFrame(this.rafId);
     if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf);
+    this.closeDropdown();
     window.removeEventListener("resize", this.boundOnResize);
     this.scrollContainer?.removeEventListener("scroll", this.boundOnScroll);
     this.scrollContainer?.removeEventListener("wheel", this.boundOnWheel);
@@ -273,10 +289,21 @@ export class HexViewer {
   private buildToolbar(): HTMLElement {
     const toolbar = el("div", "hv-toolbar");
 
+    const labelWrap = el("span", "hv-label-wrap");
     this.labelEl = el("span", "hv-label");
     this.updateLabel();
-    toolbar.appendChild(this.labelEl);
-    toolbar.appendChild(el("span", "hv-spacer"));
+    labelWrap.appendChild(this.labelEl);
+
+    if (this.opts.allRegions && this.opts.allRegions.length > 1) {
+      this.labelEl.classList.add("hv-label--clickable");
+      const chevron = el("span", "hv-label-chevron", "\u25BE");
+      labelWrap.appendChild(chevron);
+      this.labelEl.addEventListener("click", () => this.toggleDropdown());
+      chevron.addEventListener("click", () => this.toggleDropdown());
+    }
+
+    toolbar.appendChild(labelWrap);
+    toolbar.appendChild(el("span", "hv-toolbar-spacer"));
 
     // Go-to offset
     const gotoWrap = el("span", "hv-goto");
@@ -399,6 +426,7 @@ export class HexViewer {
     matchPrev.title = "Previous match (Shift+Enter)";
     matchPrev.addEventListener("click", () => this.goToMatch(this.currentMatchIndex - 1));
     bar.appendChild(matchPrev);
+    this.matchNavBtns.push(matchPrev);
 
     this.matchInfoEl = el("span", "hv-match-count");
     this.matchInfoEl.title = "Click to jump to result #";
@@ -431,6 +459,7 @@ export class HexViewer {
     matchNext.title = "Next match (Enter)";
     matchNext.addEventListener("click", () => this.goToMatch(this.currentMatchIndex + 1));
     bar.appendChild(matchNext);
+    this.matchNavBtns.push(matchNext);
 
     return bar;
   }
@@ -714,6 +743,63 @@ export class HexViewer {
 
   // ── Helpers ──
 
+  private toggleDropdown(): void {
+    if (this.dropdown) {
+      this.closeDropdown();
+    } else {
+      this.openDropdown();
+    }
+  }
+
+  private openDropdown(): void {
+    if (this.dropdown || !this.labelEl || !this.opts.allRegions) return;
+
+    const regions = this.opts.allRegions;
+    const menu = el("div", "hv-region-dropdown");
+
+    for (let i = 0; i < regions.length; i++) {
+      const r = regions[i]!;
+      const item = el("div", "hv-region-item");
+      if (i === this.opts.currentRegionIndex) item.classList.add("hv-region-item--active");
+
+      const name = el("span", "hv-region-item-name", r.label);
+      const meta = el("span", "hv-region-item-meta",
+        `${humanSize(r.size)} @ 0x${r.offset.toString(16).toUpperCase()}`);
+      item.appendChild(name);
+      item.appendChild(meta);
+
+      item.addEventListener("click", () => {
+        this.closeDropdown();
+        if (i !== this.opts.currentRegionIndex) {
+          this.opts.onRegionChange?.(i);
+        }
+      });
+      menu.appendChild(item);
+    }
+
+    // Position below the label
+    const labelWrap = this.labelEl.parentElement!;
+    labelWrap.style.position = "relative";
+    labelWrap.appendChild(menu);
+    this.dropdown = menu;
+
+    // Scroll active item into view
+    const active = menu.querySelector(".hv-region-item--active") as HTMLElement | null;
+    if (active) active.scrollIntoView({ block: "nearest" });
+
+    requestAnimationFrame(() => {
+      document.addEventListener("click", this.boundCloseDropdown);
+    });
+  }
+
+  private closeDropdown(): void {
+    document.removeEventListener("click", this.boundCloseDropdown);
+    if (this.dropdown) {
+      this.dropdown.remove();
+      this.dropdown = null;
+    }
+  }
+
   private updateLabel(): void {
     if (!this.labelEl) return;
     const base = `${this.opts.label} (${humanSize(this.opts.regionSize)})`;
@@ -740,13 +826,17 @@ export class HexViewer {
 
   private updateMatchInfo(error?: string): void {
     if (!this.matchInfoEl) return;
+    const hasMatches = this.matches.length > 0;
+    for (const btn of this.matchNavBtns) {
+      btn.classList.toggle("hv-match-nav--active", hasMatches);
+    }
     if (error) {
       this.matchInfoEl.textContent = error;
       this.matchInfoEl.classList.add("hv-match-count--error");
       this.matchInfoEl.style.cursor = "";
     } else {
       this.matchInfoEl.classList.remove("hv-match-count--error");
-      if (this.matches.length === 0) {
+      if (!hasMatches) {
         const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
         this.matchInfoEl.textContent = input?.value.trim() ? "No results" : "";
         this.matchInfoEl.style.cursor = "";

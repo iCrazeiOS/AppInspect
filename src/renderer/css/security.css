@@ -72,7 +72,7 @@
 }
 
 .sec-evidence-toggle:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
 }
 
 .sec-finding-location {
@@ -111,7 +111,7 @@
 }
 
 .sec-copyable:hover {
-  background-color: rgba(88, 166, 255, 0.12);
+  background-color: var(--accent-light);
 }
 
 .sec-finding-source {
