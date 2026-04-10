@@ -691,6 +691,58 @@ async function analyseBinaryFile(
   };
 }
 
+// ── Result builder ────────────────────────────────────────────────
+
+/** Common overview fields that come directly from a BinaryAnalysisResult. */
+function binaryOverviewFields(br: BinaryAnalysisResult) {
+  return {
+    header: br.header,
+    fatArchs: br.fatArchs,
+    buildVersion: br.buildVersion,
+    encryptionInfo: br.encryptionInfo,
+    hardening: br.security.hardening,
+    uuid: br.uuid ?? undefined,
+    teamId: br.teamId ?? undefined,
+  };
+}
+
+/**
+ * Assemble an AnalysisResult from a BinaryAnalysisResult plus overview and
+ * optional overrides. Eliminates the repeated result-construction pattern
+ * across analyseIPA / analyseMachO / analyseDEB / analyseApp.
+ */
+function buildAnalysisResult(
+  br: BinaryAnalysisResult,
+  overview: AnalysisResult["overview"],
+  opts: {
+    localisationStrings?: LocalisationString[];
+    entitlements?: Entitlement[];
+    infoPlist?: Record<string, PlistValue>;
+    security?: AnalysisResult["security"];
+    files?: FileEntry[];
+  } = {},
+): AnalysisResult {
+  return {
+    overview,
+    strings: br.strings,
+    localisationStrings: opts.localisationStrings ?? [],
+    headers: {
+      machO: br.header,
+      fatArchs: br.fatArchs,
+      loadCommands: br.loadCommands,
+    },
+    libraries: br.libraries,
+    symbols: br.symbols,
+    classes: br.classes,
+    protocols: br.protocols,
+    entitlements: opts.entitlements ?? br.entitlements,
+    infoPlist: opts.infoPlist ?? {},
+    security: opts.security ?? br.security,
+    hooks: br.hooks,
+    files: opts.files ?? [],
+  };
+}
+
 // ── Analysis session ───────────────────────────────────────────────
 
 // ── Hexdump formatter ─────────────────────────────────────────────
@@ -1227,49 +1279,31 @@ export class AnalysisSession {
 
     // Assemble final result
     const appName = path.basename(appBundlePath, ".app");
-    const result: AnalysisResult = {
-      overview: {
-        sourceType: "ipa",
-        filePath: ipaPath,
-        ipa: {
-          bundlePath: appBundlePath,
-          appName,
-          binaries: binaries.map((b) => ({
-            name: b.name,
-            path: b.path,
-            type: b.type,
-            size: (() => {
-              try { return fs.statSync(b.path).size; } catch { return 0; }
-            })(),
-          })),
-        },
-        header: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        buildVersion: binaryResult.buildVersion,
-        encryptionInfo: binaryResult.encryptionInfo,
-        hardening: binaryResult.security.hardening,
-        uuid: binaryResult.uuid ?? undefined,
-        teamId: binaryResult.teamId ?? undefined,
-        infoPlist: infoPlistData,
-        appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+    const result = buildAnalysisResult(binaryResult, {
+      sourceType: "ipa",
+      filePath: ipaPath,
+      ipa: {
+        bundlePath: appBundlePath,
+        appName,
+        binaries: binaries.map((b) => ({
+          name: b.name,
+          path: b.path,
+          type: b.type,
+          size: (() => {
+            try { return fs.statSync(b.path).size; } catch { return 0; }
+          })(),
+        })),
       },
-      strings: binaryResult.strings,
+      ...binaryOverviewFields(binaryResult),
+      infoPlist: infoPlistData,
+      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+    }, {
       localisationStrings,
-      headers: {
-        machO: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        loadCommands: binaryResult.loadCommands,
-      },
-      libraries: binaryResult.libraries,
-      symbols: binaryResult.symbols,
-      classes: binaryResult.classes,
-      protocols: binaryResult.protocols,
       entitlements: finalEntitlements,
       infoPlist: infoPlistData,
       security: mergedSecurity,
-      hooks: binaryResult.hooks,
       files,
-    };
+    });
 
     this.result = result;
     progressCallback("Analysis complete", 100);
@@ -1299,35 +1333,18 @@ export class AnalysisSession {
     this.fatSliceOffset = binaryResult.fatSliceOffset;
 
     // Rebuild the result with the new binary data but keep IPA-level info
-    const result: AnalysisResult = {
-      ...this.result,
-      overview: {
-        ...this.result.overview,
-        header: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        buildVersion: binaryResult.buildVersion,
-        encryptionInfo: binaryResult.encryptionInfo,
-        hardening: binaryResult.security.hardening,
-        uuid: binaryResult.uuid ?? undefined,
-        teamId: binaryResult.teamId ?? this.result.overview.teamId,
-      },
-      strings: binaryResult.strings,
-      // localisationStrings kept from this.result via spread
-      headers: {
-        machO: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        loadCommands: binaryResult.loadCommands,
-      },
-      libraries: binaryResult.libraries,
-      symbols: binaryResult.symbols,
-      classes: binaryResult.classes,
-      protocols: binaryResult.protocols,
+    const result = buildAnalysisResult(binaryResult, {
+      ...this.result.overview,
+      ...binaryOverviewFields(binaryResult),
+      teamId: binaryResult.teamId ?? this.result.overview.teamId,
+    }, {
+      localisationStrings: this.result.localisationStrings,
       entitlements: binaryResult.entitlements.length > 0
         ? binaryResult.entitlements
         : this.result.entitlements,
-      security: binaryResult.security,
-      hooks: binaryResult.hooks,
-    };
+      infoPlist: this.result.infoPlist,
+      files: this.result.files,
+    });
 
     this.result = result;
     return result;
@@ -1364,45 +1381,21 @@ export class AnalysisSession {
     const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
     this.fatSliceOffset = binaryResult.fatSliceOffset;
 
-    const result: AnalysisResult = {
-      overview: {
-        sourceType: "macho",
-        filePath,
-        ipa: {
-          bundlePath: path.dirname(filePath),
-          appName: fileName,
-          binaries: [{
-            name: fileName,
-            path: filePath,
-            type: "main",
-            size: fileSize,
-          }],
-        },
-        header: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        buildVersion: binaryResult.buildVersion,
-        encryptionInfo: binaryResult.encryptionInfo,
-        hardening: binaryResult.security.hardening,
-        uuid: binaryResult.uuid ?? undefined,
-        teamId: binaryResult.teamId ?? undefined,
+    const result = buildAnalysisResult(binaryResult, {
+      sourceType: "macho",
+      filePath,
+      ipa: {
+        bundlePath: path.dirname(filePath),
+        appName: fileName,
+        binaries: [{
+          name: fileName,
+          path: filePath,
+          type: "main",
+          size: fileSize,
+        }],
       },
-      strings: binaryResult.strings,
-      localisationStrings: [],
-      headers: {
-        machO: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        loadCommands: binaryResult.loadCommands,
-      },
-      libraries: binaryResult.libraries,
-      symbols: binaryResult.symbols,
-      classes: binaryResult.classes,
-      protocols: binaryResult.protocols,
-      entitlements: binaryResult.entitlements,
-      infoPlist: {},
-      security: binaryResult.security,
-      hooks: binaryResult.hooks,
-      files: [],
-    };
+      ...binaryOverviewFields(binaryResult),
+    });
 
     this.result = result;
     progressCallback("Analysis complete", 100);
@@ -1490,48 +1483,28 @@ export class AnalysisSession {
     progressCallback("Building file tree...", 90);
     const files = buildFileTree(extraction.dataDir);
 
-    const result: AnalysisResult = {
-      overview: {
-        sourceType: "deb",
-        filePath: debPath,
-        debControl: extraction.control,
-        ipa: {
-          bundlePath: extraction.dataDir,
-          appName: extraction.control.name || path.basename(debPath, ".deb"),
-          binaries: this.binaries.map((b) => ({
-            name: b.name,
-            path: b.path,
-            type: b.type,
-            size: (() => {
-              try { return fs.statSync(b.path).size; } catch { return 0; }
-            })(),
-          })),
-        },
-        header: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        buildVersion: binaryResult.buildVersion,
-        encryptionInfo: binaryResult.encryptionInfo,
-        hardening: binaryResult.security.hardening,
-        uuid: binaryResult.uuid ?? undefined,
-        teamId: binaryResult.teamId ?? undefined,
+    const result = buildAnalysisResult(binaryResult, {
+      sourceType: "deb",
+      filePath: debPath,
+      debControl: extraction.control,
+      ipa: {
+        bundlePath: extraction.dataDir,
+        appName: extraction.control.name || path.basename(debPath, ".deb"),
+        binaries: this.binaries.map((b) => ({
+          name: b.name,
+          path: b.path,
+          type: b.type,
+          size: (() => {
+            try { return fs.statSync(b.path).size; } catch { return 0; }
+          })(),
+        })),
       },
-      strings: binaryResult.strings,
+      ...binaryOverviewFields(binaryResult),
+    }, {
       localisationStrings,
-      headers: {
-        machO: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        loadCommands: binaryResult.loadCommands,
-      },
-      libraries: binaryResult.libraries,
-      symbols: binaryResult.symbols,
-      classes: binaryResult.classes,
-      protocols: binaryResult.protocols,
-      entitlements: binaryResult.entitlements,
-      infoPlist: {},
       security: debMergedSecurity,
-      hooks: binaryResult.hooks,
       files,
-    };
+    });
 
     // Enrich hooks with tweak filter plist data (target bundles)
     try {
@@ -1686,49 +1659,31 @@ export class AnalysisSession {
     }
 
     const appName = path.basename(appPath, ".app");
-    const result: AnalysisResult = {
-      overview: {
-        sourceType: "app",
-        filePath: appPath,
-        ipa: {
-          bundlePath: appPath,
-          appName,
-          binaries: binaries.map((b) => ({
-            name: b.name,
-            path: b.path,
-            type: b.type,
-            size: (() => {
-              try { return fs.statSync(b.path).size; } catch { return 0; }
-            })(),
-          })),
-        },
-        header: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        buildVersion: binaryResult.buildVersion,
-        encryptionInfo: binaryResult.encryptionInfo,
-        hardening: binaryResult.security.hardening,
-        uuid: binaryResult.uuid ?? undefined,
-        teamId: binaryResult.teamId ?? undefined,
-        infoPlist: infoPlistData,
-        appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+    const result = buildAnalysisResult(binaryResult, {
+      sourceType: "app",
+      filePath: appPath,
+      ipa: {
+        bundlePath: appPath,
+        appName,
+        binaries: binaries.map((b) => ({
+          name: b.name,
+          path: b.path,
+          type: b.type,
+          size: (() => {
+            try { return fs.statSync(b.path).size; } catch { return 0; }
+          })(),
+        })),
       },
-      strings: binaryResult.strings,
+      ...binaryOverviewFields(binaryResult),
+      infoPlist: infoPlistData,
+      appFrameworks: appFrameworks.length > 0 ? appFrameworks : undefined,
+    }, {
       localisationStrings,
-      headers: {
-        machO: binaryResult.header,
-        fatArchs: binaryResult.fatArchs,
-        loadCommands: binaryResult.loadCommands,
-      },
-      libraries: binaryResult.libraries,
-      symbols: binaryResult.symbols,
-      classes: binaryResult.classes,
-      protocols: binaryResult.protocols,
       entitlements: finalEntitlements,
       infoPlist: infoPlistData,
       security: mergedSecurity,
-      hooks: binaryResult.hooks,
       files,
-    };
+    });
 
     this.result = result;
     progressCallback("Analysis complete", 100);

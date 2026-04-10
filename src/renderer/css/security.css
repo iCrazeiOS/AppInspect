@@ -1,0 +1,129 @@
+/* ── Findings list ── */
+.sec-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sec-finding-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 150ms ease;
+}
+
+.sec-finding-card:hover {
+  border-color: var(--text-muted);
+}
+
+.sec-finding-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sec-finding-category {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  background-color: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.sec-finding-message {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.sec-finding-evidence {
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  background-color: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  border-radius: 4px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.sec-finding-evidence-text {
+  user-select: text;
+}
+
+.sec-evidence-toggle {
+  display: inline-block;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background-color 100ms ease;
+}
+
+.sec-evidence-toggle:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
+.sec-finding-location {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.sec-finding-function {
+  font-size: 12px;
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.sec-finding-function-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sec-finding-function-name {
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 3px;
+  word-break: break-all;
+  user-select: text;
+}
+
+.sec-copyable {
+  cursor: pointer;
+  transition: background-color 100ms ease;
+}
+
+.sec-copyable:hover {
+  background-color: rgba(88, 166, 255, 0.12);
+}
+
+.sec-finding-source {
+  font-size: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.sec-no-findings {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 32px 16px;
+  font-size: 14px;
+}

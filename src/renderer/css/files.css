@@ -1,0 +1,140 @@
+/* ══════════════════════════════════════════════
+   File Browser Tab (ft-)
+   ══════════════════════════════════════════════ */
+
+.ft-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.ft-tree {
+  user-select: text;
+}
+
+.ft-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: background-color 100ms ease;
+  white-space: nowrap;
+}
+
+.ft-row:hover,
+.ft-row-focus {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+.ft-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+.ft-toggle-active {
+  cursor: pointer;
+}
+
+.ft-toggle-active:hover {
+  color: var(--accent);
+}
+
+.ft-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+}
+
+.ft-name {
+  color: var(--text);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-name-match {
+  background-color: rgba(210, 153, 34, 0.3);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.ft-size {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  padding-right: 4px;
+}
+
+/* ── File-type badges ── */
+.ft-badge {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.ft-badge-binary {
+  background-color: var(--accent);
+}
+
+.ft-badge-plist {
+  background-color: #3fb950;
+}
+
+.ft-badge-provision {
+  background-color: #ffa657;
+}
+
+.ft-badge-framework {
+  background-color: #58a6ff;
+}
+
+/* ── Expand / collapse animation ── */
+.ft-children {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 150ms ease, opacity 150ms ease;
+}
+
+.ft-children-open {
+  max-height: 100000px;
+  opacity: 1;
+}
+
+/* ── File tree context menu ── */
+
+.ft-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.ft-ctx-item {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ft-ctx-item:hover {
+  background: rgba(88, 166, 255, 0.12);
+}

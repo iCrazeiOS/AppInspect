@@ -9,7 +9,7 @@
     "build:main": "bun build src/main/index.ts --outdir dist/main --target node --format cjs --external electron",
     "build:preload": "bun build src/preload/index.ts --outdir dist/preload --target node --format cjs --external electron",
     "build:renderer": "bun build src/renderer/index.ts --outdir dist/renderer --target browser",
-    "build:css": "cp src/renderer/index.css dist/renderer/index.css",
+    "build:css": "bun scripts/build-css.ts",
     "start": "bun run build && electron .",
     "dist": "bun run build && electron-builder",
     "dist:mac": "bun run build && electron-builder --mac",

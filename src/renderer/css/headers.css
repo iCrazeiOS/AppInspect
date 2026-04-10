@@ -1,0 +1,200 @@
+/* ══════════════════════════════════════════════
+   Headers Tab (hdr-)
+   ══════════════════════════════════════════════ */
+
+.hdr-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hdr-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.hdr-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.hdr-card-body {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hdr-kv {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.hdr-kv-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 130px;
+}
+
+.hdr-kv-value {
+  font-size: 13px;
+  color: var(--text);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  word-break: break-all;
+}
+
+.hdr-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hdr-flag-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  background-color: rgba(88, 166, 255, 0.1);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ── Load Commands table ── */
+.hdr-lc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hdr-lc-th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hdr-lc-row {
+  transition: background-color 100ms ease;
+}
+
+.hdr-lc-row:hover {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+.hdr-lc-td {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+  color: var(--text);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.hdr-lc-detail {
+  color: var(--text-muted);
+  font-family: var(--font-stack);
+  word-break: break-all;
+}
+
+/* ── Segments tree ── */
+.hdr-seg-tree {
+  padding: 8px 12px;
+}
+
+.hdr-seg-node {
+  margin-bottom: 2px;
+}
+
+.hdr-seg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background-color 100ms ease;
+}
+
+.hdr-seg-header:hover {
+  background-color: rgba(88, 166, 255, 0.06);
+}
+
+.hdr-seg-toggle {
+  font-size: 10px;
+  color: var(--text-muted);
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.hdr-seg-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.hdr-seg-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: auto;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  white-space: nowrap;
+}
+
+.hdr-seg-sections {
+  padding-left: 30px;
+}
+
+.hdr-seg-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 0;
+}
+
+.hdr-sec-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  transition: background-color 100ms ease;
+}
+
+.hdr-sec-row:hover {
+  background-color: rgba(88, 166, 255, 0.04);
+}
+
+.hdr-sec-name {
+  font-size: 12px;
+  color: var(--text);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  min-width: 180px;
+}
+
+.hdr-sec-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+}
+
+.hdr-sec-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  font-style: italic;
+}
