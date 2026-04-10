@@ -564,15 +564,14 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
       groupHeader.textContent = `${title} (${methods.length})`;
       methodList.appendChild(groupHeader);
 
-      const prefix = isClassMethod ? "+" : "-";
       for (const m of methods) {
         const li = document.createElement("li");
         li.className = "cls-method-item";
         if (selectedProtoMethod?.method === m) {
           li.classList.add("cls-method-active");
         }
-        li.textContent = `${prefix} ${m.selector}`;
-        li.title = m.signature || m.selector;
+        li.textContent = m.signature || m.selector;
+        li.title = m.selector;
         li.addEventListener("click", () => {
           selectedProtoMethod = { method: m, isClassMethod };
           renderProtocolDetail();
@@ -1071,7 +1070,6 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     sidebar.appendChild(inner);
 
     const m = selectedProtoMethod.method;
-    const prefix = selectedProtoMethod.isClassMethod ? "+" : "-";
     const sig = m.signature || m.selector;
 
     // Close button
@@ -1127,14 +1125,6 @@ export function renderClasses(container: HTMLElement, data: any, binaryCount: nu
     copySigBtn.textContent = "Copy Signature";
     copySigBtn.addEventListener("click", () => copyWithFeedback(copySigBtn, sig));
     actions.appendChild(copySigBtn);
-
-    // Copy method declaration (ObjC style)
-    const methodDecl = `${prefix} (${parseMethodSignature(sig)?.returnType ?? "void"})${m.selector}`;
-    const copyDeclBtn = document.createElement("button");
-    copyDeclBtn.className = "cls-sb-btn";
-    copyDeclBtn.textContent = "Copy Declaration";
-    copyDeclBtn.addEventListener("click", () => copyWithFeedback(copyDeclBtn, methodDecl));
-    actions.appendChild(copyDeclBtn);
   }
 
   // Check for pending class selection (from cross-binary click on a different binary)
