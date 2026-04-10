@@ -280,7 +280,7 @@ export class HexViewer {
     gotoWrap.appendChild(el("span", "hv-goto-label", "Go to:"));
     const gotoInput = el("input", "hv-offset-input") as HTMLInputElement;
     gotoInput.type = "text";
-    gotoInput.placeholder = "0x0";
+    gotoInput.placeholder = "0x560 or 1376...";
     gotoInput.spellcheck = false;
     gotoInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {

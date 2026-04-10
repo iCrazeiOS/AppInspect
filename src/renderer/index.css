@@ -3210,7 +3210,7 @@ body.platform-darwin .app-title-row {
 }
 
 .hv-offset-input {
-  width: 100px;
+  width: 160px;
   padding: 3px 6px;
   font-size: 12px;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
