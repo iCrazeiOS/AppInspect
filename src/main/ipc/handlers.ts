@@ -181,6 +181,12 @@ export function registerIPCHandlers(win: BrowserWindow): void {
     }
   });
 
+  // ── get-library-graph ──
+  ipcMain.handle("get-library-graph", async (_event, args: { sessionId: string }) => {
+    const session = getSession(args.sessionId);
+    return sanitizeBigInts(await session.getLibraryGraph());
+  });
+
   // ── export-json ──
   ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
     const { sessionId } = args;

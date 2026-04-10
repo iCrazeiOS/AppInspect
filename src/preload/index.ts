@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("search-all-binaries", { sessionId, query, tab, isRegex, caseSensitive }),
   closeSession: (sessionId: string) =>
     ipcRenderer.invoke("close-session", { sessionId }),
+  getLibraryGraph: (sessionId: string) =>
+    ipcRenderer.invoke("get-library-graph", { sessionId }),
   showItemInFolder: (filePath: string) =>
     ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
   openFile: (filePath: string) =>

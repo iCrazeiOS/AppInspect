@@ -1,4 +1,4 @@
-import type { AnalysisResult, AppSettings } from "../shared/types";
+import type { AnalysisResult, AppSettings, LibraryGraphData } from "../shared/types";
 import type { TabData, TabName, ProgressPayload, AnalysisCompletePayload, AnalysisErrorPayload, CrossBinarySearchResult, SearchableTab } from "../shared/ipc-types";
 
 export interface AppInspectAPI {
@@ -12,6 +12,7 @@ export interface AppInspectAPI {
   setSettings(settings: AppSettings): Promise<void>;
   searchAllBinaries(sessionId: string, query: string, tab: SearchableTab, isRegex?: boolean, caseSensitive?: boolean): Promise<CrossBinarySearchResult[]>;
   closeSession(sessionId: string): Promise<void>;
+  getLibraryGraph(sessionId: string): Promise<LibraryGraphData>;
   showItemInFolder(filePath: string): Promise<void>;
   openFile(filePath: string): Promise<void>;
   getPlatform(): Promise<string>;

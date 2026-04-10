@@ -16,6 +16,7 @@ import type {
   PlistValue,
   HookInfo,
   AppSettings,
+  LibraryGraphData,
 } from './types';
 
 // ── Tab-specific return types ──
@@ -145,6 +146,10 @@ export type InvokeChannelMap = {
   'close-session': {
     params: { sessionId: string };
     result: void;
+  };
+  'get-library-graph': {
+    params: { sessionId: string };
+    result: LibraryGraphData;
   };
   'get-settings': {
     params: void;

@@ -129,7 +129,7 @@ export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
     }, binaries, seenRealPaths);
   }
 
-  // Discover frameworks in Frameworks/
+  // Discover frameworks and dylibs in Frameworks/
   const frameworksDir = path.join(appBundlePath, "Frameworks");
   if (fs.existsSync(frameworksDir)) {
     try {
@@ -145,6 +145,13 @@ export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
           addBinary({
             name: frameworkName,
             path: frameworkBinaryPath,
+            type: "framework",
+          }, binaries, seenRealPaths);
+        } else if (entry.isFile() && entry.name.endsWith(".dylib")) {
+          const dylibPath = path.join(frameworksDir, entry.name);
+          addBinary({
+            name: entry.name,
+            path: dylibPath,
             type: "framework",
           }, binaries, seenRealPaths);
         }

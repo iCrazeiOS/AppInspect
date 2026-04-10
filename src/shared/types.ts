@@ -276,6 +276,36 @@ export interface HookInfo {
   hookSymbols: string[];
 }
 
+// ── Library Dependency Graph ──
+
+export interface LibraryGraphNode {
+  /** Unique identifier (binary path or library name) */
+  id: string;
+  /** Short display label */
+  label: string;
+  /** 'binary' = analysable binary in the container; 'library' = external dependency */
+  type: 'binary' | 'library';
+  /** Only for binary nodes */
+  binaryType?: 'main' | 'framework' | 'extension' | 'tweak';
+  /** Only for library nodes */
+  category?: 'system' | 'swift' | 'embedded';
+  weak?: boolean;
+  version?: string;
+}
+
+export interface LibraryGraphEdge {
+  /** Binary node that links this library */
+  source: string;
+  /** Library or binary node being linked */
+  target: string;
+  weak: boolean;
+}
+
+export interface LibraryGraphData {
+  nodes: LibraryGraphNode[];
+  edges: LibraryGraphEdge[];
+}
+
 // ── Top-level Analysis Result ──
 
 export interface AnalysisResult {
