@@ -65,6 +65,10 @@ Framework: `bun:test` (`describe`, `it`, `expect`). Tests live in `__tests__/` d
 
 When adding new features or modifying analysis logic, add or update corresponding tests. New scan/analysis features must also be exposed via the MCP server (`src/mcp/`) so AI agents can access them.
 
+## README
+
+When adding a significant user-facing feature (new tab, new MCP tool, new file format, major capability), update `README.md` to document it.
+
 ## Pre-commit hook
 
 Husky runs `bun run typecheck && bun test` before every commit. Both must pass. Do not bypass with `--no-verify`.

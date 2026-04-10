@@ -30,6 +30,7 @@ File type is detected automatically by magic bytes.
 | **Info.plist** | Full Info.plist contents (IPA only) |
 | **Hooks** | Jailbreak hook framework detection — Substrate, Libhooker, fishhook, Substitute, ObjC swizzling (Mach-O/DEB only) |
 | **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment, bundle file scanning (JS bundles, configs) |
+| **Hex** | Raw hex viewer with virtual scrolling for large binaries. Segment/section region picker, go-to offset, hex/decimal offset toggle. Dual-mode search (hex bytes or text) with match highlighting and navigation |
 | **Files** | Bundle file tree with sizes, context menu (copy path, open file, show in explorer/finder), double-click to open (IPA/DEB) |
 
 ### Other capabilities
@@ -153,6 +154,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `search` | Cross-binary search across all binaries in the loaded container |
+| `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Switch to a different binary (framework/extension) within the container |
 
 **`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`
