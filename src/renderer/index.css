@@ -3238,6 +3238,8 @@ body.platform-darwin .app-title-row {
   justify-content: center;
   cursor: pointer;
   transition: color 100ms ease, border-color 100ms ease;
+  /* Shift arrow glyphs up slightly — they sit below center at this font size */
+  padding-bottom: 2px;
 }
 
 .hv-nav-btn:hover {
