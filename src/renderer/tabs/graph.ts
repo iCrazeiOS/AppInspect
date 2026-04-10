@@ -299,6 +299,10 @@ class GraphRenderer {
   // Selection
   private selectedId: string | null = null;
 
+  // Tooltip debounce
+  private tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+  private tooltipNode: LayoutNode | null = null;
+
   // Event listener cleanup
   private boundMouseMove: (ev: MouseEvent) => void;
   private boundMouseUp: () => void;
@@ -486,6 +490,7 @@ class GraphRenderer {
         const id = (target as HTMLElement).dataset["id"];
         const nd = this.nodes.find((n) => n.id === id);
         if (!nd) return;
+        this.cancelTooltip();
         this.dragNode = nd;
         const rect = this.svg.getBoundingClientRect();
         const gp = this.screenToGraph(ev.clientX - rect.left, ev.clientY - rect.top);
@@ -494,6 +499,7 @@ class GraphRenderer {
         this.selectNode(nd.id);
         ev.preventDefault();
       } else {
+        this.cancelTooltip();
         this.isPanning = true;
         this.panStartX = ev.clientX;
         this.panStartY = ev.clientY;
@@ -512,17 +518,36 @@ class GraphRenderer {
       const id = (target as HTMLElement).dataset["id"];
       const nd = this.nodes.find((n) => n.id === id);
       if (!nd) return;
-      this.showTooltip(nd, ev);
+      this.scheduleTooltip(nd);
     }, true);
 
     this.nodesGroup.addEventListener("mouseleave", (ev) => {
       const target = (ev.target as Element).closest(".gr-node");
       if (!target) return;
-      this.hideTooltip();
+      this.cancelTooltip();
     }, true);
   }
 
-  private showTooltip(nd: LayoutNode, ev: MouseEvent): void {
+  private scheduleTooltip(nd: LayoutNode): void {
+    this.cancelTooltip();
+    this.tooltipNode = nd;
+    this.tooltipTimer = setTimeout(() => {
+      // Don't show while dragging or panning
+      if (this.dragNode || this.isPanning) return;
+      this.showTooltip(nd);
+    }, 500);
+  }
+
+  private cancelTooltip(): void {
+    if (this.tooltipTimer !== null) {
+      clearTimeout(this.tooltipTimer);
+      this.tooltipTimer = null;
+    }
+    this.tooltipNode = null;
+    this.tooltip.classList.add("hidden");
+  }
+
+  private showTooltip(nd: LayoutNode): void {
     const lines: string[] = [];
     if (nd.type === "binary") {
       lines.push(`<strong>${nd.label}</strong>`);
@@ -535,14 +560,21 @@ class GraphRenderer {
     this.tooltip.innerHTML = lines.join("<br>");
     this.tooltip.classList.remove("hidden");
 
+    // Position tooltip near the node in screen coordinates
     const rect = this.container.getBoundingClientRect();
-    const x = ev.clientX - rect.left + 12;
-    const y = ev.clientY - rect.top - 10;
-    this.tooltip.setAttribute("style", `left:${x}px;top:${y}px`);
-  }
+    const screenX = nd.x * this.zoom + this.panX;
+    const screenY = nd.y * this.zoom + this.panY;
 
-  private hideTooltip(): void {
-    this.tooltip.classList.add("hidden");
+    const tipX = screenX + nd.radius * this.zoom + 10;
+    const tipY = screenY - 10;
+
+    // Clamp so the tooltip doesn't overflow the container
+    const maxX = rect.width - 200;
+    const maxY = rect.height - 60;
+    this.tooltip.setAttribute(
+      "style",
+      `left:${Math.max(0, Math.min(tipX, maxX))}px;top:${Math.max(0, Math.min(tipY, maxY))}px`,
+    );
   }
 
   private selectNode(id: string | null): void {
@@ -616,6 +648,7 @@ class GraphRenderer {
   }
 
   destroy(): void {
+    this.cancelTooltip();
     window.removeEventListener("mousemove", this.boundMouseMove);
     window.removeEventListener("mouseup", this.boundMouseUp);
     window.removeEventListener("resize", this.boundResize);
