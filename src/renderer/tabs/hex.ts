@@ -7,6 +7,7 @@ import type { HexRegion } from "../components/hex-viewer";
 import { EmptyState, HexViewer } from "../components";
 import { el } from "../utils/dom";
 import { hexStr } from "../utils/macho";
+import { registerSearchBar } from "../search-state";
 
 interface HexTabData {
   loadCommands: LoadCommand[];
@@ -172,6 +173,7 @@ export function renderHex(container: HTMLElement, data: HexTabData | null, sessi
       },
     });
     activeHexViewer.mount(viewerMount);
+    registerSearchBar(sessionId, "hex", { focus: () => activeHexViewer?.focusSearch() });
   }
 
   select.addEventListener("change", () => {

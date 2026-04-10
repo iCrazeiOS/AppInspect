@@ -168,6 +168,15 @@ export class HexViewer {
     this.pendingChunks.clear();
   }
 
+  /** Focus the search input and select its text. */
+  focusSearch(): void {
+    const input = this.root?.querySelector(".hv-search-input") as HTMLInputElement | null;
+    if (input) {
+      input.focus();
+      input.select();
+    }
+  }
+
   // ── Scroll scaling ──
 
   /** Compute and apply the spacer height, capping at MAX_SPACER_PX for large regions. */
