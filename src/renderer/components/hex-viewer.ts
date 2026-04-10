@@ -56,11 +56,12 @@ function isPrintable(b: number): boolean {
   return b >= 0x20 && b <= 0x7e;
 }
 
-/** Parse a hex search string like "CF FA ED FE" into byte array */
-function parseHexPattern(input: string): number[] | null {
+/** Parse a hex search string like "CF FA ED FE" into byte array, or an error string. */
+function parseHexPattern(input: string): number[] | string {
   const cleaned = input.replace(/\s+/g, "");
-  if (cleaned.length === 0 || cleaned.length % 2 !== 0) return null;
-  if (!/^[0-9a-fA-F]+$/.test(cleaned)) return null;
+  if (cleaned.length === 0) return "Enter hex bytes";
+  if (!/^[0-9a-fA-F]+$/.test(cleaned)) return "Non-hex character";
+  if (cleaned.length % 2 !== 0) return "Odd number of digits";
   const bytes: number[] = [];
   for (let i = 0; i < cleaned.length; i += 2) {
     bytes.push(parseInt(cleaned.substring(i, i + 2), 16));
@@ -404,15 +405,16 @@ export class HexViewer {
 
     let pattern: number[] | null;
     if (this.searchMode === "hex") {
-      pattern = parseHexPattern(trimmed);
-      if (!pattern) {
+      const parsed = parseHexPattern(trimmed);
+      if (typeof parsed === "string") {
         this.matches = [];
         this.currentMatchIndex = -1;
         this.patternLength = 0;
         this.matchPositions.clear();
-        this.updateMatchInfo("Invalid hex");
+        this.updateMatchInfo(parsed);
         return;
       }
+      pattern = parsed;
     } else {
       pattern = textToBytes(trimmed);
       if (pattern.length === 0) return;
