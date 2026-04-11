@@ -1339,25 +1339,64 @@ export class AnalysisSession {
 				machO.is64Bit
 			);
 
-			if (!lcResult.functionStartsInfo) return [];
+			if (lcResult.functionStartsInfo) {
+				// Find __TEXT segment for base address
+				const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
+				if (textSeg) {
+					// Parse function starts
+					const funcStarts = parseFunctionStarts(
+						buffer,
+						lcResult.functionStartsInfo.offset,
+						lcResult.functionStartsInfo.size,
+						textSeg.vmaddr
+					);
 
-			// Find __TEXT segment for base address
-			const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
-			if (!textSeg) return [];
+					this.functionStartsCache = funcStarts;
+					return funcStarts;
+				}
+			}
 
-			// Parse function starts
-			const funcStarts = parseFunctionStarts(
-				buffer,
-				lcResult.functionStartsInfo.offset,
-				lcResult.functionStartsInfo.size,
-				textSeg.vmaddr
-			);
-
-			this.functionStartsCache = funcStarts;
-			return funcStarts;
+			// Fall back to symbol addresses for older binaries without LC_FUNCTION_STARTS
+			return this.getFunctionStartsFromSymbols();
 		} catch {
-			return [];
+			// Fall back to symbols on any error
+			return this.getFunctionStartsFromSymbols();
 		}
+	}
+
+	/** Fall back: derive function addresses from symbol table (for older binaries). */
+	private getFunctionStartsFromSymbols(): bigint[] {
+		if (!this.result) return [];
+
+		// Get __text section bounds
+		let textStart = 0n;
+		let textEnd = 0n;
+		for (const lc of this.result.headers.loadCommands) {
+			if (lc.type === "segment" && lc.segment.name.trim() === "__TEXT") {
+				for (const sect of lc.segment.sections) {
+					if (sect.sectname.trim() === "__text") {
+						textStart = BigInt(sect.addr);
+						textEnd = textStart + BigInt(sect.size);
+						break;
+					}
+				}
+			}
+		}
+
+		if (textEnd === 0n) return [];
+
+		// Collect non-imported symbol addresses within __text section
+		const addrs = new Set<bigint>();
+		for (const sym of this.result.symbols) {
+			if (sym.type === "imported") continue;
+			if (sym.address >= textStart && sym.address < textEnd) {
+				addrs.add(sym.address);
+			}
+		}
+
+		const sorted = Array.from(addrs).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+		this.functionStartsCache = sorted;
+		return sorted;
 	}
 
 	/** Get function starts for a specific disasm section as {address, name} pairs. */
@@ -1815,6 +1854,7 @@ export class AnalysisSession {
 
 		const binary = this.binaries[binaryIndex]!;
 		this.activeBinaryName = binary.name;
+		this.functionStartsCache = null; // Clear cache when switching binaries
 		const binaryResult = await analyseBinaryFile(
 			binary.path,
 			progressCallback,
