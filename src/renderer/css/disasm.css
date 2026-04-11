@@ -1,0 +1,338 @@
+/* Disassembly tab and viewer styles */
+
+/* Tab wrapper */
+.disasm-tab-wrapper {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* ── Disassembly Viewer ── */
+
+.da-root {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* Toolbar */
+.da-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border);
+	background: var(--surface);
+	flex-shrink: 0;
+}
+
+.da-section-picker {
+	position: relative;
+}
+
+.da-section-btn {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	color: var(--text);
+	font-size: 13px;
+	cursor: pointer;
+	min-width: 160px;
+}
+
+.da-section-btn:hover {
+	background: var(--surface);
+	border-color: var(--accent-subtle);
+}
+
+.da-section-btn::after {
+	content: "\25BC";
+	font-size: 8px;
+	margin-left: auto;
+	color: var(--text-muted);
+}
+
+.da-section-dropdown {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	margin-top: 4px;
+	min-width: 200px;
+	max-height: 300px;
+	overflow-y: auto;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	z-index: 100;
+}
+
+.da-section-option {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--text);
+	font-size: 13px;
+	cursor: pointer;
+}
+
+.da-section-option:hover {
+	background: var(--accent-faint);
+}
+
+.da-section-option--active {
+	background: var(--accent-subtle);
+	color: var(--accent);
+}
+
+/* Go-to input */
+.da-goto-wrap {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.da-goto-label {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.da-goto-input {
+	width: 120px;
+	padding: 5px 8px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	color: var(--text);
+	font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+	font-size: 12px;
+}
+
+.da-goto-input:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.da-goto-input::placeholder {
+	color: var(--text-muted);
+}
+
+/* Search container */
+.da-search-wrap {
+	flex: 1;
+	max-width: 400px;
+}
+
+/* Content area with virtual scroll */
+.da-content {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	position: relative;
+	background: var(--bg);
+}
+
+.da-spacer {
+	width: 100%;
+}
+
+.da-rows {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+}
+
+/* Header row */
+.da-header {
+	display: flex;
+	align-items: center;
+	height: 28px;
+	padding: 0 12px;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+
+/* Instruction row */
+.da-row {
+	display: flex;
+	align-items: center;
+	height: 28px;
+	padding: 0 12px;
+	font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+	font-size: 12px;
+	border-bottom: 1px solid var(--border);
+}
+
+.da-row:hover {
+	background: var(--accent-faint);
+}
+
+.da-row--selected {
+	background: var(--accent-subtle);
+}
+
+/* Label row (function name) */
+.da-label-row {
+	display: flex;
+	align-items: center;
+	height: 28px;
+	padding: 0 12px 0 8px;
+	font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+	font-size: 12px;
+	color: var(--accent-hover);
+	font-weight: 600;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+
+.da-label-row::before {
+	content: "";
+	width: 3px;
+	height: 16px;
+	background: var(--accent);
+	border-radius: 2px;
+	margin-right: 8px;
+}
+
+/* Columns */
+.da-col-address {
+	width: 100px;
+	color: var(--accent);
+	flex-shrink: 0;
+	cursor: pointer;
+}
+
+.da-col-address:hover {
+	text-decoration: underline;
+}
+
+.da-col-bytes {
+	width: 100px;
+	color: var(--text-muted);
+	flex-shrink: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.da-col-mnemonic {
+	width: 70px;
+	flex-shrink: 0;
+	font-weight: 500;
+}
+
+.da-col-operands {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text);
+}
+
+/* Mnemonic type coloring */
+.da-mnemonic--branch {
+	color: #f0883e;
+}
+
+.da-mnemonic--call {
+	color: #ff7b72;
+}
+
+.da-mnemonic--ret {
+	color: #ffa657;
+}
+
+.da-mnemonic--load {
+	color: #7ee787;
+}
+
+.da-mnemonic--store {
+	color: #a5d6ff;
+}
+
+.da-mnemonic--other {
+	color: var(--text);
+}
+
+/* Register highlighting in operands */
+.da-reg {
+	color: #d2a8ff;
+}
+
+.da-imm {
+	color: #79c0ff;
+}
+
+/* Loading state */
+.da-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--text-muted);
+	font-size: 14px;
+}
+
+/* Empty state */
+.da-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--text-muted);
+	text-align: center;
+	padding: 24px;
+}
+
+.da-empty-icon {
+	font-size: 48px;
+	margin-bottom: 12px;
+	opacity: 0.5;
+}
+
+.da-empty-message {
+	font-size: 14px;
+}
+
+/* Stats bar at bottom */
+.da-stats {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 6px 12px;
+	background: var(--surface);
+	border-top: 1px solid var(--border);
+	font-size: 11px;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.da-stats-item {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.da-stats-value {
+	color: var(--text);
+	font-weight: 500;
+}

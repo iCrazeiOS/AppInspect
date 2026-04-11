@@ -26,6 +26,7 @@ import {
 // ── Search state ──
 import { clearSearchStatesForSession, getSearchBar } from "./search-state";
 import { renderClasses } from "./tabs/classes";
+import { renderDisasm } from "./tabs/disasm";
 import { renderEntitlements } from "./tabs/entitlements";
 import { renderFiles } from "./tabs/files";
 import { renderHeaders } from "./tabs/headers";
@@ -335,6 +336,20 @@ async function loadTabData(tabId: string): Promise<void> {
 		const panel = document.getElementById("tab-hex");
 		if (panel && tab.analysisResult) {
 			renderHex(
+				panel,
+				{ loadCommands: tab.analysisResult.headers.loadCommands },
+				tab.sessionId
+			);
+		}
+		return;
+	}
+
+	// Disasm tab fetches sections via IPC but uses analysis result for context
+	if (tabId === "disasm") {
+		tab.loadedSectionTabs.add(tabId);
+		const panel = document.getElementById("tab-disasm");
+		if (panel && tab.analysisResult) {
+			renderDisasm(
 				panel,
 				{ loadCommands: tab.analysisResult.headers.loadCommands },
 				tab.sessionId
