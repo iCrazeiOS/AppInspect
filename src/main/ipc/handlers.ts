@@ -370,6 +370,19 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
+	// ── get-disasm-row-index ──
+	ipcMain.handle(
+		"get-disasm-row-index",
+		async (_event, args: { sessionId: string; sectionIndex: number }) => {
+			try {
+				const session = getSession(args.sessionId);
+				return await session.buildDisasmRowIndex(args.sectionIndex);
+			} catch {
+				return { totalVisualRows: 0, entries: [] };
+			}
+		}
+	);
+
 	// ── get-disasm-functions ──
 	ipcMain.handle(
 		"get-disasm-functions",

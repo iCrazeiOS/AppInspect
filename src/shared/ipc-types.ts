@@ -226,6 +226,16 @@ export type InvokeChannelMap = {
 		};
 		result: number;
 	};
+	"get-disasm-row-index": {
+		params: {
+			sessionId: string;
+			sectionIndex: number;
+		};
+		result: {
+			totalVisualRows: number;
+			entries: Array<{ byteOffset: number; cumulativeRow: number }>;
+		};
+	};
 };
 
 // ── Send channels (main -> renderer) ──

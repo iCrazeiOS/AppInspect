@@ -1093,23 +1093,48 @@ export class AnalysisSession {
 		return sections;
 	}
 
-	// Cache for instruction counts per section
-	private disasmCountCache = new Map<number, number>();
+	/** Trim trailing instructions after the last return instruction. */
+	private trimAfterReturn(instructions: DisasmInstruction[]): DisasmInstruction[] {
+		for (let j = instructions.length - 1; j >= 0; j--) {
+			const m = instructions[j]!.mnemonic.toLowerCase();
+			if (
+				m === "ret" ||
+				m === "retaa" ||
+				m === "retab" ||
+				m === "eret" ||
+				(m === "bx" && instructions[j]!.operands.trim() === "lr") ||
+				(m === "pop" && instructions[j]!.operands.includes("pc"))
+			) {
+				return instructions.slice(0, j + 1);
+			}
+		}
+		return instructions;
+	}
 
-	/** Count total instructions in a section by disassembling all functions. */
-	async getDisasmInsnCount(sectionIndex: number): Promise<number> {
-		const cached = this.disasmCountCache.get(sectionIndex);
-		if (cached !== undefined) return cached;
+	// Cache for row index per section
+	private disasmRowIndexCache = new Map<
+		number,
+		{ totalVisualRows: number; entries: Array<{ byteOffset: number; cumulativeRow: number }> }
+	>();
+
+	/** Build a row index mapping visual rows to byte offsets for a section. */
+	async buildDisasmRowIndex(sectionIndex: number): Promise<{
+		totalVisualRows: number;
+		entries: Array<{ byteOffset: number; cumulativeRow: number }>;
+	}> {
+		const cached = this.disasmRowIndexCache.get(sectionIndex);
+		if (cached) return cached;
 
 		const sections = this.getDisasmSections();
 		const section = sections[sectionIndex];
-		if (!section) return 0;
+		if (!section) return { totalVisualRows: 0, entries: [] };
 
 		if (!isCapstoneReady()) {
 			await initCapstone();
 		}
 
 		const funcStarts = this.getFunctionStarts();
+		const symbolMap = this.buildSymbolMap();
 		const sectionStart = section.virtualAddr;
 		const sectionEnd = section.virtualAddr + BigInt(section.size);
 
@@ -1126,28 +1151,46 @@ export class AnalysisSession {
 			boundaries.push(sectionStart);
 		}
 
-		// Disassemble each function and count instructions
-		let total = 0;
+		// Disassemble each function, apply trimming, count visual rows (insns + labels)
+		const entries: Array<{ byteOffset: number; cumulativeRow: number }> = [];
+		let cumulativeRow = 0;
+
 		for (let i = 0; i < boundaries.length; i++) {
 			const funcAddr = boundaries[i]!;
 			const nextAddr = i + 1 < boundaries.length ? boundaries[i + 1]! : sectionEnd;
 			const funcSize = Number(nextAddr - funcAddr);
-			const funcOffset = section.fileOffset + Number(funcAddr - sectionStart);
+			const funcByteOffset = Number(funcAddr - sectionStart);
+			const funcFileOffset = section.fileOffset + funcByteOffset;
 
-			const hexResult = this.readHex(funcOffset, funcSize);
+			entries.push({ byteOffset: funcByteOffset, cumulativeRow });
+
+			const hexResult = this.readHex(funcFileOffset, funcSize);
 			if (!hexResult || hexResult.data.length === 0) continue;
 
 			try {
 				const bytes = new Uint8Array(hexResult.data);
-				const instructions = disassembleChunk(bytes, funcAddr, section.arch, funcOffset);
-				total += instructions.length;
+				let instructions = disassembleChunk(bytes, funcAddr, section.arch, funcFileOffset);
+				instructions = this.trimAfterReturn(instructions);
+
+				for (const insn of instructions) {
+					// Label row adds an extra visual row
+					if (symbolMap.has(insn.address)) cumulativeRow++;
+					cumulativeRow++; // instruction row
+				}
 			} catch {
 				// Skip functions that fail
 			}
 		}
 
-		this.disasmCountCache.set(sectionIndex, total);
-		return total;
+		const result = { totalVisualRows: cumulativeRow, entries };
+		this.disasmRowIndexCache.set(sectionIndex, result);
+		return result;
+	}
+
+	/** Count total visual rows in a section (delegates to buildDisasmRowIndex). */
+	async getDisasmInsnCount(sectionIndex: number): Promise<number> {
+		const index = await this.buildDisasmRowIndex(sectionIndex);
+		return index.totalVisualRows;
 	}
 
 	/** Disassemble a chunk of code from a section. */
@@ -1235,22 +1278,7 @@ export class AnalysisSession {
 					funcFileOffset
 				);
 
-				// Trim trailing instructions after the last return — bytes between
-				// the actual return and the next function start are padding/data.
-				for (let j = instructions.length - 1; j >= 0; j--) {
-					const m = instructions[j]!.mnemonic.toLowerCase();
-					if (
-						m === "ret" ||
-						m === "retaa" ||
-						m === "retab" ||
-						m === "eret" ||
-						(m === "bx" && instructions[j]!.operands.trim() === "lr") ||
-						(m === "pop" && instructions[j]!.operands.includes("pc"))
-					) {
-						instructions = instructions.slice(0, j + 1);
-						break;
-					}
-				}
+				instructions = this.trimAfterReturn(instructions);
 
 				for (const insn of instructions) {
 					const label = symbolMap.get(insn.address);
@@ -1929,7 +1957,7 @@ export class AnalysisSession {
 		const binary = this.binaries[binaryIndex]!;
 		this.activeBinaryName = binary.name;
 		this.functionStartsCache = null; // Clear caches when switching binaries
-		this.disasmCountCache.clear();
+		this.disasmRowIndexCache.clear();
 		const binaryResult = await analyseBinaryFile(
 			binary.path,
 			progressCallback,

@@ -6,6 +6,7 @@
  * - Symbol labels at function boundaries
  * - Mnemonic type coloring
  * - Address click-to-copy
+ * - Index-based row-to-byte mapping for accurate scrolling
  */
 
 import type { DisasmInstruction, DisasmSection } from "../../shared/types";
@@ -24,11 +25,9 @@ const CHUNK_SIZE = 65536; // 64KB per fetch
 const BUFFER_ROWS = 30;
 const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 
-// Estimate instructions per chunk based on architecture
-function getAvgInsnSize(arch: string): number {
-	if (arch === "arm64") return 4; // Fixed 4-byte instructions
-	if (arch === "arm") return 3; // Thumb mode: 2-4 byte mix
-	return 5; // x86/x86_64: variable, ~5 average
+interface RowIndexEntry {
+	byteOffset: number;
+	cumulativeRow: number;
 }
 
 export class DisasmViewer {
@@ -39,16 +38,16 @@ export class DisasmViewer {
 	private statsEl: HTMLElement | null = null;
 
 	private opts: DisasmViewerOptions;
-	private totalEstimatedRows: number;
+	private totalRows: number;
 	private spacerHeight: number;
+
+	// Row index: maps visual rows to byte offsets via function boundaries
+	private rowIndex: RowIndexEntry[] = [];
 
 	// Cache: byteOffset -> instructions
 	private chunks = new Map<number, DisasmInstruction[]>();
 	private pendingChunks = new Set<number>();
-
-	// Track actual instruction density for better estimates
 	private loadedBytes = 0;
-	private loadedInsns = 0;
 
 	private rafId = 0;
 	private boundOnScroll: () => void;
@@ -59,22 +58,26 @@ export class DisasmViewer {
 
 	constructor(opts: DisasmViewerOptions) {
 		this.opts = opts;
-		// Start with an estimate; replaced by exact count once loaded
-		const avgSize = getAvgInsnSize(opts.section.arch);
-		this.totalEstimatedRows = Math.ceil(opts.section.size / avgSize);
+		// Initial estimate; replaced by exact count when row index arrives
+		this.totalRows = Math.ceil(opts.section.size / 4);
 		this.spacerHeight = this.calcSpacerHeight();
 		this.boundOnScroll = this.onScroll.bind(this);
 
-		// Fetch exact instruction count in the background
+		// Fetch row index in the background (provides exact total + byte mapping)
 		window.api
-			.getDisasmInsnCount(opts.sessionId, opts.sectionIndex)
-			.then((count) => {
-				if (count > 0 && count !== this.totalEstimatedRows) {
-					this.totalEstimatedRows = count;
+			.getDisasmRowIndex(opts.sessionId, opts.sectionIndex)
+			.then((index) => {
+				if (index && index.totalVisualRows > 0) {
+					this.rowIndex = index.entries;
+					this.totalRows = index.totalVisualRows;
 					this.spacerHeight = this.calcSpacerHeight();
 					if (this.spacer) {
 						this.spacer.style.height = `${this.spacerHeight}px`;
 					}
+					// Re-render with correct mapping
+					this.renderedStart = -1;
+					this.renderedEnd = -1;
+					this.renderVisibleRows();
 				}
 			})
 			.catch(() => {});
@@ -82,29 +85,74 @@ export class DisasmViewer {
 
 	/** Calculate spacer height, capping at MAX_SPACER_PX for large sections. */
 	private calcSpacerHeight(): number {
-		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		const natural = this.totalRows * ROW_HEIGHT;
 		return Math.min(natural, MAX_SPACER_PX);
 	}
 
 	/** Map scrollTop → row index, accounting for scaling. */
 	private scrollTopToRow(scrollTop: number): number {
-		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		const natural = this.totalRows * ROW_HEIGHT;
 		if (natural <= MAX_SPACER_PX) {
 			return Math.floor(scrollTop / ROW_HEIGHT);
 		}
-		// Scaled: scrollTop / spacerHeight gives a 0..1 fraction
 		const frac = this.spacerHeight > 0 ? scrollTop / this.spacerHeight : 0;
-		return Math.floor(frac * this.totalEstimatedRows);
+		return Math.floor(frac * this.totalRows);
 	}
 
 	/** Map row index → pixel position within the spacer. */
 	private rowToScrollTop(row: number): number {
-		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		const natural = this.totalRows * ROW_HEIGHT;
 		if (natural <= MAX_SPACER_PX) {
 			return row * ROW_HEIGHT;
 		}
-		const frac = this.totalEstimatedRows > 0 ? row / this.totalEstimatedRows : 0;
+		const frac = this.totalRows > 0 ? row / this.totalRows : 0;
 		return Math.floor(frac * this.spacerHeight);
+	}
+
+	/**
+	 * Map a visual row number to a section-relative byte offset using the index.
+	 * Binary searches the index entries to find which function contains this row.
+	 */
+	private rowToByteOffset(row: number): number {
+		if (this.rowIndex.length === 0) {
+			// Fallback before index arrives: proportional
+			return Math.floor((row / Math.max(1, this.totalRows)) * this.opts.section.size);
+		}
+		// Binary search: find the last entry where cumulativeRow <= row
+		const entries = this.rowIndex;
+		let lo = 0;
+		let hi = entries.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (entries[mid]!.cumulativeRow <= row) {
+				lo = mid;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		return entries[lo]!.byteOffset;
+	}
+
+	/**
+	 * Map a section-relative byte offset to a visual row using the index.
+	 * Used by goToAddress for precise positioning.
+	 */
+	private byteOffsetToRow(byteOffset: number): number {
+		if (this.rowIndex.length === 0) {
+			return Math.floor((byteOffset / Math.max(1, this.opts.section.size)) * this.totalRows);
+		}
+		const entries = this.rowIndex;
+		let lo = 0;
+		let hi = entries.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (entries[mid]!.byteOffset <= byteOffset) {
+				lo = mid;
+			} else {
+				hi = mid - 1;
+			}
+		}
+		return entries[lo]!.cumulativeRow;
 	}
 
 	mount(container: HTMLElement): void {
@@ -171,30 +219,27 @@ export class DisasmViewer {
 		const scrollTop = this.content.scrollTop;
 		const viewportHeight = this.content.clientHeight;
 
-		// Calculate visible row range using scaled coordinates
+		// Calculate visible row range
 		const visibleRows = Math.ceil(viewportHeight / ROW_HEIGHT);
 		const firstVisibleRow = this.scrollTopToRow(scrollTop);
 		const startRow = Math.max(0, firstVisibleRow - BUFFER_ROWS);
-		const endRow = Math.min(
-			this.totalEstimatedRows,
-			firstVisibleRow + visibleRows + BUFFER_ROWS
-		);
+		const endRow = Math.min(this.totalRows, firstVisibleRow + visibleRows + BUFFER_ROWS);
 
-		// Skip if range hasn't changed significantly
+		// Skip if range hasn't changed
 		if (startRow === this.renderedStart && endRow === this.renderedEnd) {
 			return;
 		}
 		this.renderedStart = startRow;
 		this.renderedEnd = endRow;
 
-		// Calculate byte offset range we need
-		// Map row range to byte range proportionally through the section
-		const sectionSize = this.opts.section.size;
-		const totalRows = this.totalEstimatedRows;
-		const startByte = totalRows > 0 ? Math.floor((startRow / totalRows) * sectionSize) : 0;
-		const endByte = totalRows > 0 ? Math.ceil((endRow / totalRows) * sectionSize) : sectionSize;
+		// Use the row index to map visual rows to byte offsets
+		const startByte = this.rowToByteOffset(startRow);
+		const endByte = Math.min(
+			this.opts.section.size,
+			this.rowToByteOffset(Math.min(endRow + BUFFER_ROWS, this.totalRows)) + CHUNK_SIZE
+		);
 
-		// Load chunks that cover this range
+		// Load chunks that cover this byte range
 		const chunkStart = Math.floor(startByte / CHUNK_SIZE) * CHUNK_SIZE;
 		const chunkEnd = Math.ceil(endByte / CHUNK_SIZE) * CHUNK_SIZE;
 
@@ -213,31 +258,58 @@ export class DisasmViewer {
 			await Promise.all(loadPromises);
 		}
 
-		// Collect instructions in range
-		const instructions: DisasmInstruction[] = [];
+		// Collect ALL instructions from loaded chunks, sorted by offset
+		const allInsns: DisasmInstruction[] = [];
 		const sortedOffsets = Array.from(this.chunks.keys()).sort((a, b) => a - b);
-
 		for (const offset of sortedOffsets) {
 			const chunk = this.chunks.get(offset);
 			if (!chunk) continue;
 			for (const insn of chunk) {
-				const relOffset = insn.offset - this.opts.section.fileOffset;
-				if (relOffset >= startByte && relOffset < endByte) {
-					instructions.push(insn);
-				}
+				allInsns.push(insn);
 			}
+		}
+
+		// Build visual rows from instructions, count rows to find the window
+		// Each instruction is 1 row; instructions with labels add 1 extra row
+		let visualRow = 0;
+		let renderStartIdx = -1;
+		let renderEndIdx = allInsns.length;
+
+		// Find the first loaded instruction's visual row from the index
+		if (allInsns.length > 0) {
+			const firstInsnByteOffset = allInsns[0]!.offset - this.opts.section.fileOffset;
+			visualRow = this.byteOffsetToRow(firstInsnByteOffset);
+		}
+
+		const rowsToRender: Array<{ insn: DisasmInstruction; visualRow: number }> = [];
+		let currentVisualRow = visualRow;
+
+		for (let idx = 0; idx < allInsns.length; idx++) {
+			const insn = allInsns[idx]!;
+			const insnStartRow = currentVisualRow;
+
+			if (insn.label) currentVisualRow++; // label row
+			currentVisualRow++; // instruction row
+
+			// Check if this instruction's rows overlap with our visible window
+			if (currentVisualRow > startRow && insnStartRow < endRow) {
+				if (renderStartIdx === -1) renderStartIdx = idx;
+				renderEndIdx = idx + 1;
+				rowsToRender.push({ insn, visualRow: insnStartRow });
+			}
+
+			// Stop if we're past the visible range
+			if (insnStartRow >= endRow) break;
 		}
 
 		// Render rows
 		this.rowContainer.innerHTML = "";
 
-		// Position so firstVisibleRow aligns with scrollTop regardless of scaling
-		// (Same approach as HexViewer)
+		// Position container: align first visible row with scroll position
 		const currentY = scrollTop - (firstVisibleRow - startRow) * ROW_HEIGHT;
 		this.rowContainer.style.transform = `translateY(${currentY}px)`;
 
-		for (const insn of instructions) {
-			// Label row if this instruction has a symbol
+		for (const { insn } of rowsToRender) {
 			if (insn.label) {
 				const labelRow = el("div", "da-label-row");
 				labelRow.textContent = `${insn.label}:`;
@@ -284,7 +356,6 @@ export class DisasmViewer {
 		if (branchTarget !== null && this.opts.onBranchClick) {
 			const targetAddr = branchTarget;
 			const targetHex = `0x${targetAddr.toString(16)}`;
-			// Check if operands contain a label (symbol name)
 			const labelMatch = insn.operands.match(/(#?0x[0-9a-fA-F]+)/);
 			if (labelMatch) {
 				const before = insn.operands.slice(0, labelMatch.index);
@@ -379,13 +450,11 @@ export class DisasmViewer {
 
 		if (!isBranch) return null;
 
-		// Match hex address in operands (e.g., "#0x1234", "0x1234")
 		const match = insn.operands.match(/#?0x([0-9a-fA-F]+)/);
 		if (!match?.[1]) return null;
 
 		try {
 			const target = BigInt(`0x${match[1]}`);
-			// Only return if the target is within the current section
 			const sectionStart = BigInt(
 				this.opts.section.virtualAddr as unknown as number | bigint
 			);
@@ -414,7 +483,6 @@ export class DisasmViewer {
 			if (result && result.instructions.length > 0) {
 				this.chunks.set(byteOffset, result.instructions);
 				this.loadedBytes += result.bytesConsumed;
-				this.loadedInsns += result.instructions.length;
 			}
 		} finally {
 			this.pendingChunks.delete(byteOffset);
@@ -453,12 +521,11 @@ export class DisasmViewer {
 		if (!this.content) return;
 
 		const section = this.opts.section;
-		// virtualAddr may come as number from IPC serialization
 		const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
 		const sectionEnd = sectionStart + BigInt(section.size);
 
 		if (address < sectionStart || address >= sectionEnd) {
-			return; // Address out of range
+			return;
 		}
 
 		const relativeOffset = Number(address - sectionStart);
@@ -469,19 +536,17 @@ export class DisasmViewer {
 			await this.loadChunk(chunkOffset);
 		}
 
-		// Approximate scroll to get in the right neighbourhood
-		const fraction = section.size > 0 ? relativeOffset / section.size : 0;
-		const estimatedRow = Math.floor(fraction * this.totalEstimatedRows);
-		this.content.scrollTop = this.rowToScrollTop(estimatedRow);
+		// Use the index for precise row positioning
+		const targetRow = this.byteOffsetToRow(relativeOffset);
+		this.content.scrollTop = this.rowToScrollTop(targetRow);
 
-		// Force render at this position
+		// Force render
 		this.renderedStart = -1;
 		this.renderedEnd = -1;
 		await this.renderVisibleRows();
 
-		// Fine-tune: find the target instruction in the rendered DOM and snap to it.
-		// If the instruction has a label row above it, snap to the label instead.
-		// Run twice: once to adjust, once to stabilize after the re-render.
+		// Fine-tune: find the exact instruction in the DOM and snap to it.
+		// Run twice: adjust then stabilize after re-render.
 		for (let pass = 0; pass < 2; pass++) {
 			if (!this.rowContainer || !this.content) break;
 			const rows = this.rowContainer.children;

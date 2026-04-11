@@ -76,6 +76,13 @@ export interface AppInspectAPI {
 		sectionIndex: number
 	): Promise<Array<{ address: bigint; name: string }>>;
 	getDisasmInsnCount(sessionId: string, sectionIndex: number): Promise<number>;
+	getDisasmRowIndex(
+		sessionId: string,
+		sectionIndex: number
+	): Promise<{
+		totalVisualRows: number;
+		entries: Array<{ byteOffset: number; cumulativeRow: number }>;
+	}>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;
