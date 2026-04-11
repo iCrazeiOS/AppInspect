@@ -401,10 +401,7 @@ export class DisasmViewer {
 				: getAvgInsnSize(section.arch);
 
 		const estimatedRow = Math.floor(relativeOffset / avgSize);
-		const scrollTop = this.rowToScrollTop(estimatedRow);
-		const viewportHalf = this.content.clientHeight / 2;
-
-		this.content.scrollTop = Math.max(0, scrollTop - viewportHalf);
+		this.content.scrollTop = this.rowToScrollTop(estimatedRow);
 	}
 
 	/** Focus the scroll container for keyboard navigation */
