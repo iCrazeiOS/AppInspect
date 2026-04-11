@@ -77,6 +77,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "bplist-parser": "^0.3.2",
+    "capstone-wasm": "^1.0.3",
     "plist": "^3.1.0"
   }
 }
