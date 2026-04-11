@@ -1129,74 +1129,64 @@ export class AnalysisSession {
 		const bytes = new Uint8Array(hexResult.data);
 		const baseAddr = section.virtualAddr + BigInt(safeOffset);
 		const baseFileOffset = section.fileOffset + safeOffset;
+		const endAddr = baseAddr + BigInt(readLen);
 
-		// Get function starts for resuming after data gaps
-		const funcStarts = this.getFunctionStarts();
 		const symbolMap = this.buildSymbolMap();
 
-		// Disassemble with gap handling - when we hit embedded data, skip to next function
-		const allInstructions: DisasmInstruction[] = [];
-		let currentOffset = 0;
-		let totalBytesConsumed = 0;
-		const endOffset = readLen;
-
-		while (currentOffset < endOffset) {
-			const chunkBytes = bytes.subarray(currentOffset);
-			if (chunkBytes.length === 0) break;
-
-			const chunkAddr = baseAddr + BigInt(currentOffset);
-			const chunkFileOffset = baseFileOffset + currentOffset;
-
-			const instructions = disassembleChunk(
-				chunkBytes,
-				chunkAddr,
-				section.arch,
-				chunkFileOffset
-			);
-
-			// Attach symbol labels and collect instructions
-			for (const insn of instructions) {
-				const label = symbolMap.get(insn.address);
-				if (label) {
-					insn.label = label;
-				}
-				allInstructions.push(insn);
+		// Get function boundaries within the requested range
+		const funcStarts = this.getFunctionStarts();
+		const rangeStarts: bigint[] = [];
+		for (const addr of funcStarts) {
+			if (addr >= baseAddr && addr < endAddr) {
+				rangeStarts.push(addr);
 			}
+		}
+		rangeStarts.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
-			const bytesDisassembled = instructions.reduce((sum, insn) => sum + insn.size, 0);
-			currentOffset += bytesDisassembled;
-			totalBytesConsumed += bytesDisassembled;
+		// If no function starts found, fall back to disassembling the whole chunk
+		if (rangeStarts.length === 0) {
+			// Include baseAddr as a starting point if it's the section start
+			rangeStarts.push(baseAddr);
+		}
 
-			// If we didn't consume any bytes or didn't cover the chunk, we hit a gap
-			if (bytesDisassembled === 0 || bytesDisassembled < chunkBytes.length) {
-				// Find the next function start within our read window
-				const currentVA = baseAddr + BigInt(currentOffset);
-				const endVA = baseAddr + BigInt(endOffset);
+		// Disassemble function-by-function to skip embedded data between functions
+		const allInstructions: DisasmInstruction[] = [];
 
-				let nextFunc: bigint | null = null;
-				for (const funcAddr of funcStarts) {
-					if (funcAddr > currentVA && funcAddr < endVA) {
-						if (nextFunc === null || funcAddr < nextFunc) {
-							nextFunc = funcAddr;
-						}
+		for (let i = 0; i < rangeStarts.length; i++) {
+			const funcAddr = rangeStarts[i]!;
+			// Function ends at the next function start, or end of read range
+			const nextFuncAddr = i + 1 < rangeStarts.length ? rangeStarts[i + 1]! : endAddr;
+			const funcSize = Number(nextFuncAddr - funcAddr);
+			const funcOffsetInBuf = Number(funcAddr - baseAddr);
+
+			if (funcOffsetInBuf < 0 || funcOffsetInBuf >= bytes.length) continue;
+
+			const funcBytes = bytes.subarray(funcOffsetInBuf, funcOffsetInBuf + funcSize);
+			if (funcBytes.length === 0) continue;
+
+			const funcFileOffset = baseFileOffset + funcOffsetInBuf;
+
+			try {
+				const instructions = disassembleChunk(
+					funcBytes,
+					funcAddr,
+					section.arch,
+					funcFileOffset
+				);
+
+				for (const insn of instructions) {
+					const label = symbolMap.get(insn.address);
+					if (label) {
+						insn.label = label;
 					}
+					allInstructions.push(insn);
 				}
-
-				if (nextFunc !== null) {
-					// Skip to the next function
-					const skipBytes = Number(nextFunc - currentVA);
-					currentOffset += skipBytes;
-					totalBytesConsumed += skipBytes;
-				} else {
-					// No more functions in this range, we're done
-					// Count remaining bytes as consumed (they're data)
-					totalBytesConsumed = endOffset;
-					break;
-				}
+			} catch {
+				// Skip functions that fail to disassemble
 			}
 		}
 
-		return { instructions: allInstructions, bytesConsumed: totalBytesConsumed };
+		return { instructions: allInstructions, bytesConsumed: readLen };
 	}
 
 	/** Search disassembled code for a query. */
