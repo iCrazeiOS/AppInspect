@@ -481,29 +481,39 @@ export class DisasmViewer {
 
 		// Fine-tune: find the target instruction in the rendered DOM and snap to it.
 		// If the instruction has a label row above it, snap to the label instead.
-		if (this.rowContainer && this.content) {
+		// Run twice: once to adjust, once to stabilize after the re-render.
+		for (let pass = 0; pass < 2; pass++) {
+			if (!this.rowContainer || !this.content) break;
 			const rows = this.rowContainer.children;
+			let found = false;
 			for (let i = 0; i < rows.length; i++) {
 				const row = rows[i] as HTMLElement;
 				const addrEl = row.querySelector(".da-col-address");
-				if (!addrEl?.textContent) continue; // skip label rows
+				if (!addrEl?.textContent) continue;
 				try {
 					const rowAddr = BigInt(`0x${addrEl.textContent}`);
 					if (rowAddr >= address) {
-						// If the previous row is a label for this function, snap to it
 						const snapTarget =
 							i > 0 && rows[i - 1]?.classList.contains("da-label-row")
 								? (rows[i - 1] as HTMLElement)
 								: row;
-						const rowRect = snapTarget.getBoundingClientRect();
-						const containerRect = this.content.getBoundingClientRect();
-						this.content.scrollTop += rowRect.top - containerRect.top;
-						return;
+						const delta =
+							snapTarget.getBoundingClientRect().top -
+							this.content.getBoundingClientRect().top;
+						if (Math.abs(delta) > 1) {
+							this.content.scrollTop += delta;
+							this.renderedStart = -1;
+							this.renderedEnd = -1;
+							await this.renderVisibleRows();
+						}
+						found = true;
+						break;
 					}
 				} catch {
-					// skip if address parsing fails
+					// skip
 				}
 			}
+			if (!found) break;
 		}
 	}
 
