@@ -1098,7 +1098,11 @@ export class AnalysisSession {
 		sectionIndex: number,
 		byteOffset: number,
 		maxBytes: number
-	): Promise<{ instructions: DisasmInstruction[]; bytesConsumed: number } | null> {
+	): Promise<{
+		instructions: DisasmInstruction[];
+		bytesConsumed: number;
+		instructionBytes: number;
+	} | null> {
 		const sections = this.getDisasmSections();
 		const section = sections[sectionIndex];
 		if (!section) return null;
@@ -1116,14 +1120,14 @@ export class AnalysisSession {
 		// Don't read past section end
 		const remaining = section.size - safeOffset;
 		if (remaining <= 0) {
-			return { instructions: [], bytesConsumed: 0 };
+			return { instructions: [], bytesConsumed: 0, instructionBytes: 0 };
 		}
 		const readLen = Math.min(safeMaxBytes, remaining);
 
 		// Read bytes from file
 		const hexResult = this.readHex(section.fileOffset + safeOffset, readLen);
 		if (!hexResult || hexResult.data.length === 0) {
-			return { instructions: [], bytesConsumed: 0 };
+			return { instructions: [], bytesConsumed: 0, instructionBytes: 0 };
 		}
 
 		const bytes = new Uint8Array(hexResult.data);
@@ -1186,7 +1190,8 @@ export class AnalysisSession {
 			}
 		}
 
-		return { instructions: allInstructions, bytesConsumed: readLen };
+		const instructionBytes = allInstructions.reduce((sum, insn) => sum + insn.size, 0);
+		return { instructions: allInstructions, bytesConsumed: readLen, instructionBytes };
 	}
 
 	/** Search disassembled code for a query. */

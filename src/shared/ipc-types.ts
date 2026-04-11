@@ -196,6 +196,7 @@ export type InvokeChannelMap = {
 		result: {
 			instructions: DisasmInstruction[];
 			bytesConsumed: number;
+			instructionBytes: number;
 		} | null;
 	};
 	"search-disasm": {

@@ -46,6 +46,7 @@ export class DisasmViewer {
 	// Track actual instruction density for better estimates
 	private loadedBytes = 0;
 	private loadedInsns = 0;
+	private loadedInsnBytes = 0;
 
 	private rafId = 0;
 	private boundOnScroll: () => void;
@@ -170,13 +171,11 @@ export class DisasmViewer {
 		this.renderedEnd = endRow;
 
 		// Calculate byte offset range we need
-		const avgSize =
-			this.loadedInsns > 0
-				? this.loadedBytes / this.loadedInsns
-				: getAvgInsnSize(this.opts.section.arch);
-
-		const startByte = Math.floor(startRow * avgSize);
-		const endByte = Math.ceil(endRow * avgSize);
+		// Map row range to byte range proportionally through the section
+		const sectionSize = this.opts.section.size;
+		const totalRows = this.totalEstimatedRows;
+		const startByte = totalRows > 0 ? Math.floor((startRow / totalRows) * sectionSize) : 0;
+		const endByte = totalRows > 0 ? Math.ceil((endRow / totalRows) * sectionSize) : sectionSize;
 
 		// Load chunks that cover this range
 		const chunkStart = Math.floor(startByte / CHUNK_SIZE) * CHUNK_SIZE;
@@ -335,11 +334,14 @@ export class DisasmViewer {
 				this.chunks.set(byteOffset, result.instructions);
 				this.loadedBytes += result.bytesConsumed;
 				this.loadedInsns += result.instructions.length;
+				this.loadedInsnBytes += result.instructionBytes ?? result.bytesConsumed;
 
 				// Update estimate based on actual data
-				if (this.loadedInsns > 0) {
-					const actualAvg = this.loadedBytes / this.loadedInsns;
-					const newEstimate = Math.ceil(this.opts.section.size / actualAvg);
+				// Extrapolate instruction count to full section based on coverage
+				if (this.loadedInsns > 0 && this.loadedBytes > 0) {
+					const newEstimate = Math.ceil(
+						this.loadedInsns * (this.opts.section.size / this.loadedBytes)
+					);
 					if (Math.abs(newEstimate - this.totalEstimatedRows) > 100) {
 						this.totalEstimatedRows = newEstimate;
 						this.spacerHeight = this.calcSpacerHeight();
@@ -395,12 +397,9 @@ export class DisasmViewer {
 		}
 
 		const relativeOffset = Number(address - sectionStart);
-		const avgSize =
-			this.loadedInsns > 0
-				? this.loadedBytes / this.loadedInsns
-				: getAvgInsnSize(section.arch);
-
-		const estimatedRow = Math.floor(relativeOffset / avgSize);
+		// Map byte offset to row proportionally
+		const fraction = section.size > 0 ? relativeOffset / section.size : 0;
+		const estimatedRow = Math.floor(fraction * this.totalEstimatedRows);
 		this.content.scrollTop = this.rowToScrollTop(estimatedRow);
 	}
 

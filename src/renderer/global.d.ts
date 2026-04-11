@@ -56,7 +56,11 @@ export interface AppInspectAPI {
 		sectionIndex: number,
 		byteOffset: number,
 		maxBytes: number
-	): Promise<{ instructions: DisasmInstruction[]; bytesConsumed: number } | null>;
+	): Promise<{
+		instructions: DisasmInstruction[];
+		bytesConsumed: number;
+		instructionBytes: number;
+	} | null>;
 	searchDisasm(
 		sessionId: string,
 		sectionIndex: number,
