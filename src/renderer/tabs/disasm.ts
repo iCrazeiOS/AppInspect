@@ -8,6 +8,7 @@ import { EmptyState } from "../components/empty-state";
 import { SearchBar } from "../components/search-bar";
 import { registerSearchBar } from "../search-state";
 import { el } from "../utils/dom";
+import { NavigationHistory } from "../utils/navigation-history";
 
 interface SectionFunction {
 	name: string;
@@ -70,8 +71,57 @@ export async function renderDisasm(
 
 	const wrapper = el("div", "disasm-tab-wrapper");
 
+	// Navigation history
+	const backBtn = el("button", "da-nav-btn", "\u276E");
+	backBtn.title = "Back";
+	backBtn.disabled = true;
+	const forwardBtn = el("button", "da-nav-btn", "\u276F");
+	forwardBtn.title = "Forward";
+	forwardBtn.disabled = true;
+
+	const navHistory = new NavigationHistory<bigint>(() => {
+		backBtn.disabled = !navHistory.canGoBack();
+		forwardBtn.disabled = !navHistory.canGoForward();
+	});
+
+	function navigateTo(address: bigint): void {
+		navHistory.setNavigating(true);
+		activeViewer?.goToAddress(address);
+		navHistory.setNavigating(false);
+		backBtn.disabled = !navHistory.canGoBack();
+		forwardBtn.disabled = !navHistory.canGoForward();
+	}
+
+	backBtn.addEventListener("click", () => {
+		const addr = navHistory.back();
+		if (addr !== null) navigateTo(addr);
+	});
+	forwardBtn.addEventListener("click", () => {
+		const addr = navHistory.forward();
+		if (addr !== null) navigateTo(addr);
+	});
+
+	// Mouse button 4/5 for back/forward
+	wrapper.addEventListener("mouseup", (e) => {
+		if (e.button === 3) {
+			e.preventDefault();
+			const addr = navHistory.back();
+			if (addr !== null) navigateTo(addr);
+		} else if (e.button === 4) {
+			e.preventDefault();
+			const addr = navHistory.forward();
+			if (addr !== null) navigateTo(addr);
+		}
+	});
+
 	// Toolbar
 	const toolbar = el("div", "da-toolbar");
+
+	// Nav buttons
+	const navBtns = el("div", "da-nav-btns");
+	navBtns.appendChild(backBtn);
+	navBtns.appendChild(forwardBtn);
+	toolbar.appendChild(navBtns);
 
 	// Section picker
 	const sectionPicker = el("div", "da-section-picker");
@@ -217,6 +267,7 @@ export async function renderDisasm(
 				option.appendChild(nameEl);
 				option.addEventListener("click", () => {
 					closeFuncDropdown();
+					navHistory.push(sym.address);
 					activeViewer?.goToAddress(sym.address);
 					gotoInput.value = `0x${addrStr}`;
 				});
@@ -277,6 +328,7 @@ export async function renderDisasm(
 			} catch {
 				return;
 			}
+			navHistory.push(addr);
 			activeViewer?.goToAddress(addr);
 		}
 	});
@@ -347,8 +399,12 @@ export async function renderDisasm(
 			section,
 			sectionIndex: index,
 			onAddressClick: (address) => {
-				// Copy address to clipboard (already handled in viewer)
 				gotoInput.value = `0x${address.toString(16).toUpperCase()}`;
+			},
+			onBranchClick: (targetAddress) => {
+				navHistory.push(targetAddress);
+				activeViewer?.goToAddress(targetAddress);
+				gotoInput.value = `0x${targetAddress.toString(16).toUpperCase()}`;
 			}
 		});
 		activeViewer.mount(viewerMount);

@@ -16,6 +16,7 @@ export interface DisasmViewerOptions {
 	section: DisasmSection;
 	sectionIndex: number;
 	onAddressClick?: (address: bigint, offset: number) => void;
+	onBranchClick?: (targetAddress: bigint) => void;
 }
 
 const ROW_HEIGHT = 28;
@@ -277,8 +278,31 @@ export class DisasmViewer {
 		mnemonicEl.classList.add(`da-mnemonic--${this.classifyMnemonic(insn.mnemonic)}`);
 		row.appendChild(mnemonicEl);
 
-		// Operands
-		const operandsEl = el("span", "da-col-operands", insn.operands);
+		// Operands — make branch targets clickable
+		const operandsEl = el("span", "da-col-operands");
+		const branchTarget = this.parseBranchTarget(insn);
+		if (branchTarget !== null && this.opts.onBranchClick) {
+			const targetAddr = branchTarget;
+			const targetHex = `0x${targetAddr.toString(16)}`;
+			// Check if operands contain a label (symbol name)
+			const labelMatch = insn.operands.match(/(#?0x[0-9a-fA-F]+)/);
+			if (labelMatch) {
+				const before = insn.operands.slice(0, labelMatch.index);
+				const after = insn.operands.slice(labelMatch.index! + labelMatch[0].length);
+				if (before) operandsEl.appendChild(document.createTextNode(before));
+				const link = el("span", "da-branch-target", labelMatch[0]);
+				link.title = `Jump to ${targetHex}`;
+				link.addEventListener("click", () => {
+					this.opts.onBranchClick!(targetAddr);
+				});
+				operandsEl.appendChild(link);
+				if (after) operandsEl.appendChild(document.createTextNode(after));
+			} else {
+				operandsEl.textContent = insn.operands;
+			}
+		} else {
+			operandsEl.textContent = insn.operands;
+		}
 		row.appendChild(operandsEl);
 
 		return row;
@@ -332,6 +356,47 @@ export class DisasmViewer {
 		}
 
 		return "other";
+	}
+
+	/** Extract branch target address from a branch/call instruction. */
+	private parseBranchTarget(insn: DisasmInstruction): bigint | null {
+		const m = insn.mnemonic.toLowerCase();
+		const isBranch =
+			m === "b" ||
+			m === "bl" ||
+			m === "blr" ||
+			m === "blx" ||
+			m === "bx" ||
+			m === "br" ||
+			m === "cbz" ||
+			m === "cbnz" ||
+			m === "tbz" ||
+			m === "tbnz" ||
+			m.startsWith("b.") ||
+			m === "jmp" ||
+			m === "call" ||
+			m.startsWith("j");
+
+		if (!isBranch) return null;
+
+		// Match hex address in operands (e.g., "#0x1234", "0x1234")
+		const match = insn.operands.match(/#?0x([0-9a-fA-F]+)/);
+		if (!match?.[1]) return null;
+
+		try {
+			const target = BigInt(`0x${match[1]}`);
+			// Only return if the target is within the current section
+			const sectionStart = BigInt(
+				this.opts.section.virtualAddr as unknown as number | bigint
+			);
+			const sectionEnd = sectionStart + BigInt(this.opts.section.size);
+			if (target >= sectionStart && target < sectionEnd) {
+				return target;
+			}
+		} catch {
+			// Invalid address
+		}
+		return null;
 	}
 
 	private async loadChunk(byteOffset: number): Promise<void> {
