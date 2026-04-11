@@ -1228,12 +1228,29 @@ export class AnalysisSession {
 			const funcFileOffset = baseFileOffset + funcOffsetInBuf;
 
 			try {
-				const instructions = disassembleChunk(
+				let instructions = disassembleChunk(
 					funcBytes,
 					funcAddr,
 					section.arch,
 					funcFileOffset
 				);
+
+				// Trim trailing instructions after the last return — bytes between
+				// the actual return and the next function start are padding/data.
+				for (let j = instructions.length - 1; j >= 0; j--) {
+					const m = instructions[j]!.mnemonic.toLowerCase();
+					if (
+						m === "ret" ||
+						m === "retaa" ||
+						m === "retab" ||
+						m === "eret" ||
+						(m === "bx" && instructions[j]!.operands.trim() === "lr") ||
+						(m === "pop" && instructions[j]!.operands.includes("pc"))
+					) {
+						instructions = instructions.slice(0, j + 1);
+						break;
+					}
+				}
 
 				for (const insn of instructions) {
 					const label = symbolMap.get(insn.address);
