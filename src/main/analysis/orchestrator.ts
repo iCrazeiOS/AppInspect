@@ -1061,23 +1061,31 @@ export class AnalysisSession {
 		for (const lc of this.result.headers.loadCommands) {
 			if (lc.type !== "segment") continue;
 			const seg = lc.segment;
+			const segName = seg.name.trim();
+
+			// Only look in __TEXT segment
+			if (segName !== "__TEXT") continue;
 
 			for (const sect of seg.sections) {
-				// Only include executable sections (typically __text)
-				const sectionType = sect.flags & 0xff;
-				const isCode = sectionType === 0x00; // S_REGULAR with execute permission
-				const isTextSection =
-					sect.segname.trim() === "__TEXT" && sect.sectname.trim() === "__text";
+				const sectName = sect.sectname.trim();
 
-				if (isTextSection || (seg.name === "__TEXT" && isCode)) {
-					sections.push({
-						segname: sect.segname.trim(),
-						sectname: sect.sectname.trim(),
-						virtualAddr: BigInt(sect.addr),
-						fileOffset: sect.offset,
-						size: Number(sect.size),
-						arch
-					});
+				// Include __text section (main code) and __stubs/__stub_helper (PLT stubs)
+				if (
+					sectName === "__text" ||
+					sectName === "__stubs" ||
+					sectName === "__stub_helper"
+				) {
+					// Ensure section has data (size > 0 and valid offset)
+					if (Number(sect.size) > 0 && sect.offset > 0) {
+						sections.push({
+							segname: sect.segname.trim(),
+							sectname: sectName,
+							virtualAddr: BigInt(sect.addr),
+							fileOffset: sect.offset,
+							size: Number(sect.size),
+							arch
+						});
+					}
 				}
 			}
 		}

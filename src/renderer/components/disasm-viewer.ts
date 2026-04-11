@@ -21,6 +21,7 @@ export interface DisasmViewerOptions {
 const ROW_HEIGHT = 28;
 const CHUNK_SIZE = 65536; // 64KB per fetch
 const BUFFER_ROWS = 30;
+const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 
 // Estimate instructions per chunk based on architecture
 function getAvgInsnSize(arch: string): number {
@@ -57,8 +58,40 @@ export class DisasmViewer {
 		this.opts = opts;
 		const avgSize = getAvgInsnSize(opts.section.arch);
 		this.totalEstimatedRows = Math.ceil(opts.section.size / avgSize);
-		this.spacerHeight = this.totalEstimatedRows * ROW_HEIGHT;
+		this.spacerHeight = this.calcSpacerHeight();
 		this.boundOnScroll = this.onScroll.bind(this);
+	}
+
+	/** Calculate spacer height, capping at MAX_SPACER_PX for large sections. */
+	private calcSpacerHeight(): number {
+		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		return Math.min(natural, MAX_SPACER_PX);
+	}
+
+	/** Check if we're using scaled scrolling. */
+	private isScaled(): boolean {
+		return this.totalEstimatedRows * ROW_HEIGHT > MAX_SPACER_PX;
+	}
+
+	/** Map scrollTop → row index, accounting for scaling. */
+	private scrollTopToRow(scrollTop: number): number {
+		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		if (natural <= MAX_SPACER_PX) {
+			return Math.floor(scrollTop / ROW_HEIGHT);
+		}
+		// Scaled: scrollTop / spacerHeight gives a 0..1 fraction
+		const frac = this.spacerHeight > 0 ? scrollTop / this.spacerHeight : 0;
+		return Math.floor(frac * this.totalEstimatedRows);
+	}
+
+	/** Map row index → pixel position within the spacer. */
+	private rowToScrollTop(row: number): number {
+		const natural = this.totalEstimatedRows * ROW_HEIGHT;
+		if (natural <= MAX_SPACER_PX) {
+			return row * ROW_HEIGHT;
+		}
+		const frac = this.totalEstimatedRows > 0 ? row / this.totalEstimatedRows : 0;
+		return Math.floor(frac * this.spacerHeight);
 	}
 
 	mount(container: HTMLElement): void {
@@ -125,11 +158,13 @@ export class DisasmViewer {
 		const scrollTop = this.content.scrollTop;
 		const viewportHeight = this.content.clientHeight;
 
-		// Calculate visible row range
-		const startRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - BUFFER_ROWS);
+		// Calculate visible row range using scaled coordinates
+		const visibleRows = Math.ceil(viewportHeight / ROW_HEIGHT);
+		const firstVisibleRow = this.scrollTopToRow(scrollTop);
+		const startRow = Math.max(0, firstVisibleRow - BUFFER_ROWS);
 		const endRow = Math.min(
 			this.totalEstimatedRows,
-			Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + BUFFER_ROWS
+			firstVisibleRow + visibleRows + BUFFER_ROWS
 		);
 
 		// Skip if range hasn't changed significantly
@@ -310,7 +345,7 @@ export class DisasmViewer {
 					const newEstimate = Math.ceil(this.opts.section.size / actualAvg);
 					if (Math.abs(newEstimate - this.totalEstimatedRows) > 100) {
 						this.totalEstimatedRows = newEstimate;
-						this.spacerHeight = this.totalEstimatedRows * ROW_HEIGHT;
+						this.spacerHeight = this.calcSpacerHeight();
 						if (this.spacer) {
 							this.spacer.style.height = `${this.spacerHeight}px`;
 						}
@@ -368,9 +403,10 @@ export class DisasmViewer {
 				: getAvgInsnSize(section.arch);
 
 		const estimatedRow = Math.floor(relativeOffset / avgSize);
-		const scrollTop = estimatedRow * ROW_HEIGHT;
+		const scrollTop = this.rowToScrollTop(estimatedRow);
+		const viewportHalf = this.content.clientHeight / 2;
 
-		this.content.scrollTop = Math.max(0, scrollTop - this.content.clientHeight / 2);
+		this.content.scrollTop = Math.max(0, scrollTop - viewportHalf);
 	}
 
 	/** Focus the scroll container for keyboard navigation */
