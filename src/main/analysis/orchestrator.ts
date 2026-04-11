@@ -1134,7 +1134,7 @@ export class AnalysisSession {
 		}
 
 		const funcStarts = this.getFunctionStarts();
-		const symbolMap = this.buildSymbolMap();
+		const labelMap = this.buildLabelMap();
 		const sectionStart = section.virtualAddr;
 		const sectionEnd = section.virtualAddr + BigInt(section.size);
 
@@ -1174,7 +1174,7 @@ export class AnalysisSession {
 
 				for (const insn of instructions) {
 					// Label row adds an extra visual row
-					if (symbolMap.has(insn.address)) cumulativeRow++;
+					if (labelMap.has(insn.address)) cumulativeRow++;
 					cumulativeRow++; // instruction row
 				}
 			} catch {
@@ -1235,7 +1235,7 @@ export class AnalysisSession {
 		const baseFileOffset = section.fileOffset + safeOffset;
 		const endAddr = baseAddr + BigInt(readLen);
 
-		const symbolMap = this.buildSymbolMap();
+		const labelMap = this.buildLabelMap();
 
 		// Get function boundaries within the requested range
 		const funcStarts = this.getFunctionStarts();
@@ -1281,7 +1281,7 @@ export class AnalysisSession {
 				instructions = this.trimAfterReturn(instructions);
 
 				for (const insn of instructions) {
-					const label = symbolMap.get(insn.address);
+					const label = labelMap.get(insn.address);
 					if (label) {
 						insn.label = label;
 					}
@@ -1380,6 +1380,23 @@ export class AnalysisSession {
 				if (!existing || sym.type !== "imported") {
 					map.set(sym.address, sym.name);
 				}
+			}
+		}
+
+		return map;
+	}
+
+	/**
+	 * Build a label map that includes both symbol names and sub_XXXX
+	 * for function starts without a symbol name.
+	 */
+	private buildLabelMap(): Map<bigint, string> {
+		const map = this.buildSymbolMap();
+		const funcStarts = this.getFunctionStarts();
+
+		for (const addr of funcStarts) {
+			if (!map.has(addr)) {
+				map.set(addr, `sub_${addr.toString(16).toUpperCase()}`);
 			}
 		}
 
