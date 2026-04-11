@@ -4,6 +4,8 @@ import type {
 	AnalysisResult,
 	AppSettings,
 	BinaryHardening,
+	DisasmInstruction,
+	DisasmSection,
 	FatArch,
 	FileEntry,
 	HookInfo,
@@ -179,6 +181,35 @@ export type InvokeChannelMap = {
 			caseInsensitive?: boolean;
 		};
 		result: { matches: number[] } | null;
+	};
+	"get-disasm-sections": {
+		params: { sessionId: string };
+		result: DisasmSection[];
+	};
+	"read-disasm": {
+		params: {
+			sessionId: string;
+			sectionIndex: number;
+			byteOffset: number;
+			maxBytes: number;
+		};
+		result: {
+			instructions: DisasmInstruction[];
+			bytesConsumed: number;
+		} | null;
+	};
+	"search-disasm": {
+		params: {
+			sessionId: string;
+			sectionIndex: number;
+			query: string;
+			isRegex?: boolean;
+			maxResults?: number;
+		};
+		result: {
+			matches: Array<{ address: bigint; offset: number; preview: string }>;
+			hasMore: boolean;
+		};
 	};
 };
 

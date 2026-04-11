@@ -6,28 +6,11 @@
  */
 
 import { Capstone, Const, type Insn, loadCapstone } from "capstone-wasm";
+import type { DisasmArch, DisasmInstruction } from "../../shared/types";
 import { CPU_TYPE_ARM, CPU_TYPE_ARM64, CPU_TYPE_X86, CPU_TYPE_X86_64 } from "./macho";
 
-// ── Types ─────────────────────────────────────────────────────────────
-
-export type DisasmArch = "arm" | "arm64" | "x86" | "x86_64";
-
-export interface DisasmInstruction {
-	/** Virtual memory address */
-	address: bigint;
-	/** File offset (for hex view linking) */
-	offset: number;
-	/** Raw machine code bytes */
-	bytes: number[];
-	/** Instruction mnemonic (e.g., "mov", "bl") */
-	mnemonic: string;
-	/** Instruction operands (e.g., "x0, x1") */
-	operands: string;
-	/** Instruction size in bytes */
-	size: number;
-	/** Symbol label if this address matches a symbol */
-	label?: string;
-}
+// Re-export types for convenience
+export type { DisasmArch, DisasmInstruction } from "../../shared/types";
 
 // ── Capstone Initialization ───────────────────────────────────────────
 

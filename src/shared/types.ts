@@ -220,6 +220,42 @@ export interface SymbolEntry {
 	sectionIndex: number;
 }
 
+// ── Disassembly ──
+
+export type DisasmArch = "arm" | "arm64" | "x86" | "x86_64";
+
+export interface DisasmInstruction {
+	/** Virtual memory address */
+	address: bigint;
+	/** File offset (for hex view linking) */
+	offset: number;
+	/** Raw machine code bytes */
+	bytes: number[];
+	/** Instruction mnemonic (e.g., "mov", "bl") */
+	mnemonic: string;
+	/** Instruction operands (e.g., "x0, x1") */
+	operands: string;
+	/** Instruction size in bytes */
+	size: number;
+	/** Symbol label if this address matches a symbol */
+	label?: string;
+}
+
+export interface DisasmSection {
+	/** Segment name (e.g., "__TEXT") */
+	segname: string;
+	/** Section name (e.g., "__text") */
+	sectname: string;
+	/** Virtual memory address */
+	virtualAddr: bigint;
+	/** File offset for reading bytes */
+	fileOffset: number;
+	/** Section size in bytes */
+	size: number;
+	/** Architecture for disassembly */
+	arch: DisasmArch;
+}
+
 // ── Objective-C Classes ──
 
 export interface ObjCMethod {
