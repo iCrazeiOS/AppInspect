@@ -25,7 +25,9 @@ const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 
 // Estimate instructions per chunk based on architecture
 function getAvgInsnSize(arch: string): number {
-	return arch === "arm64" || arch === "arm" ? 4 : 5;
+	if (arch === "arm64") return 4; // Fixed 4-byte instructions
+	if (arch === "arm") return 3; // Thumb mode: 2-4 byte mix
+	return 5; // x86/x86_64: variable, ~5 average
 }
 
 export class DisasmViewer {
@@ -46,7 +48,6 @@ export class DisasmViewer {
 	// Track actual instruction density for better estimates
 	private loadedBytes = 0;
 	private loadedInsns = 0;
-	private loadedInsnBytes = 0;
 
 	private rafId = 0;
 	private boundOnScroll: () => void;
@@ -334,7 +335,6 @@ export class DisasmViewer {
 				this.chunks.set(byteOffset, result.instructions);
 				this.loadedBytes += result.bytesConsumed;
 				this.loadedInsns += result.instructions.length;
-				this.loadedInsnBytes += result.instructionBytes ?? result.bytesConsumed;
 
 				// Update estimate based on actual data
 				// Extrapolate instruction count to full section based on coverage
@@ -383,8 +383,8 @@ export class DisasmViewer {
 		`;
 	}
 
-	/** Scroll to a specific address */
-	goToAddress(address: bigint): void {
+	/** Scroll to a specific address with precision. */
+	async goToAddress(address: bigint): Promise<void> {
 		if (!this.content) return;
 
 		const section = this.opts.section;
@@ -397,10 +397,44 @@ export class DisasmViewer {
 		}
 
 		const relativeOffset = Number(address - sectionStart);
-		// Map byte offset to row proportionally
+
+		// Ensure the chunk containing this address is loaded
+		const chunkOffset = Math.floor(relativeOffset / CHUNK_SIZE) * CHUNK_SIZE;
+		if (!this.chunks.has(chunkOffset) && !this.pendingChunks.has(chunkOffset)) {
+			await this.loadChunk(chunkOffset);
+		}
+
+		// Approximate scroll to get in the right neighbourhood
 		const fraction = section.size > 0 ? relativeOffset / section.size : 0;
 		const estimatedRow = Math.floor(fraction * this.totalEstimatedRows);
 		this.content.scrollTop = this.rowToScrollTop(estimatedRow);
+
+		// Force render at this position
+		this.renderedStart = -1;
+		this.renderedEnd = -1;
+		await this.renderVisibleRows();
+
+		// Fine-tune: find the target instruction in the rendered DOM and snap to it
+		if (this.rowContainer && this.content) {
+			const rows = this.rowContainer.children;
+			for (let i = 0; i < rows.length; i++) {
+				const row = rows[i] as HTMLElement;
+				const addrEl = row.querySelector(".da-col-address");
+				if (!addrEl?.textContent) continue; // skip label rows
+				try {
+					const rowAddr = BigInt(`0x${addrEl.textContent}`);
+					if (rowAddr >= address) {
+						// Adjust scrollTop so this row sits at the top
+						const rowRect = row.getBoundingClientRect();
+						const containerRect = this.content.getBoundingClientRect();
+						this.content.scrollTop += rowRect.top - containerRect.top;
+						return;
+					}
+				} catch {
+					// skip if address parsing fails
+				}
+			}
+		}
 	}
 
 	/** Focus the scroll container for keyboard navigation */
