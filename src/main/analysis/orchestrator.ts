@@ -1130,22 +1130,73 @@ export class AnalysisSession {
 		const baseAddr = section.virtualAddr + BigInt(safeOffset);
 		const baseFileOffset = section.fileOffset + safeOffset;
 
-		// Disassemble
-		const instructions = disassembleChunk(bytes, baseAddr, section.arch, baseFileOffset);
-
-		// Attach symbol labels
+		// Get function starts for resuming after data gaps
+		const funcStarts = this.getFunctionStarts();
 		const symbolMap = this.buildSymbolMap();
-		for (const insn of instructions) {
-			const label = symbolMap.get(insn.address);
-			if (label) {
-				insn.label = label;
+
+		// Disassemble with gap handling - when we hit embedded data, skip to next function
+		const allInstructions: DisasmInstruction[] = [];
+		let currentOffset = 0;
+		let totalBytesConsumed = 0;
+		const endOffset = readLen;
+
+		while (currentOffset < endOffset) {
+			const chunkBytes = bytes.subarray(currentOffset);
+			if (chunkBytes.length === 0) break;
+
+			const chunkAddr = baseAddr + BigInt(currentOffset);
+			const chunkFileOffset = baseFileOffset + currentOffset;
+
+			const instructions = disassembleChunk(
+				chunkBytes,
+				chunkAddr,
+				section.arch,
+				chunkFileOffset
+			);
+
+			// Attach symbol labels and collect instructions
+			for (const insn of instructions) {
+				const label = symbolMap.get(insn.address);
+				if (label) {
+					insn.label = label;
+				}
+				allInstructions.push(insn);
+			}
+
+			const bytesDisassembled = instructions.reduce((sum, insn) => sum + insn.size, 0);
+			currentOffset += bytesDisassembled;
+			totalBytesConsumed += bytesDisassembled;
+
+			// If we didn't consume any bytes or didn't cover the chunk, we hit a gap
+			if (bytesDisassembled === 0 || bytesDisassembled < chunkBytes.length) {
+				// Find the next function start within our read window
+				const currentVA = baseAddr + BigInt(currentOffset);
+				const endVA = baseAddr + BigInt(endOffset);
+
+				let nextFunc: bigint | null = null;
+				for (const funcAddr of funcStarts) {
+					if (funcAddr > currentVA && funcAddr < endVA) {
+						if (nextFunc === null || funcAddr < nextFunc) {
+							nextFunc = funcAddr;
+						}
+					}
+				}
+
+				if (nextFunc !== null) {
+					// Skip to the next function
+					const skipBytes = Number(nextFunc - currentVA);
+					currentOffset += skipBytes;
+					totalBytesConsumed += skipBytes;
+				} else {
+					// No more functions in this range, we're done
+					// Count remaining bytes as consumed (they're data)
+					totalBytesConsumed = endOffset;
+					break;
+				}
 			}
 		}
 
-		// Calculate actual bytes consumed (sum of instruction sizes)
-		const bytesConsumed = instructions.reduce((sum, insn) => sum + insn.size, 0);
-
-		return { instructions, bytesConsumed };
+		return { instructions: allInstructions, bytesConsumed: totalBytesConsumed };
 	}
 
 	/** Search disassembled code for a query. */
@@ -1236,6 +1287,104 @@ export class AnalysisSession {
 		}
 
 		return map;
+	}
+
+	// Cache for function starts
+	private functionStartsCache: bigint[] | null = null;
+
+	/** Get function start addresses from LC_FUNCTION_STARTS. */
+	getFunctionStarts(): bigint[] {
+		if (this.functionStartsCache) return this.functionStartsCache;
+		if (!this.result) return [];
+
+		const binaryPath = this.getActiveBinaryPath();
+		if (!binaryPath) return [];
+
+		try {
+			const fileBuf = fs.readFileSync(binaryPath);
+			let buffer = fileBuf.buffer.slice(
+				fileBuf.byteOffset,
+				fileBuf.byteOffset + fileBuf.byteLength
+			);
+
+			// Handle fat binary — select the same arch we analyzed
+			const fatResult = parseFatHeader(buffer);
+			if (fatResult.ok) {
+				const selectedArch =
+					fatResult.data.find((a) => a.cputype === this.result!.headers.machO.cputype) ??
+					fatResult.data[0];
+				if (selectedArch && selectedArch.offset > 0) {
+					buffer = buffer.slice(
+						selectedArch.offset,
+						selectedArch.offset + selectedArch.size
+					);
+				}
+			}
+
+			// Parse Mach-O header
+			const headerResult = parseMachOHeader(buffer, 0);
+			if (!headerResult.ok) return [];
+
+			const machO = headerResult.data;
+			const headerSize = machO.is64Bit ? 32 : 28;
+			const lcOffset = machO.offset + headerSize;
+
+			// Parse load commands to get functionStartsInfo
+			const lcResult = parseLoadCommands(
+				buffer,
+				lcOffset,
+				machO.header.ncmds,
+				machO.header.sizeofcmds,
+				machO.littleEndian,
+				machO.is64Bit
+			);
+
+			if (!lcResult.functionStartsInfo) return [];
+
+			// Find __TEXT segment for base address
+			const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
+			if (!textSeg) return [];
+
+			// Parse function starts
+			const funcStarts = parseFunctionStarts(
+				buffer,
+				lcResult.functionStartsInfo.offset,
+				lcResult.functionStartsInfo.size,
+				textSeg.vmaddr
+			);
+
+			this.functionStartsCache = funcStarts;
+			return funcStarts;
+		} catch {
+			return [];
+		}
+	}
+
+	/** Get function starts for a specific disasm section as {address, name} pairs. */
+	getDisasmFunctions(sectionIndex: number): Array<{ address: bigint; name: string }> {
+		const sections = this.getDisasmSections();
+		const section = sections[sectionIndex];
+		if (!section) return [];
+
+		const funcStarts = this.getFunctionStarts();
+		const symbolMap = this.buildSymbolMap();
+
+		const sectionStart = section.virtualAddr;
+		const sectionEnd = section.virtualAddr + BigInt(section.size);
+
+		const functions: Array<{ address: bigint; name: string }> = [];
+
+		for (const addr of funcStarts) {
+			if (addr >= sectionStart && addr < sectionEnd) {
+				const symName = symbolMap.get(addr);
+				functions.push({
+					address: addr,
+					name: symName ?? `sub_${addr.toString(16).toUpperCase()}`
+				});
+			}
+		}
+
+		return functions;
 	}
 
 	// ── Library dependency graph ────────────────────────────────────────

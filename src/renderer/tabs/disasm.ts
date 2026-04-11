@@ -2,14 +2,14 @@
  * Disassembly tab renderer — section picker with disassembly viewer
  */
 
-import type { DisasmSection, LoadCommand, SymbolEntry } from "../../shared/types";
+import type { DisasmSection, LoadCommand } from "../../shared/types";
 import { DisasmViewer } from "../components/disasm-viewer";
 import { EmptyState } from "../components/empty-state";
 import { SearchBar } from "../components/search-bar";
 import { registerSearchBar } from "../search-state";
 import { el } from "../utils/dom";
 
-interface SectionSymbol {
+interface SectionFunction {
 	name: string;
 	address: bigint;
 }
@@ -144,45 +144,25 @@ export async function renderDisasm(
 
 	let funcDropdownOpen = false;
 	let funcDropdown: HTMLElement | null = null;
-	let sectionSymbols: SectionSymbol[] = [];
+	let sectionFunctions: SectionFunction[] = [];
 
-	async function loadSectionSymbols(sectionIndex: number): Promise<void> {
-		const section = sections[sectionIndex];
-		if (!section) {
-			sectionSymbols = [];
-			return;
-		}
-
+	async function loadSectionFunctions(sectionIndex: number): Promise<void> {
 		try {
-			const data = await window.api.getTabData(sessionId, "symbols");
-			if (data.tab !== "symbols") {
-				sectionSymbols = [];
-				return;
-			}
+			// Use the new API that gets function starts + symbol names
+			const functions = await window.api.getDisasmFunctions(sessionId, sectionIndex);
 
-			const allSymbols = data.data as SymbolEntry[];
-			// virtualAddr comes as number from IPC serialization
-			const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
-			const sectionEnd = sectionStart + BigInt(section.size);
-
-			// Filter to symbols within section address range (exported and local only)
-			// Symbol addresses also come as numbers from IPC
-			sectionSymbols = allSymbols
-				.filter((sym) => {
-					if (sym.type === "imported") return false;
-					const addr = BigInt(sym.address as unknown as number | bigint);
-					return addr >= sectionStart && addr < sectionEnd;
-				})
-				.map((sym) => ({
-					name: sym.name,
-					address: BigInt(sym.address as unknown as number | bigint)
-				}))
-				.sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+			// Convert addresses from IPC (may be numbers) to BigInt
+			sectionFunctions = functions.map((f) => ({
+				name: f.name,
+				address: BigInt(f.address as unknown as number | bigint)
+			}));
 
 			funcBtnText.textContent =
-				sectionSymbols.length > 0 ? `Functions (${sectionSymbols.length})` : "No functions";
+				sectionFunctions.length > 0
+					? `Functions (${sectionFunctions.length})`
+					: "No functions";
 		} catch {
-			sectionSymbols = [];
+			sectionFunctions = [];
 			funcBtnText.textContent = "Functions...";
 		}
 	}
@@ -217,8 +197,8 @@ export async function renderDisasm(
 			funcList.innerHTML = "";
 			const lowerFilter = filter.toLowerCase();
 			const filtered = filter
-				? sectionSymbols.filter((s) => s.name.toLowerCase().includes(lowerFilter))
-				: sectionSymbols;
+				? sectionFunctions.filter((s) => s.name.toLowerCase().includes(lowerFilter))
+				: sectionFunctions;
 
 			if (filtered.length === 0) {
 				const empty = el("div", "da-func-empty", filter ? "No matches" : "No functions");
@@ -374,7 +354,7 @@ export async function renderDisasm(
 		activeViewer.mount(viewerMount);
 
 		// Load symbols for this section
-		await loadSectionSymbols(index);
+		await loadSectionFunctions(index);
 	}
 
 	// Auto-open first section

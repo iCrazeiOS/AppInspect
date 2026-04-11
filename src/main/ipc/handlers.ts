@@ -357,6 +357,21 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
+	// ── get-disasm-functions ──
+	ipcMain.handle(
+		"get-disasm-functions",
+		(_event, args: { sessionId: string; sectionIndex: number }) => {
+			try {
+				const session = getSession(args.sessionId);
+				return sanitizeBigInts(session.getDisasmFunctions(args.sectionIndex));
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+				return [];
+			}
+		}
+	);
+
 	// ── export-json ──
 	ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
 		const { sessionId } = args;

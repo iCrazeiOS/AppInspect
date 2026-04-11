@@ -67,6 +67,10 @@ export interface AppInspectAPI {
 		matches: Array<{ address: bigint; offset: number; preview: string }>;
 		hasMore: boolean;
 	}>;
+	getDisasmFunctions(
+		sessionId: string,
+		sectionIndex: number
+	): Promise<Array<{ address: bigint; name: string }>>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;

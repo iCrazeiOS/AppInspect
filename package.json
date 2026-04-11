@@ -16,7 +16,7 @@
     "dist:win": "bun run build && electron-builder --win",
     "dist:win:portable": "bun run build && electron-builder --win portable",
     "dist:linux": "bun run build && electron-builder --linux",
-    "build:mcp": "bun build src/mcp/server.ts --outfile dist/mcp/server.js --target bun --external @modelcontextprotocol/sdk --external bplist-parser --external plist --external fflate --external electron",
+    "build:mcp": "bun build src/mcp/server.ts --outfile dist/mcp/server.js --target bun --external @modelcontextprotocol/sdk --external bplist-parser --external plist --external fflate --external electron && cp node_modules/capstone-wasm/dist/capstone.wasm dist/mcp/",
     "mcp": "bun dist/mcp/server.js",
     "typecheck": "tsc --noEmit",
     "test": "bun test",

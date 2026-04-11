@@ -211,6 +211,13 @@ export type InvokeChannelMap = {
 			hasMore: boolean;
 		};
 	};
+	"get-disasm-functions": {
+		params: {
+			sessionId: string;
+			sectionIndex: number;
+		};
+		result: Array<{ address: bigint; name: string }>;
+	};
 };
 
 // ── Send channels (main -> renderer) ──
