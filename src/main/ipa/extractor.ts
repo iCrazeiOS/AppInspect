@@ -210,8 +210,8 @@ function readCFBundleExecutable(plistPath: string): string | null {
 	try {
 		const buf = fs.readFileSync(plistPath);
 		const parsed = parsePlistBuffer(buf);
-		if (typeof parsed["CFBundleExecutable"] === "string") {
-			return parsed["CFBundleExecutable"];
+		if (typeof parsed.CFBundleExecutable === "string") {
+			return parsed.CFBundleExecutable;
 		}
 	} catch {
 		// ignore

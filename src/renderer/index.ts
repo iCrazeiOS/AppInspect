@@ -1,7 +1,7 @@
 // Renderer entry point
 /// <reference path="./global.d.ts" />
 
-import type { AnalysisResult, AppSettings, BinaryInfo } from "../shared/types";
+import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { showToast } from "./components/toast";
 import {
 	addFileTab as addFileTabToBar,
@@ -135,7 +135,7 @@ function jumpToSectionTab(index: number): void {
 	const visibleBtns = Array.from(tabButtons).filter((btn) => !btn.classList.contains("hidden"));
 	const btn = visibleBtns[index];
 	if (btn) {
-		const tabId = btn.dataset["tab"];
+		const tabId = btn.dataset.tab;
 		if (tabId) switchSectionTab(tabId);
 	}
 }
@@ -187,7 +187,7 @@ $<HTMLElement>("#sidebar").addEventListener("keydown", (e: KeyboardEvent) => {
 	// Enter on a tab button → focus the tab's main content
 	if (e.key === "Enter" && target.classList.contains("tab-btn")) {
 		e.preventDefault();
-		const tabId = (target as HTMLButtonElement).dataset["tab"];
+		const tabId = (target as HTMLButtonElement).dataset.tab;
 		if (!tabId) return;
 		switchSectionTab(tabId);
 		// Try focusing immediately (already-loaded tab); if not ready, set pending flag
@@ -219,7 +219,7 @@ $<HTMLElement>("#sidebar").addEventListener("keydown", (e: KeyboardEvent) => {
 		next.focus();
 		// If it's a section tab button, also activate it
 		if (next.classList.contains("tab-btn")) {
-			const tabId = (next as HTMLButtonElement).dataset["tab"];
+			const tabId = (next as HTMLButtonElement).dataset.tab;
 			if (tabId) switchSectionTab(tabId);
 		}
 	}
@@ -275,7 +275,7 @@ function checkEncryptionBanner(tab: FileTabState, result: AnalysisResult): void 
 function updateEncryptionBanner(): void {
 	const tab = getActiveFileTab();
 	let banner = document.getElementById("encryption-banner");
-	if (tab && tab.isEncrypted && !tab.encryptionBannerDismissed) {
+	if (tab?.isEncrypted && !tab.encryptionBannerDismissed) {
 		if (!banner) {
 			banner = document.createElement("div");
 			banner.id = "encryption-banner";
@@ -306,7 +306,7 @@ function switchSectionTab(tabId: string): void {
 	if (tab) tab.currentSectionTab = tabId;
 
 	tabButtons.forEach((btn) => {
-		btn.classList.toggle("active", btn.dataset["tab"] === tabId);
+		btn.classList.toggle("active", btn.dataset.tab === tabId);
 	});
 
 	tabPanels.forEach((panel) => {
@@ -321,7 +321,7 @@ function switchSectionTab(tabId: string): void {
 	}
 
 	// Lazy-load tab data
-	if (tab && tab.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
+	if (tab?.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
 		loadTabData(tabId);
 	}
 }
@@ -424,7 +424,7 @@ async function loadTabData(tabId: string): Promise<void> {
 
 tabButtons.forEach((btn) => {
 	btn.addEventListener("click", () => {
-		const tabId = btn.dataset["tab"];
+		const tabId = btn.dataset.tab;
 		if (tabId) switchSectionTab(tabId);
 		btn.blur();
 	});
@@ -459,7 +459,7 @@ function populateBinarySelector(binaries: BinaryInfo[]): void {
 		const opt = document.createElement("option");
 		opt.value = String(i);
 		opt.textContent = `${bin.name}  [${binaryTypeBadge(bin.type)}]`;
-		opt.dataset["binType"] = bin.type;
+		opt.dataset.binType = bin.type;
 		binaryDropdown.appendChild(opt);
 	}
 
@@ -498,7 +498,7 @@ async function handleBinaryChange(): Promise<void> {
 	if (!tab) return;
 
 	const selectedIndex = parseInt(binaryDropdown.value, 10);
-	if (isNaN(selectedIndex) || selectedIndex === tab.currentBinaryIndex) return;
+	if (Number.isNaN(selectedIndex) || selectedIndex === tab.currentBinaryIndex) return;
 
 	tab.currentBinaryIndex = selectedIndex;
 	binaryDropdown.disabled = true;
@@ -606,9 +606,9 @@ async function handleArchChange(): Promise<void> {
 	if (!tab) return;
 
 	const idx = parseInt(archDropdown.value, 10);
-	if (isNaN(idx) || idx === tab.currentArchIndex) return;
+	if (Number.isNaN(idx) || idx === tab.currentArchIndex) return;
 	const fatArchs = tab.analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
-	if (!fatArchs || !fatArchs[idx]) return;
+	if (!fatArchs?.[idx]) return;
 
 	tab.currentArchIndex = idx;
 	const cpuType = fatArchs[idx].cputype;
@@ -942,7 +942,7 @@ $<HTMLButtonElement>("#btn-export-all").addEventListener("click", handleExportAl
 exportTabBtns.forEach((btn) => {
 	btn.addEventListener("click", (e) => {
 		e.stopPropagation();
-		const tabName = btn.dataset["exportTab"];
+		const tabName = btn.dataset.exportTab;
 		if (tabName) {
 			handleExportTab(tabName);
 		}
@@ -980,7 +980,7 @@ async function saveNumberSetting(
 	el: HTMLInputElement
 ): Promise<void> {
 	const val = parseInt(el.value, 10);
-	if (isNaN(val) || val < 1) return;
+	if (Number.isNaN(val) || val < 1) return;
 	try {
 		const current = await window.api.getSettings();
 		current[key] = val;

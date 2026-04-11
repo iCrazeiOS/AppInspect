@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { EncryptionInfo, StringEntry, SymbolEntry } from "../../../shared/types";
+import type { StringEntry, SymbolEntry } from "../../../shared/types";
 import { getBinaryHardening, runSecurityScan, type SecurityScanParams } from "../security";
 
 // ── Helpers ──

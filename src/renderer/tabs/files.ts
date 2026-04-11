@@ -225,8 +225,7 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 		const toggle = document.createElement("span");
 		toggle.className = "ft-toggle";
 		if (entry.isDirectory && entry.children && entry.children.length > 0) {
-			const isExpanded =
-				expandedSet.has(entry.path) || (matchSet !== null && matchSet.has(entry.path));
+			const isExpanded = expandedSet.has(entry.path) || matchSet?.has(entry.path);
 			toggle.textContent = isExpanded ? "\u25BE" : "\u25B8";
 			toggle.classList.add("ft-toggle-active");
 		} else {
@@ -287,8 +286,7 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 			childrenEl.className = "ft-children";
 			childrenMap.set(entry.path, childrenEl);
 
-			const isExpanded =
-				expandedSet.has(entry.path) || (matchSet !== null && matchSet.has(entry.path));
+			const isExpanded = expandedSet.has(entry.path) || matchSet?.has(entry.path);
 			if (isExpanded) {
 				childrenEl.classList.add("ft-children-open");
 			}
@@ -370,7 +368,7 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 
 	// Restore saved search state
 	const savedState = getSearchState(sessionId, "files");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 }

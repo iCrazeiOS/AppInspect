@@ -224,7 +224,7 @@ function decodeLDR64(insn: number): { rt: number; rn: number; offset: number } |
  * This is the most common pattern for loading string addresses.
  * Note: ARM32 PC is instruction address + 8 (pipeline).
  */
-function decodeARM32_LDR_PC(insn: number, pc: bigint): { rd: number; target: bigint } | null {
+function _decodeARM32_LDR_PC(insn: number, pc: bigint): { rd: number; target: bigint } | null {
 	// Pattern: cond 01 0 P U 0 W 1 1111 Rd [imm12]
 	// For LDR with PC base (Rn=15): bits[19:16] = 1111
 	// cond=AL (1110), P=1, W=0, L=1
@@ -246,7 +246,7 @@ function decodeARM32_LDR_PC(insn: number, pc: bigint): { rd: number; target: big
  * Decode ARM32 ADR (ADD/SUB Rd, PC, #imm).
  * Used for PC-relative address calculation.
  */
-function decodeARM32_ADR(insn: number, pc: bigint): { rd: number; target: bigint } | null {
+function _decodeARM32_ADR(insn: number, pc: bigint): { rd: number; target: bigint } | null {
 	// ADD Rd, PC, #imm: 1110 00 1 0100 0 1111 Rd [rotate][imm8]
 	// SUB Rd, PC, #imm: 1110 00 1 0010 0 1111 Rd [rotate][imm8]
 	const isADD = (insn & 0x0fef0000) === 0x028f0000;
@@ -271,7 +271,7 @@ function decodeARM32_ADR(insn: number, pc: bigint): { rd: number; target: bigint
 /**
  * Decode ARM32 MOVW Rd, #imm16 (load low 16 bits).
  */
-function decodeARM32_MOVW(insn: number): { rd: number; imm16: number } | null {
+function _decodeARM32_MOVW(insn: number): { rd: number; imm16: number } | null {
 	// Encoding: 1110 0011 0000 [imm4] [Rd] [imm12]
 	if ((insn & 0x0ff00000) !== 0x03000000) return null;
 
@@ -286,7 +286,7 @@ function decodeARM32_MOVW(insn: number): { rd: number; imm16: number } | null {
 /**
  * Decode ARM32 MOVT Rd, #imm16 (load high 16 bits).
  */
-function decodeARM32_MOVT(insn: number): { rd: number; imm16: number } | null {
+function _decodeARM32_MOVT(insn: number): { rd: number; imm16: number } | null {
 	// Encoding: 1110 0011 0100 [imm4] [Rd] [imm12]
 	if ((insn & 0x0ff00000) !== 0x03400000) return null;
 
@@ -493,8 +493,8 @@ function vmaddrToStringFileOffset(
 // CFString struct sizes:
 // 64-bit: isa(8) + flags(8) + data_ptr(8) + length(8) = 32 bytes
 // 32-bit: isa(4) + flags(4) + data_ptr(4) + length(4) = 16 bytes
-const CFSTRING_STRUCT_SIZE_64 = 32;
-const CFSTRING_STRUCT_SIZE_32 = 16;
+const _CFSTRING_STRUCT_SIZE_64 = 32;
+const _CFSTRING_STRUCT_SIZE_32 = 16;
 const CFSTRING_DATA_OFFSET_64 = 16;
 const CFSTRING_DATA_OFFSET_32 = 8;
 

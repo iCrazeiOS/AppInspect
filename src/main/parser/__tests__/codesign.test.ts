@@ -21,7 +21,7 @@ function writeU32BE(view: DataView, offset: number, value: number): void {
 /**
  * Write a string as raw bytes into a buffer at the given offset.
  */
-function writeString(view: DataView, offset: number, str: string): void {
+function _writeString(view: DataView, offset: number, str: string): void {
 	for (let i = 0; i < str.length; i++) {
 		view.setUint8(offset + i, str.charCodeAt(i));
 	}

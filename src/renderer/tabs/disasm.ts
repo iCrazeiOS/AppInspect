@@ -32,7 +32,7 @@ export async function renderDisasm(
 		activeSearchBar = null;
 	}
 
-	if (!data || !data.loadCommands || data.loadCommands.length === 0) {
+	if (!data?.loadCommands || data.loadCommands.length === 0) {
 		const empty = new EmptyState({
 			icon: "\u{1F4BB}",
 			message: "No binary loaded for disassembly."

@@ -3,13 +3,7 @@
  */
 
 import { decodeLCName } from "../../shared/macho";
-import type {
-	AnalysisResult,
-	LoadCommand,
-	MachOHeader,
-	Section,
-	Segment
-} from "../../shared/types";
+import type { AnalysisResult, LoadCommand } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
 import { cpuSubtypeName, decodeCpuType, decodeFileType, hexStr } from "../utils/macho";

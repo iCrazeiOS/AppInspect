@@ -256,7 +256,7 @@ function parseCFStrings(
  */
 export function extractStrings(
 	buffer: ArrayBuffer,
-	sections: Section64[],
+	_sections: Section64[],
 	segments: Segment64[],
 	rebaseMap: Map<number, bigint>,
 	littleEndian: boolean,

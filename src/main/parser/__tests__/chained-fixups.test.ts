@@ -5,7 +5,6 @@
 import { describe, expect, it } from "bun:test";
 import {
 	buildFixupMap,
-	type ChainedFixupsResult,
 	DYLD_CHAINED_PTR_64_OFFSET,
 	DYLD_CHAINED_PTR_START_NONE
 } from "../chained-fixups";
@@ -142,7 +141,7 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
 		symbolsBlobSize += imp.symbolName.length + 1; // null terminated
 	}
 
-	const totalHeaderDataSize = symbolsRelOffset + symbolsBlobSize;
+	const _totalHeaderDataSize = symbolsRelOffset + symbolsBlobSize;
 
 	// ── Write header ──
 	view.setUint32(dataOffset, 0, le); // fixups_version = 0

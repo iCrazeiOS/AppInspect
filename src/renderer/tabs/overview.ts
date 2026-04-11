@@ -130,17 +130,14 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		wrapper.appendChild(buildCard("Binary Info", ...machoItems));
 	} else if (sourceType === "app") {
 		// ── macOS .app Bundle Summary card ──
-		const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+		const bundleId = infoPlist?.CFBundleIdentifier ?? "N/A";
 		const displayName =
-			infoPlist?.["CFBundleDisplayName"] ??
-			infoPlist?.["CFBundleName"] ??
-			ipa?.appName ??
-			"N/A";
-		const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
-		const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
-		const lsMinSys = infoPlist?.["LSMinimumSystemVersion"];
+			infoPlist?.CFBundleDisplayName ?? infoPlist?.CFBundleName ?? ipa?.appName ?? "N/A";
+		const version = infoPlist?.CFBundleShortVersionString ?? "N/A";
+		const buildNumber = infoPlist?.CFBundleVersion ?? "N/A";
+		const lsMinSys = infoPlist?.LSMinimumSystemVersion;
 		const displayMinOS = lsMinSys ? String(lsMinSys) : minOS;
-		const category = infoPlist?.["LSApplicationCategoryType"];
+		const category = infoPlist?.LSApplicationCategoryType;
 
 		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
 
@@ -179,14 +176,11 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		wrapper.appendChild(buildCard("App Summary", ...summaryItems));
 	} else {
 		// ── IPA App Summary card (existing) ──
-		const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+		const bundleId = infoPlist?.CFBundleIdentifier ?? "N/A";
 		const displayName =
-			infoPlist?.["CFBundleDisplayName"] ??
-			infoPlist?.["CFBundleName"] ??
-			ipa?.appName ??
-			"N/A";
-		const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
-		const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
+			infoPlist?.CFBundleDisplayName ?? infoPlist?.CFBundleName ?? ipa?.appName ?? "N/A";
+		const version = infoPlist?.CFBundleShortVersionString ?? "N/A";
+		const buildNumber = infoPlist?.CFBundleVersion ?? "N/A";
 
 		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
 

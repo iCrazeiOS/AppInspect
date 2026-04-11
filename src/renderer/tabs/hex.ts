@@ -116,7 +116,7 @@ export function renderHex(
 		activeHexViewer = null;
 	}
 
-	if (!data || !data.loadCommands || data.loadCommands.length === 0) {
+	if (!data?.loadCommands || data.loadCommands.length === 0) {
 		const empty = new EmptyState({
 			icon: "\u{1F50D}",
 			message: "No segments available for hex viewing."

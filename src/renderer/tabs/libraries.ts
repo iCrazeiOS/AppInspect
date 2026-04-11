@@ -178,14 +178,14 @@ export function renderLibraries(
 			} else if (isRegex) {
 				try {
 					const re = new RegExp(term, "i");
-					table.setFilter((row) => re.test(String(row["name"] ?? "")));
+					table.setFilter((row) => re.test(String(row.name ?? "")));
 				} catch {
 					// invalid regex — ignore
 				}
 			} else {
 				const lc = term.toLowerCase();
 				table.setFilter((row) =>
-					String(row["name"] ?? "")
+					String(row.name ?? "")
 						.toLowerCase()
 						.includes(lc)
 				);
@@ -239,7 +239,7 @@ export function renderLibraries(
 
 		// Convert to table rows
 		const rows = data!.map((lib) => ({
-			name: lib.name.includes("@rpath") ? "\u26A0 " + lib.name : lib.name,
+			name: lib.name.includes("@rpath") ? `\u26A0 ${lib.name}` : lib.name,
 			currentVersion: lib.currentVersion ?? "",
 			type: lib.weak ? "weak" : "strong",
 			_rawName: lib.name
@@ -269,14 +269,14 @@ export function renderLibraries(
 			} else if (searchRegex) {
 				try {
 					const re = new RegExp(searchTerm, "i");
-					table.setFilter((row) => re.test(String(row["name"] ?? "")));
+					table.setFilter((row) => re.test(String(row.name ?? "")));
 				} catch {
 					// invalid regex — ignore
 				}
 			} else {
 				const lc = searchTerm.toLowerCase();
 				table.setFilter((row) =>
-					String(row["name"] ?? "")
+					String(row.name ?? "")
 						.toLowerCase()
 						.includes(lc)
 				);
@@ -288,7 +288,7 @@ export function renderLibraries(
 
 		// Restore saved search state
 		const savedState = getSearchState(sessionId, "libraries");
-		if (savedState && savedState.term) {
+		if (savedState?.term) {
 			searchBar.setValue(savedState.term, savedState.isRegex);
 		}
 	}

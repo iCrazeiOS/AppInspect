@@ -135,7 +135,7 @@ export type InvokeChannelMap = {
 		result: { success: boolean; path?: string };
 	};
 	"open-file-picker": {
-		params: void;
+		params: undefined;
 		result: string | null;
 	};
 	"analyse-binary": {
@@ -154,19 +154,19 @@ export type InvokeChannelMap = {
 	};
 	"close-session": {
 		params: { sessionId: string };
-		result: void;
+		result: undefined;
 	};
 	"get-library-graph": {
 		params: { sessionId: string };
 		result: LibraryGraphData;
 	};
 	"get-settings": {
-		params: void;
+		params: undefined;
 		result: AppSettings;
 	};
 	"set-settings": {
 		params: AppSettings;
-		result: void;
+		result: undefined;
 	};
 	"read-hex": {
 		params: { sessionId: string; offset: number; length: number };

@@ -369,7 +369,7 @@ function hasARC(symbolNames: Set<string>): boolean {
 }
 
 function truncate(s: string, max = 500): string {
-	return s.length > max ? s.slice(0, max) + "..." : s;
+	return s.length > max ? `${s.slice(0, max)}...` : s;
 }
 
 function checkBinaryHardeningFindings(params: SecurityScanParams): SecurityFinding[] {

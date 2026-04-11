@@ -261,7 +261,7 @@ describe("parseExportTrie", () => {
 		// flags = 0x00 (regular)
 		// address = 0x1000 (ULEB128: 0x80, 0x20)
 		// children_count = 0
-		const bytes = [
+		const _bytes = [
 			0x02, // terminal_size = 2
 			0x00, // flags = 0
 			0x80,

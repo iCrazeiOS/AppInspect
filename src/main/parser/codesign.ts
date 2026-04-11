@@ -101,7 +101,7 @@ function parseEntitlementsBlob(
 function parseCodeDirectoryBlob(
 	view: DataView,
 	blobStart: number,
-	blobMaxLen: number
+	_blobMaxLen: number
 ): CodeDirectory | null {
 	const magic = view.getUint32(blobStart, false);
 	if (magic !== CS_MAGIC_CODEDIRECTORY) {

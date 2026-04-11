@@ -261,7 +261,7 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
 
 	if (ch === "^") {
 		const inner = decodeType(enc, pos + 1);
-		return { type: inner.type + " *", next: inner.next };
+		return { type: `${inner.type} *`, next: inner.next };
 	}
 
 	if (ch === "@") {
@@ -269,7 +269,7 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
 		if (pos + 1 < enc.length && enc[pos + 1] === '"') {
 			const end = enc.indexOf('"', pos + 2);
 			if (end !== -1) {
-				return { type: enc.slice(pos + 2, end) + " *", next: end + 1 };
+				return { type: `${enc.slice(pos + 2, end)} *`, next: end + 1 };
 			}
 		}
 		return { type: "id", next: pos + 1 };
@@ -929,7 +929,7 @@ function parseProtocolsWithDetails(
  *
  * We only read the name pointer at offset 8 (64-bit) or 4 (32-bit).
  */
-function parseProtocols(
+function _parseProtocols(
 	view: DataView,
 	sections: Section64[],
 	segments: Segment64[],

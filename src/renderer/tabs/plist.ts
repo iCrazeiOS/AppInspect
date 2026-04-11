@@ -14,10 +14,10 @@ function extractQuickInfo(plist: Record<string, unknown>): {
 } {
 	// URL schemes
 	const urlSchemes: string[] = [];
-	const urlTypes = plist["CFBundleURLTypes"];
+	const urlTypes = plist.CFBundleURLTypes;
 	if (Array.isArray(urlTypes)) {
 		for (const entry of urlTypes) {
-			const schemes = (entry as Record<string, unknown>)?.["CFBundleURLSchemes"];
+			const schemes = (entry as Record<string, unknown>)?.CFBundleURLSchemes;
 			if (Array.isArray(schemes)) {
 				for (const s of schemes) {
 					if (typeof s === "string") urlSchemes.push(s);
@@ -28,7 +28,7 @@ function extractQuickInfo(plist: Record<string, unknown>): {
 
 	// Background modes
 	const backgroundModes: string[] = [];
-	const bgModes = plist["UIBackgroundModes"];
+	const bgModes = plist.UIBackgroundModes;
 	if (Array.isArray(bgModes)) {
 		for (const m of bgModes) {
 			if (typeof m === "string") backgroundModes.push(m);
@@ -45,18 +45,18 @@ function extractQuickInfo(plist: Record<string, unknown>): {
 
 	// ATS exceptions
 	const atsExceptions: string[] = [];
-	const ats = plist["NSAppTransportSecurity"] as Record<string, unknown> | undefined;
+	const ats = plist.NSAppTransportSecurity as Record<string, unknown> | undefined;
 	if (ats) {
-		if (ats["NSAllowsArbitraryLoads"] === true) {
+		if (ats.NSAllowsArbitraryLoads === true) {
 			atsExceptions.push("AllowsArbitraryLoads");
 		}
-		if (ats["NSAllowsArbitraryLoadsInWebContent"] === true) {
+		if (ats.NSAllowsArbitraryLoadsInWebContent === true) {
 			atsExceptions.push("ArbitraryLoadsInWebContent");
 		}
-		if (ats["NSAllowsLocalNetworking"] === true) {
+		if (ats.NSAllowsLocalNetworking === true) {
 			atsExceptions.push("AllowsLocalNetworking");
 		}
-		const domains = ats["NSExceptionDomains"] as Record<string, unknown> | undefined;
+		const domains = ats.NSExceptionDomains as Record<string, unknown> | undefined;
 		if (domains) {
 			for (const domain of Object.keys(domains)) {
 				atsExceptions.push(domain);
@@ -155,7 +155,7 @@ export function renderPlist(container: HTMLElement, data: any, sessionId: string
 
 	// Restore saved search state
 	const savedState = getSearchState(sessionId, "plist");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 }

@@ -171,7 +171,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 
 	// Restore saved search state
 	const savedState = getSearchState(sessionId, "security");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 
@@ -202,9 +202,9 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 						f.message.toLowerCase().includes(lower) ||
 						f.category.toLowerCase().includes(lower) ||
 						f.evidence.toLowerCase().includes(lower) ||
-						(f.location && f.location.toLowerCase().includes(lower)) ||
-						(f.functionName && f.functionName.toLowerCase().includes(lower)) ||
-						(f.source && f.source.toLowerCase().includes(lower))
+						f.location?.toLowerCase().includes(lower) ||
+						f.functionName?.toLowerCase().includes(lower) ||
+						f.source?.toLowerCase().includes(lower)
 				);
 			}
 		}
@@ -270,7 +270,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 				const eviText = document.createElement("span");
 				eviText.className = "sec-finding-evidence-text";
 				eviText.textContent = isLong
-					? finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026"
+					? `${finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN)}\u2026`
 					: finding.evidence;
 				evi.appendChild(eviText);
 
@@ -282,7 +282,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 						expanded = !expanded;
 						eviText.textContent = expanded
 							? finding.evidence
-							: finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026";
+							: `${finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN)}\u2026`;
 						expandBtn.textContent = expanded ? "Show less" : "Show more";
 					});
 					evi.appendChild(expandBtn);

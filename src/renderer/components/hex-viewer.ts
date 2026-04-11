@@ -323,7 +323,7 @@ export class HexViewer {
 					raw.startsWith("0x") || raw.startsWith("0X")
 						? parseInt(raw, 16)
 						: parseInt(raw, 10);
-				if (!isNaN(offset)) this.scrollToOffset(offset);
+				if (!Number.isNaN(offset)) this.scrollToOffset(offset);
 			}
 		});
 		gotoWrap.appendChild(gotoInput);
@@ -446,7 +446,7 @@ export class HexViewer {
 			jumpInput.addEventListener("keydown", (e) => {
 				if (e.key === "Enter") {
 					const n = parseInt(jumpInput.value, 10);
-					if (!isNaN(n)) {
+					if (!Number.isNaN(n)) {
 						const clamped = Math.max(1, Math.min(n, this.matches.length));
 						this.goToMatch(clamped - 1);
 					}
@@ -629,7 +629,7 @@ export class HexViewer {
 		// Offset column
 		const offsetText =
 			this.offsetMode === "hex"
-				? "0x" + hexOffset(fileOffset)
+				? `0x${hexOffset(fileOffset)}`
 				: String(fileOffset).padStart(10, "0");
 		row.appendChild(el("span", "hv-offset", offsetText));
 

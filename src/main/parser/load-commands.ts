@@ -303,7 +303,7 @@ export function parseLoadCommands(
 	ncmds: number,
 	sizeofcmds: number,
 	littleEndian: boolean,
-	is64Bit: boolean = true
+	_is64Bit: boolean = true
 ): LoadCommandsResult {
 	const view = new DataView(buffer);
 	const le = littleEndian;

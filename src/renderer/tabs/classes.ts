@@ -567,7 +567,7 @@ export function renderClasses(
 
 	// Restore saved search state (must happen after spacer/rowContainer are created)
 	const savedState = getSearchState(sessionId, "classes");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 
@@ -828,7 +828,7 @@ export function renderClasses(
 				if (options.side === "right") el.style.minWidth = `${newW}px`;
 			};
 
-			const onUp = (ev: MouseEvent): void => {
+			const onUp = (_ev: MouseEvent): void => {
 				document.removeEventListener("mousemove", onMove);
 				document.removeEventListener("mouseup", onUp);
 				document.body.style.userSelect = prevSelect;

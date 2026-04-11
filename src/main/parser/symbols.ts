@@ -110,7 +110,7 @@ export function parseSymbolTable(
 		const n_strx = view.getUint32(entryOffset, le);
 		const n_type = view.getUint8(entryOffset + 4);
 		const n_sect = view.getUint8(entryOffset + 5);
-		const n_desc = view.getInt16(entryOffset + 6, le);
+		const _n_desc = view.getInt16(entryOffset + 6, le);
 		const n_value = is64Bit
 			? view.getBigUint64(entryOffset + 8, le)
 			: BigInt(view.getUint32(entryOffset + 8, le));
