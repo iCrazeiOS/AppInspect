@@ -141,8 +141,8 @@ describe("disasm", () => {
 			expect(getAvgInstructionSize("arm64")).toBe(4);
 		});
 
-		it("should return 4 for ARM", () => {
-			expect(getAvgInstructionSize("arm")).toBe(4);
+		it("should return 3 for ARM (Thumb mode)", () => {
+			expect(getAvgInstructionSize("arm")).toBe(3);
 		});
 
 		it("should return 5 for x86_64", () => {

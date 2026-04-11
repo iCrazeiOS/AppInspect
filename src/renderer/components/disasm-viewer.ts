@@ -68,11 +68,6 @@ export class DisasmViewer {
 		return Math.min(natural, MAX_SPACER_PX);
 	}
 
-	/** Check if we're using scaled scrolling. */
-	private isScaled(): boolean {
-		return this.totalEstimatedRows * ROW_HEIGHT > MAX_SPACER_PX;
-	}
-
 	/** Map scrollTop → row index, accounting for scaling. */
 	private scrollTopToRow(scrollTop: number): number {
 		const natural = this.totalEstimatedRows * ROW_HEIGHT;
@@ -220,7 +215,8 @@ export class DisasmViewer {
 		// Render rows
 		this.rowContainer.innerHTML = "";
 
-		const currentY = startRow * ROW_HEIGHT;
+		// Use scaled position when MAX_SPACER_PX scaling is active
+		const currentY = this.rowToScrollTop(startRow);
 		this.rowContainer.style.transform = `translateY(${currentY}px)`;
 
 		for (const insn of instructions) {

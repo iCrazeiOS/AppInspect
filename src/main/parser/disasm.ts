@@ -61,7 +61,8 @@ function getCapstoneConfig(arch: DisasmArch): { csArch: number; csMode: number }
 		case "arm64":
 			return { csArch: Const.CS_ARCH_ARM64, csMode: Const.CS_MODE_LITTLE_ENDIAN };
 		case "arm":
-			return { csArch: Const.CS_ARCH_ARM, csMode: Const.CS_MODE_ARM };
+			// iOS 32-bit binaries use Thumb/Thumb-2 mode, not ARM mode
+			return { csArch: Const.CS_ARCH_ARM, csMode: Const.CS_MODE_THUMB };
 		case "x86_64":
 			return { csArch: Const.CS_ARCH_X86, csMode: Const.CS_MODE_64 };
 		case "x86":
@@ -130,7 +131,7 @@ export function getAvgInstructionSize(arch: DisasmArch): number {
 		case "arm64":
 			return 4; // Fixed 4-byte instructions
 		case "arm":
-			return 4; // ARM mode is 4 bytes (Thumb would be 2-4)
+			return 3; // Thumb mode uses 2-4 byte instructions, average ~3
 		case "x86_64":
 		case "x86":
 			return 5; // Variable, but ~5 is a reasonable average
