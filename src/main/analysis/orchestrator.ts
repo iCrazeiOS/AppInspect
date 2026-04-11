@@ -12,6 +12,8 @@ import type {
 	AnalysisResult,
 	BinaryHardening,
 	BuildVersion,
+	DisasmInstruction,
+	DisasmSection,
 	EncryptionInfo,
 	Entitlement,
 	FatArch,
@@ -44,6 +46,7 @@ import {
 } from "../ipa/extractor";
 import { buildFixupMap } from "../parser/chained-fixups";
 import { parseCodeSignature } from "../parser/codesign";
+import { cpuTypeToArch, disassembleChunk, initCapstone, isCapstoneReady } from "../parser/disasm";
 import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { parseLoadCommands } from "../parser/load-commands";
 import type { MachOFile } from "../parser/macho";
@@ -1042,6 +1045,189 @@ export class AnalysisSession {
 		} finally {
 			fs.closeSync(fd);
 		}
+	}
+
+	// ── Disassembly ───────────────────────────────────────────────────────
+
+	/** Get sections available for disassembly (typically __TEXT,__text). */
+	getDisasmSections(): DisasmSection[] {
+		if (!this.result) return [];
+
+		const arch = cpuTypeToArch(this.result.headers.machO.cputype);
+		if (!arch) return [];
+
+		const sections: DisasmSection[] = [];
+
+		for (const lc of this.result.headers.loadCommands) {
+			if (lc.type !== "segment") continue;
+			const seg = lc.segment;
+
+			for (const sect of seg.sections) {
+				// Only include executable sections (typically __text)
+				const sectionType = sect.flags & 0xff;
+				const isCode = sectionType === 0x00; // S_REGULAR with execute permission
+				const isTextSection =
+					sect.segname.trim() === "__TEXT" && sect.sectname.trim() === "__text";
+
+				if (isTextSection || (seg.name === "__TEXT" && isCode)) {
+					sections.push({
+						segname: sect.segname.trim(),
+						sectname: sect.sectname.trim(),
+						virtualAddr: BigInt(sect.addr),
+						fileOffset: sect.offset,
+						size: Number(sect.size),
+						arch
+					});
+				}
+			}
+		}
+
+		return sections;
+	}
+
+	/** Disassemble a chunk of code from a section. */
+	async readDisasm(
+		sectionIndex: number,
+		byteOffset: number,
+		maxBytes: number
+	): Promise<{ instructions: DisasmInstruction[]; bytesConsumed: number } | null> {
+		const sections = this.getDisasmSections();
+		const section = sections[sectionIndex];
+		if (!section) return null;
+
+		// Ensure Capstone is initialized
+		if (!isCapstoneReady()) {
+			await initCapstone();
+		}
+
+		// Cap read size
+		const MAX_LEN = 65536;
+		const safeMaxBytes = Math.min(Math.max(0, maxBytes), MAX_LEN);
+		const safeOffset = Math.max(0, byteOffset);
+
+		// Don't read past section end
+		const remaining = section.size - safeOffset;
+		if (remaining <= 0) {
+			return { instructions: [], bytesConsumed: 0 };
+		}
+		const readLen = Math.min(safeMaxBytes, remaining);
+
+		// Read bytes from file
+		const hexResult = this.readHex(section.fileOffset + safeOffset, readLen);
+		if (!hexResult || hexResult.data.length === 0) {
+			return { instructions: [], bytesConsumed: 0 };
+		}
+
+		const bytes = new Uint8Array(hexResult.data);
+		const baseAddr = section.virtualAddr + BigInt(safeOffset);
+		const baseFileOffset = section.fileOffset + safeOffset;
+
+		// Disassemble
+		const instructions = disassembleChunk(bytes, baseAddr, section.arch, baseFileOffset);
+
+		// Attach symbol labels
+		const symbolMap = this.buildSymbolMap();
+		for (const insn of instructions) {
+			const label = symbolMap.get(insn.address);
+			if (label) {
+				insn.label = label;
+			}
+		}
+
+		// Calculate actual bytes consumed (sum of instruction sizes)
+		const bytesConsumed = instructions.reduce((sum, insn) => sum + insn.size, 0);
+
+		return { instructions, bytesConsumed };
+	}
+
+	/** Search disassembled code for a query. */
+	async searchDisasm(
+		sectionIndex: number,
+		query: string,
+		isRegex = false,
+		maxResults = 1000
+	): Promise<{
+		matches: Array<{ address: bigint; offset: number; preview: string }>;
+		hasMore: boolean;
+	}> {
+		const sections = this.getDisasmSections();
+		const section = sections[sectionIndex];
+		if (!section || !query) {
+			return { matches: [], hasMore: false };
+		}
+
+		// Ensure Capstone is initialized
+		if (!isCapstoneReady()) {
+			await initCapstone();
+		}
+
+		const matches: Array<{ address: bigint; offset: number; preview: string }> = [];
+		const CHUNK_SIZE = 65536;
+
+		// Build matcher
+		let matcher: (mnemonic: string, operands: string, addrHex: string) => boolean;
+		if (isRegex) {
+			try {
+				const re = new RegExp(query, "i");
+				matcher = (m, o, a) => re.test(m) || re.test(o) || re.test(a);
+			} catch {
+				return { matches: [], hasMore: false };
+			}
+		} else {
+			const lowerQuery = query.toLowerCase();
+			matcher = (m, o, a) =>
+				m.toLowerCase().includes(lowerQuery) ||
+				o.toLowerCase().includes(lowerQuery) ||
+				a.toLowerCase().includes(lowerQuery);
+		}
+
+		// Scan through section in chunks
+		let offset = 0;
+		while (offset < section.size && matches.length < maxResults) {
+			const result = await this.readDisasm(sectionIndex, offset, CHUNK_SIZE);
+			if (!result || result.instructions.length === 0) break;
+
+			for (const insn of result.instructions) {
+				const addrHex = insn.address.toString(16);
+				if (matcher(insn.mnemonic, insn.operands, addrHex)) {
+					matches.push({
+						address: insn.address,
+						offset: insn.offset,
+						preview: `${insn.mnemonic} ${insn.operands}`.trim()
+					});
+					if (matches.length >= maxResults) break;
+				}
+			}
+
+			offset += result.bytesConsumed;
+			if (result.bytesConsumed === 0) break;
+
+			// Yield to event loop periodically
+			await yieldToEventLoop();
+		}
+
+		return {
+			matches,
+			hasMore: offset < section.size && matches.length >= maxResults
+		};
+	}
+
+	/** Build a map of symbol addresses to names for labeling disassembly. */
+	private buildSymbolMap(): Map<bigint, string> {
+		const map = new Map<bigint, string>();
+		if (!this.result) return map;
+
+		for (const sym of this.result.symbols) {
+			if (sym.address !== 0n && sym.name) {
+				// Prefer exported/local symbols over imports for labels
+				const existing = map.get(sym.address);
+				if (!existing || sym.type !== "imported") {
+					map.set(sym.address, sym.name);
+				}
+			}
+		}
+
+		return map;
 	}
 
 	// ── Library dependency graph ────────────────────────────────────────

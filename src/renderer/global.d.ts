@@ -1,4 +1,10 @@
-import type { AnalysisResult, AppSettings, LibraryGraphData } from "../shared/types";
+import type {
+	AnalysisResult,
+	AppSettings,
+	DisasmInstruction,
+	DisasmSection,
+	LibraryGraphData
+} from "../shared/types";
 import type {
 	TabData,
 	TabName,
@@ -44,6 +50,23 @@ export interface AppInspectAPI {
 		pattern: number[],
 		caseInsensitive?: boolean
 	): Promise<{ matches: number[] } | null>;
+	getDisasmSections(sessionId: string): Promise<DisasmSection[]>;
+	readDisasm(
+		sessionId: string,
+		sectionIndex: number,
+		byteOffset: number,
+		maxBytes: number
+	): Promise<{ instructions: DisasmInstruction[]; bytesConsumed: number } | null>;
+	searchDisasm(
+		sessionId: string,
+		sectionIndex: number,
+		query: string,
+		isRegex?: boolean,
+		maxResults?: number
+	): Promise<{
+		matches: Array<{ address: bigint; offset: number; preview: string }>;
+		hasMore: boolean;
+	}>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;

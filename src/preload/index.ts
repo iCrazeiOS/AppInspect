@@ -48,6 +48,24 @@ contextBridge.exposeInMainWorld("api", {
 			pattern,
 			caseInsensitive
 		}),
+	getDisasmSections: (sessionId: string) =>
+		ipcRenderer.invoke("get-disasm-sections", { sessionId }),
+	readDisasm: (sessionId: string, sectionIndex: number, byteOffset: number, maxBytes: number) =>
+		ipcRenderer.invoke("read-disasm", { sessionId, sectionIndex, byteOffset, maxBytes }),
+	searchDisasm: (
+		sessionId: string,
+		sectionIndex: number,
+		query: string,
+		isRegex?: boolean,
+		maxResults?: number
+	) =>
+		ipcRenderer.invoke("search-disasm", {
+			sessionId,
+			sectionIndex,
+			query,
+			isRegex,
+			maxResults
+		}),
 	showItemInFolder: (filePath: string) =>
 		ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
 	openFile: (filePath: string) => ipcRenderer.invoke("open-file", { path: filePath }),

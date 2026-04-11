@@ -287,6 +287,76 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
+	// ── get-disasm-sections ──
+	ipcMain.handle("get-disasm-sections", (_event, args: { sessionId: string }) => {
+		try {
+			const session = getSession(args.sessionId);
+			return sanitizeBigInts(session.getDisasmSections());
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+			return [];
+		}
+	});
+
+	// ── read-disasm ──
+	ipcMain.handle(
+		"read-disasm",
+		async (
+			_event,
+			args: {
+				sessionId: string;
+				sectionIndex: number;
+				byteOffset: number;
+				maxBytes: number;
+			}
+		) => {
+			try {
+				const session = getSession(args.sessionId);
+				const result = await session.readDisasm(
+					args.sectionIndex,
+					args.byteOffset,
+					args.maxBytes
+				);
+				return result ? sanitizeBigInts(result) : null;
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+				return null;
+			}
+		}
+	);
+
+	// ── search-disasm ──
+	ipcMain.handle(
+		"search-disasm",
+		async (
+			_event,
+			args: {
+				sessionId: string;
+				sectionIndex: number;
+				query: string;
+				isRegex?: boolean;
+				maxResults?: number;
+			}
+		) => {
+			try {
+				const session = getSession(args.sessionId);
+				const result = await session.searchDisasm(
+					args.sectionIndex,
+					args.query,
+					args.isRegex ?? false,
+					args.maxResults ?? 1000
+				);
+				return sanitizeBigInts(result);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+				return { matches: [], hasMore: false };
+			}
+		}
+	);
+
 	// ── export-json ──
 	ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
 		const { sessionId } = args;
