@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld("api", {
 		}),
 	getDisasmFunctions: (sessionId: string, sectionIndex: number) =>
 		ipcRenderer.invoke("get-disasm-functions", { sessionId, sectionIndex }),
+	getDisasmInsnCount: (sessionId: string, sectionIndex: number) =>
+		ipcRenderer.invoke("get-disasm-insn-count", { sessionId, sectionIndex }),
 	showItemInFolder: (filePath: string) =>
 		ipcRenderer.invoke("show-item-in-folder", { path: filePath }),
 	openFile: (filePath: string) => ipcRenderer.invoke("open-file", { path: filePath }),

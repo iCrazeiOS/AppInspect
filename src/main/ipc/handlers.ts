@@ -357,6 +357,19 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
+	// ── get-disasm-insn-count ──
+	ipcMain.handle(
+		"get-disasm-insn-count",
+		async (_event, args: { sessionId: string; sectionIndex: number }) => {
+			try {
+				const session = getSession(args.sessionId);
+				return await session.getDisasmInsnCount(args.sectionIndex);
+			} catch {
+				return 0;
+			}
+		}
+	);
+
 	// ── get-disasm-functions ──
 	ipcMain.handle(
 		"get-disasm-functions",

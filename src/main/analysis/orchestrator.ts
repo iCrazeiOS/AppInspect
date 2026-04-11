@@ -1093,6 +1093,63 @@ export class AnalysisSession {
 		return sections;
 	}
 
+	// Cache for instruction counts per section
+	private disasmCountCache = new Map<number, number>();
+
+	/** Count total instructions in a section by disassembling all functions. */
+	async getDisasmInsnCount(sectionIndex: number): Promise<number> {
+		const cached = this.disasmCountCache.get(sectionIndex);
+		if (cached !== undefined) return cached;
+
+		const sections = this.getDisasmSections();
+		const section = sections[sectionIndex];
+		if (!section) return 0;
+
+		if (!isCapstoneReady()) {
+			await initCapstone();
+		}
+
+		const funcStarts = this.getFunctionStarts();
+		const sectionStart = section.virtualAddr;
+		const sectionEnd = section.virtualAddr + BigInt(section.size);
+
+		// Get function boundaries within this section
+		const boundaries: bigint[] = [];
+		for (const addr of funcStarts) {
+			if (addr >= sectionStart && addr < sectionEnd) {
+				boundaries.push(addr);
+			}
+		}
+		boundaries.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+		if (boundaries.length === 0) {
+			boundaries.push(sectionStart);
+		}
+
+		// Disassemble each function and count instructions
+		let total = 0;
+		for (let i = 0; i < boundaries.length; i++) {
+			const funcAddr = boundaries[i]!;
+			const nextAddr = i + 1 < boundaries.length ? boundaries[i + 1]! : sectionEnd;
+			const funcSize = Number(nextAddr - funcAddr);
+			const funcOffset = section.fileOffset + Number(funcAddr - sectionStart);
+
+			const hexResult = this.readHex(funcOffset, funcSize);
+			if (!hexResult || hexResult.data.length === 0) continue;
+
+			try {
+				const bytes = new Uint8Array(hexResult.data);
+				const instructions = disassembleChunk(bytes, funcAddr, section.arch, funcOffset);
+				total += instructions.length;
+			} catch {
+				// Skip functions that fail
+			}
+		}
+
+		this.disasmCountCache.set(sectionIndex, total);
+		return total;
+	}
+
 	/** Disassemble a chunk of code from a section. */
 	async readDisasm(
 		sectionIndex: number,
@@ -1854,7 +1911,8 @@ export class AnalysisSession {
 
 		const binary = this.binaries[binaryIndex]!;
 		this.activeBinaryName = binary.name;
-		this.functionStartsCache = null; // Clear cache when switching binaries
+		this.functionStartsCache = null; // Clear caches when switching binaries
+		this.disasmCountCache.clear();
 		const binaryResult = await analyseBinaryFile(
 			binary.path,
 			progressCallback,

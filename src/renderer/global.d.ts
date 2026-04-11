@@ -75,6 +75,7 @@ export interface AppInspectAPI {
 		sessionId: string,
 		sectionIndex: number
 	): Promise<Array<{ address: bigint; name: string }>>;
+	getDisasmInsnCount(sessionId: string, sectionIndex: number): Promise<number>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;

@@ -58,10 +58,25 @@ export class DisasmViewer {
 
 	constructor(opts: DisasmViewerOptions) {
 		this.opts = opts;
+		// Start with an estimate; replaced by exact count once loaded
 		const avgSize = getAvgInsnSize(opts.section.arch);
 		this.totalEstimatedRows = Math.ceil(opts.section.size / avgSize);
 		this.spacerHeight = this.calcSpacerHeight();
 		this.boundOnScroll = this.onScroll.bind(this);
+
+		// Fetch exact instruction count in the background
+		window.api
+			.getDisasmInsnCount(opts.sessionId, opts.sectionIndex)
+			.then((count) => {
+				if (count > 0 && count !== this.totalEstimatedRows) {
+					this.totalEstimatedRows = count;
+					this.spacerHeight = this.calcSpacerHeight();
+					if (this.spacer) {
+						this.spacer.style.height = `${this.spacerHeight}px`;
+					}
+				}
+			})
+			.catch(() => {});
 	}
 
 	/** Calculate spacer height, capping at MAX_SPACER_PX for large sections. */
@@ -335,21 +350,6 @@ export class DisasmViewer {
 				this.chunks.set(byteOffset, result.instructions);
 				this.loadedBytes += result.bytesConsumed;
 				this.loadedInsns += result.instructions.length;
-
-				// Update estimate based on actual data
-				// Extrapolate instruction count to full section based on coverage
-				if (this.loadedInsns > 0 && this.loadedBytes > 0) {
-					const newEstimate = Math.ceil(
-						this.loadedInsns * (this.opts.section.size / this.loadedBytes)
-					);
-					if (Math.abs(newEstimate - this.totalEstimatedRows) > 100) {
-						this.totalEstimatedRows = newEstimate;
-						this.spacerHeight = this.calcSpacerHeight();
-						if (this.spacer) {
-							this.spacer.style.height = `${this.spacerHeight}px`;
-						}
-					}
-				}
 			}
 		} finally {
 			this.pendingChunks.delete(byteOffset);
@@ -414,7 +414,8 @@ export class DisasmViewer {
 		this.renderedEnd = -1;
 		await this.renderVisibleRows();
 
-		// Fine-tune: find the target instruction in the rendered DOM and snap to it
+		// Fine-tune: find the target instruction in the rendered DOM and snap to it.
+		// If the instruction has a label row above it, snap to the label instead.
 		if (this.rowContainer && this.content) {
 			const rows = this.rowContainer.children;
 			for (let i = 0; i < rows.length; i++) {
@@ -424,8 +425,12 @@ export class DisasmViewer {
 				try {
 					const rowAddr = BigInt(`0x${addrEl.textContent}`);
 					if (rowAddr >= address) {
-						// Adjust scrollTop so this row sits at the top
-						const rowRect = row.getBoundingClientRect();
+						// If the previous row is a label for this function, snap to it
+						const snapTarget =
+							i > 0 && rows[i - 1]?.classList.contains("da-label-row")
+								? (rows[i - 1] as HTMLElement)
+								: row;
+						const rowRect = snapTarget.getBoundingClientRect();
 						const containerRect = this.content.getBoundingClientRect();
 						this.content.scrollTop += rowRect.top - containerRect.top;
 						return;

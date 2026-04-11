@@ -219,6 +219,13 @@ export type InvokeChannelMap = {
 		};
 		result: Array<{ address: bigint; name: string }>;
 	};
+	"get-disasm-insn-count": {
+		params: {
+			sessionId: string;
+			sectionIndex: number;
+		};
+		result: number;
+	};
 };
 
 // ── Send channels (main -> renderer) ──
