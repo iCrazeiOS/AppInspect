@@ -244,6 +244,59 @@ const TOOLS = [
 			},
 			required: ["offset"]
 		}
+	},
+	{
+		name: "disassemble",
+		description:
+			"Disassemble code from the active binary's __text section. Returns " +
+			"instructions with addresses, bytes, mnemonics, operands, and symbol " +
+			"labels. Use offset/limit for pagination through large sections. " +
+			"Supports ARM, ARM64, x86, and x86_64 architectures.",
+		inputSchema: {
+			type: "object" as const,
+			properties: {
+				offset: {
+					type: "number",
+					description: "Byte offset within __text section (default: 0)"
+				},
+				limit: {
+					type: "number",
+					description: "Max bytes to disassemble (default: 4096, max: 65536)"
+				},
+				format: {
+					type: "string",
+					enum: ["json", "text"],
+					description:
+						"'json' returns structured data, 'text' returns formatted assembly (default: text)"
+				},
+				path: PATH_PARAM
+			}
+		}
+	},
+	{
+		name: "search_disasm",
+		description:
+			"Search disassembled instructions for a mnemonic, operand, or address. " +
+			"Returns matching instructions with their addresses and a preview.",
+		inputSchema: {
+			type: "object" as const,
+			properties: {
+				query: {
+					type: "string",
+					description: "Search query (mnemonic, operand text, or hex address)"
+				},
+				isRegex: {
+					type: "boolean",
+					description: "Treat query as regex (default: false)"
+				},
+				limit: {
+					type: "number",
+					description: "Max results (default: 100)"
+				},
+				path: PATH_PARAM
+			},
+			required: ["query"]
+		}
 	}
 ];
 
@@ -435,6 +488,71 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
 			}
 
 			return ok(result);
+		}
+
+		case "disassemble": {
+			const session = getSession(args.path as string | undefined);
+			const offset = (args.offset as number) ?? 0;
+			const limit = Math.min((args.limit as number) ?? 4096, 65536);
+			const format = (args.format as string) ?? "text";
+
+			const sections = session.getDisasmSections();
+			if (sections.length === 0) {
+				return fail("No __text section found in binary.");
+			}
+
+			const result = await session.readDisasm(0, offset, limit);
+			if (!result || result.instructions.length === 0) {
+				return fail("Failed to disassemble or no instructions found.");
+			}
+
+			if (format === "json") {
+				return ok(sanitize(result.instructions));
+			}
+
+			// Text format
+			const lines: string[] = [];
+			for (const insn of result.instructions) {
+				if (insn.label) {
+					lines.push(`\n${insn.label}:`);
+				}
+				const addr = insn.address.toString(16).toUpperCase().padStart(12, "0");
+				const bytes = insn.bytes
+					.slice(0, 8)
+					.map((b) => b.toString(16).toUpperCase().padStart(2, "0"))
+					.join(" ")
+					.padEnd(24);
+				lines.push(`${addr}  ${bytes}  ${insn.mnemonic.padEnd(8)} ${insn.operands}`);
+			}
+			return ok({ disassembly: lines.join("\n"), count: result.instructions.length });
+		}
+
+		case "search_disasm": {
+			const session = getSession(args.path as string | undefined);
+			const query = args.query as string;
+			if (!query) {
+				return fail("Missing required parameter: query");
+			}
+			const isRegex = (args.isRegex as boolean) ?? false;
+			const limit = (args.limit as number) ?? 100;
+
+			const sections = session.getDisasmSections();
+			if (sections.length === 0) {
+				return fail("No __text section found in binary.");
+			}
+
+			const result = await session.searchDisasm(0, query, isRegex, limit);
+			return ok(
+				sanitize({
+					matches: result.matches.map((m) => ({
+						address: `0x${m.address.toString(16).toUpperCase()}`,
+						offset: m.offset,
+						preview: m.preview
+					})),
+					count: result.matches.length,
+					hasMore: result.hasMore
+				})
+			);
 		}
 
 		default:
