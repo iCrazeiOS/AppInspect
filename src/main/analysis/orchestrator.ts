@@ -1346,8 +1346,13 @@ export class AnalysisSession {
 						textSeg.vmaddr
 					);
 
-					this.functionStartsCache = funcStarts;
-					return funcStarts;
+					// Strip Thumb bit (bit 0) for ARM binaries so addresses match
+					// the symbol table (which doesn't include the Thumb bit)
+					const arch = cpuTypeToArch(machO.header.cputype);
+					const cleaned = arch === "arm" ? funcStarts.map((a) => a & ~1n) : funcStarts;
+
+					this.functionStartsCache = cleaned;
+					return cleaned;
 				}
 			}
 
