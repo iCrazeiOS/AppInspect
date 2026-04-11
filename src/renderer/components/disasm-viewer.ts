@@ -215,8 +215,9 @@ export class DisasmViewer {
 		// Render rows
 		this.rowContainer.innerHTML = "";
 
-		// Use scaled position when MAX_SPACER_PX scaling is active
-		const currentY = this.rowToScrollTop(startRow);
+		// Position so firstVisibleRow aligns with scrollTop regardless of scaling
+		// (Same approach as HexViewer)
+		const currentY = scrollTop - (firstVisibleRow - startRow) * ROW_HEIGHT;
 		this.rowContainer.style.transform = `translateY(${currentY}px)`;
 
 		for (const insn of instructions) {
@@ -385,14 +386,15 @@ export class DisasmViewer {
 		if (!this.content) return;
 
 		const section = this.opts.section;
-		if (
-			address < section.virtualAddr ||
-			address >= section.virtualAddr + BigInt(section.size)
-		) {
+		// virtualAddr may come as number from IPC serialization
+		const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
+		const sectionEnd = sectionStart + BigInt(section.size);
+
+		if (address < sectionStart || address >= sectionEnd) {
 			return; // Address out of range
 		}
 
-		const relativeOffset = Number(address - section.virtualAddr);
+		const relativeOffset = Number(address - sectionStart);
 		const avgSize =
 			this.loadedInsns > 0
 				? this.loadedBytes / this.loadedInsns

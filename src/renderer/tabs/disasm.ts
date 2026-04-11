@@ -161,16 +161,22 @@ export async function renderDisasm(
 			}
 
 			const allSymbols = data.data as SymbolEntry[];
-			const sectionStart = section.virtualAddr;
-			const sectionEnd = section.virtualAddr + BigInt(section.size);
+			// virtualAddr comes as number from IPC serialization
+			const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
+			const sectionEnd = sectionStart + BigInt(section.size);
 
 			// Filter to symbols within section address range (exported and local only)
+			// Symbol addresses also come as numbers from IPC
 			sectionSymbols = allSymbols
 				.filter((sym) => {
 					if (sym.type === "imported") return false;
-					return sym.address >= sectionStart && sym.address < sectionEnd;
+					const addr = BigInt(sym.address as unknown as number | bigint);
+					return addr >= sectionStart && addr < sectionEnd;
 				})
-				.map((sym) => ({ name: sym.name, address: sym.address }))
+				.map((sym) => ({
+					name: sym.name,
+					address: BigInt(sym.address as unknown as number | bigint)
+				}))
 				.sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
 
 			funcBtnText.textContent =
