@@ -454,18 +454,10 @@ export class DisasmViewer {
 		if (!match?.[1]) return null;
 
 		try {
-			const target = BigInt(`0x${match[1]}`);
-			const sectionStart = BigInt(
-				this.opts.section.virtualAddr as unknown as number | bigint
-			);
-			const sectionEnd = sectionStart + BigInt(this.opts.section.size);
-			if (target >= sectionStart && target < sectionEnd) {
-				return target;
-			}
+			return BigInt(`0x${match[1]}`);
 		} catch {
-			// Invalid address
+			return null;
 		}
-		return null;
 	}
 
 	private async loadChunk(byteOffset: number): Promise<void> {
@@ -580,6 +572,22 @@ export class DisasmViewer {
 			}
 			if (!found) break;
 		}
+	}
+
+	/** Get the address of the first visible instruction (for navigation history). */
+	getCurrentAddress(): bigint | null {
+		if (!this.rowContainer) return null;
+		const rows = this.rowContainer.children;
+		for (let i = 0; i < rows.length; i++) {
+			const addrEl = (rows[i] as HTMLElement).querySelector(".da-col-address");
+			if (!addrEl?.textContent) continue;
+			try {
+				return BigInt(`0x${addrEl.textContent}`);
+			} catch {
+				// skip
+			}
+		}
+		return null;
 	}
 
 	/** Focus the scroll container for keyboard navigation */

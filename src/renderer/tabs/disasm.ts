@@ -267,6 +267,10 @@ export async function renderDisasm(
 				option.appendChild(nameEl);
 				option.addEventListener("click", () => {
 					closeFuncDropdown();
+					const currentAddr = activeViewer?.getCurrentAddress();
+					if (currentAddr !== null && currentAddr !== undefined) {
+						navHistory.push(currentAddr);
+					}
 					navHistory.push(sym.address);
 					activeViewer?.goToAddress(sym.address);
 					gotoInput.value = `0x${addrStr}`;
@@ -327,6 +331,10 @@ export async function renderDisasm(
 				}
 			} catch {
 				return;
+			}
+			const currentAddr = activeViewer?.getCurrentAddress();
+			if (currentAddr !== null && currentAddr !== undefined) {
+				navHistory.push(currentAddr);
 			}
 			navHistory.push(addr);
 			activeViewer?.goToAddress(addr);
@@ -402,6 +410,11 @@ export async function renderDisasm(
 				gotoInput.value = `0x${address.toString(16).toUpperCase()}`;
 			},
 			onBranchClick: (targetAddress) => {
+				// Record where we are before jumping so back returns here
+				const currentAddr = activeViewer?.getCurrentAddress();
+				if (currentAddr !== null && currentAddr !== undefined) {
+					navHistory.push(currentAddr);
+				}
 				navHistory.push(targetAddress);
 				activeViewer?.goToAddress(targetAddress);
 				gotoInput.value = `0x${targetAddress.toString(16).toUpperCase()}`;
