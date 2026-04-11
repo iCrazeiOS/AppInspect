@@ -2,12 +2,17 @@
  * Disassembly tab renderer — section picker with disassembly viewer
  */
 
-import type { DisasmSection, LoadCommand } from "../../shared/types";
+import type { DisasmSection, LoadCommand, SymbolEntry } from "../../shared/types";
 import { DisasmViewer } from "../components/disasm-viewer";
 import { EmptyState } from "../components/empty-state";
 import { SearchBar } from "../components/search-bar";
 import { registerSearchBar } from "../search-state";
 import { el } from "../utils/dom";
+
+interface SectionSymbol {
+	name: string;
+	address: bigint;
+}
 
 interface DisasmTabData {
 	loadCommands: LoadCommand[];
@@ -131,6 +136,140 @@ export async function renderDisasm(
 	sectionPicker.appendChild(sectionBtn);
 	toolbar.appendChild(sectionPicker);
 
+	// Function picker
+	const funcPicker = el("div", "da-func-picker");
+	const funcBtn = el("button", "da-func-btn");
+	const funcBtnText = el("span", "da-func-btn-text", "Functions...");
+	funcBtn.appendChild(funcBtnText);
+
+	let funcDropdownOpen = false;
+	let funcDropdown: HTMLElement | null = null;
+	let sectionSymbols: SectionSymbol[] = [];
+
+	async function loadSectionSymbols(sectionIndex: number): Promise<void> {
+		const section = sections[sectionIndex];
+		if (!section) {
+			sectionSymbols = [];
+			return;
+		}
+
+		try {
+			const data = await window.api.getTabData(sessionId, "symbols");
+			if (data.tab !== "symbols") {
+				sectionSymbols = [];
+				return;
+			}
+
+			const allSymbols = data.data as SymbolEntry[];
+			const sectionStart = section.virtualAddr;
+			const sectionEnd = section.virtualAddr + BigInt(section.size);
+
+			// Filter to symbols within section address range (exported and local only)
+			sectionSymbols = allSymbols
+				.filter((sym) => {
+					if (sym.type === "imported") return false;
+					return sym.address >= sectionStart && sym.address < sectionEnd;
+				})
+				.map((sym) => ({ name: sym.name, address: sym.address }))
+				.sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : 0));
+
+			funcBtnText.textContent =
+				sectionSymbols.length > 0 ? `Functions (${sectionSymbols.length})` : "No functions";
+		} catch {
+			sectionSymbols = [];
+			funcBtnText.textContent = "Functions...";
+		}
+	}
+
+	function closeFuncDropdown(): void {
+		if (funcDropdown) {
+			funcDropdown.remove();
+			funcDropdown = null;
+		}
+		funcDropdownOpen = false;
+	}
+
+	function openFuncDropdown(): void {
+		if (funcDropdownOpen) {
+			closeFuncDropdown();
+			return;
+		}
+
+		funcDropdown = el("div", "da-func-dropdown");
+
+		// Search input
+		const searchInput = document.createElement("input") as HTMLInputElement;
+		searchInput.type = "text";
+		searchInput.className = "da-func-search";
+		searchInput.placeholder = "Search functions...";
+		funcDropdown.appendChild(searchInput);
+
+		// Function list
+		const funcList = el("div", "da-func-list");
+
+		function renderFuncList(filter: string): void {
+			funcList.innerHTML = "";
+			const lowerFilter = filter.toLowerCase();
+			const filtered = filter
+				? sectionSymbols.filter((s) => s.name.toLowerCase().includes(lowerFilter))
+				: sectionSymbols;
+
+			if (filtered.length === 0) {
+				const empty = el("div", "da-func-empty", filter ? "No matches" : "No functions");
+				funcList.appendChild(empty);
+				return;
+			}
+
+			// Limit to first 200 for performance
+			const toShow = filtered.slice(0, 200);
+			for (const sym of toShow) {
+				const option = el("button", "da-func-option");
+				const addrStr = sym.address.toString(16).toUpperCase().padStart(12, "0");
+				const addrEl = el("span", "da-func-addr", addrStr);
+				const nameEl = el("span", "da-func-name", sym.name);
+				option.appendChild(addrEl);
+				option.appendChild(nameEl);
+				option.addEventListener("click", () => {
+					closeFuncDropdown();
+					activeViewer?.goToAddress(sym.address);
+					gotoInput.value = `0x${addrStr}`;
+				});
+				funcList.appendChild(option);
+			}
+
+			if (filtered.length > 200) {
+				const more = el("div", "da-func-empty", `... and ${filtered.length - 200} more`);
+				funcList.appendChild(more);
+			}
+		}
+
+		renderFuncList("");
+
+		searchInput.addEventListener("input", () => {
+			renderFuncList(searchInput.value.trim());
+		});
+
+		funcDropdown.appendChild(funcList);
+		funcPicker.appendChild(funcDropdown);
+		funcDropdownOpen = true;
+
+		// Focus search input
+		setTimeout(() => searchInput.focus(), 0);
+
+		// Close on outside click
+		const closeHandler = (e: MouseEvent) => {
+			if (!funcPicker.contains(e.target as Node)) {
+				closeFuncDropdown();
+				document.removeEventListener("click", closeHandler);
+			}
+		};
+		setTimeout(() => document.addEventListener("click", closeHandler), 0);
+	}
+
+	funcBtn.addEventListener("click", openFuncDropdown);
+	funcPicker.appendChild(funcBtn);
+	toolbar.appendChild(funcPicker);
+
 	// Go-to address input
 	const gotoWrap = el("div", "da-goto-wrap");
 	const gotoLabel = el("span", "da-goto-label", "Go to:");
@@ -206,7 +345,7 @@ export async function renderDisasm(
 	registerSearchBar(sessionId, "disasm", { focus: () => activeSearchBar?.focus() });
 
 	// Open section
-	function openSection(index: number): void {
+	async function openSection(index: number): Promise<void> {
 		const section = sections[index];
 		if (!section) return;
 
@@ -227,6 +366,9 @@ export async function renderDisasm(
 			}
 		});
 		activeViewer.mount(viewerMount);
+
+		// Load symbols for this section
+		await loadSectionSymbols(index);
 	}
 
 	// Auto-open first section

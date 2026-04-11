@@ -94,6 +94,120 @@
 	color: var(--accent);
 }
 
+/* Function picker */
+.da-func-picker {
+	position: relative;
+}
+
+.da-func-btn {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 10px;
+	background: var(--bg);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	color: var(--text);
+	font-size: 13px;
+	cursor: pointer;
+	min-width: 180px;
+	max-width: 280px;
+}
+
+.da-func-btn:hover {
+	background: var(--surface);
+	border-color: var(--accent-subtle);
+}
+
+.da-func-btn::after {
+	content: "\25BC";
+	font-size: 8px;
+	margin-left: auto;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.da-func-btn-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.da-func-dropdown {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	margin-top: 4px;
+	min-width: 280px;
+	max-width: 400px;
+	max-height: 400px;
+	overflow-y: auto;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	z-index: 100;
+}
+
+.da-func-search {
+	display: block;
+	width: 100%;
+	padding: 8px 12px;
+	background: var(--bg);
+	border: none;
+	border-bottom: 1px solid var(--border);
+	color: var(--text);
+	font-size: 13px;
+	outline: none;
+}
+
+.da-func-search::placeholder {
+	color: var(--text-muted);
+}
+
+.da-func-list {
+	max-height: 350px;
+	overflow-y: auto;
+}
+
+.da-func-option {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 12px;
+	text-align: left;
+	background: none;
+	border: none;
+	color: var(--text);
+	font-size: 12px;
+	cursor: pointer;
+	font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+.da-func-option:hover {
+	background: var(--accent-faint);
+}
+
+.da-func-addr {
+	color: var(--accent);
+	flex-shrink: 0;
+	font-size: 11px;
+}
+
+.da-func-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.da-func-empty {
+	padding: 12px;
+	text-align: center;
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
 /* Go-to input */
 .da-goto-wrap {
 	display: flex;
