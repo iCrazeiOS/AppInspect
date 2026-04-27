@@ -215,6 +215,45 @@ describe("discoverBinaries", () => {
 		const binaries = discoverBinaries(appDir);
 		expect(binaries.length).toBe(0);
 	});
+
+	it("should resolve iOS app extension bundles to their executable", () => {
+		const tmpDir = makeTempDir("appex");
+		tempDirs.push(tmpDir);
+
+		const appDir = path.join(tmpDir, "TestApp.app");
+		const extensionDir = path.join(appDir, "PlugIns", "Share.appex");
+		fs.mkdirSync(extensionDir, { recursive: true });
+
+		const plistContent =
+			'<?xml version="1.0"?><plist version="1.0"><dict>' +
+			"<key>CFBundleExecutable</key><string>ShareExtension</string>" +
+			"</dict></plist>";
+		fs.writeFileSync(path.join(extensionDir, "Info.plist"), plistContent);
+
+		const machO = Buffer.from([0xfe, 0xed, 0xfa, 0xce, 0x00, 0x00, 0x00, 0x00]);
+		const extensionBinaryPath = path.join(extensionDir, "ShareExtension");
+		fs.writeFileSync(extensionBinaryPath, machO);
+
+		const binaries = discoverBinaries(appDir);
+		const extension = binaries.find((b) => b.type === "extension");
+
+		expect(extension).toBeDefined();
+		expect(extension!.name).toBe("Share");
+		expect(extension!.path).toBe(extensionBinaryPath);
+	});
+
+	it("should skip app extension bundles when no Mach-O executable is found", () => {
+		const tmpDir = makeTempDir("appex-missing");
+		tempDirs.push(tmpDir);
+
+		const appDir = path.join(tmpDir, "TestApp.app");
+		const extensionDir = path.join(appDir, "PlugIns", "Share.appex");
+		fs.mkdirSync(extensionDir, { recursive: true });
+
+		const binaries = discoverBinaries(appDir);
+
+		expect(binaries.some((b) => b.type === "extension")).toBe(false);
+	});
 });
 
 describe("discoverBinaries – symlink dedup", () => {

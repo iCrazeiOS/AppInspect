@@ -158,21 +158,7 @@ export function renderLibraries(
 		let searchTerm = "";
 		let searchRegex = false;
 
-		const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
-			if (xbin.active) {
-				doCrossBinarySearch(
-					sessionId,
-					term,
-					"libraries",
-					xbin,
-					applyCrossBinaryResults,
-					isRegex,
-					caseSensitive
-				);
-				return;
-			}
-			searchTerm = term;
-			searchRegex = isRegex;
+		function applyFilter(term: string, isRegex: boolean): void {
 			if (!term) {
 				table.setFilter(null);
 			} else if (isRegex) {
@@ -190,6 +176,24 @@ export function renderLibraries(
 						.includes(lc)
 				);
 			}
+		}
+
+		const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
+			if (xbin.active) {
+				doCrossBinarySearch(
+					sessionId,
+					term,
+					"libraries",
+					xbin,
+					applyCrossBinaryResults,
+					isRegex,
+					caseSensitive
+				);
+				return;
+			}
+			searchTerm = term;
+			searchRegex = isRegex;
+			applyFilter(term, isRegex);
 			saveSearchState(sessionId, "libraries", term, isRegex);
 			updateCount();
 		});
@@ -203,7 +207,8 @@ export function renderLibraries(
 				table.setColumns(COLUMNS);
 				table.setStorageKey("cols:libraries");
 				table.setData(rows as any);
-				applyLocalFilter();
+				applyFilter(searchTerm, searchRegex);
+				updateCount();
 			}
 			const t = searchBar.getValue();
 			searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
@@ -261,27 +266,6 @@ export function renderLibraries(
 				"libraries",
 				applyCrossBinaryResults
 			);
-		}
-
-		function applyLocalFilter(): void {
-			if (!searchTerm) {
-				table.setFilter(null);
-			} else if (searchRegex) {
-				try {
-					const re = new RegExp(searchTerm, "i");
-					table.setFilter((row) => re.test(String(row.name ?? "")));
-				} catch {
-					// invalid regex — ignore
-				}
-			} else {
-				const lc = searchTerm.toLowerCase();
-				table.setFilter((row) =>
-					String(row.name ?? "")
-						.toLowerCase()
-						.includes(lc)
-				);
-			}
-			updateCount();
 		}
 
 		updateCount();

@@ -106,7 +106,6 @@ export function renderSymbols(
 		searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
 	});
 
-	// ── Type filter buttons ──
 	let activeType: TypeFilter = "all";
 
 	const filterBar = document.createElement("div");
@@ -126,7 +125,6 @@ export function renderSymbols(
 		btn.className = `filter-chip${opt.value === "all" ? " filter-chip--active" : ""}`;
 		btn.textContent = opt.label;
 
-		// Add badge color indicator
 		if (opt.value !== "all") {
 			const dot = document.createElement("span");
 			dot.className = `sym-badge sym-badge--${opt.value}`;

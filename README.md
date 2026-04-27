@@ -8,7 +8,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 
 ### File format support
 
-- **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
+- **IPA/TIPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)

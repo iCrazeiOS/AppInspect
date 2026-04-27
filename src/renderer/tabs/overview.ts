@@ -83,19 +83,18 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		const debControl = (data as any).debControl as Record<string, any> | undefined;
 		const debItems: HTMLElement[] = [];
 		if (debControl) {
-			debItems.push(buildKV("Package", String(debControl.package || "N/A")));
-			debItems.push(buildKV("Name", String(debControl.name || "N/A")));
-			debItems.push(buildKV("Version", String(debControl.version || "N/A")));
-			debItems.push(buildKV("Architecture", String(debControl.architecture || "N/A")));
-			if (debControl.author) debItems.push(buildKV("Author", String(debControl.author)));
-			if (debControl.maintainer)
-				debItems.push(buildKV("Maintainer", String(debControl.maintainer)));
-			if (debControl.section) debItems.push(buildKV("Section", String(debControl.section)));
-			if (debControl.depends) debItems.push(buildKV("Depends", String(debControl.depends)));
+			debItems.push(buildKV("Package", debControl.package || "N/A"));
+			debItems.push(buildKV("Name", debControl.name || "N/A"));
+			debItems.push(buildKV("Version", debControl.version || "N/A"));
+			debItems.push(buildKV("Architecture", debControl.architecture || "N/A"));
+			if (debControl.author) debItems.push(buildKV("Author", debControl.author));
+			if (debControl.maintainer) debItems.push(buildKV("Maintainer", debControl.maintainer));
+			if (debControl.section) debItems.push(buildKV("Section", debControl.section));
+			if (debControl.depends) debItems.push(buildKV("Depends", debControl.depends));
 			if (debControl.description) {
 				const descRow = el("div", "ov-kv");
 				descRow.appendChild(el("span", "ov-kv-label", "Description"));
-				descRow.appendChild(el("span", "ov-kv-value", String(debControl.description)));
+				descRow.appendChild(el("span", "ov-kv-value", debControl.description));
 				debItems.push(descRow);
 			}
 			if (debControl.installedSize) {
@@ -115,7 +114,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			buildKV("File Name", fileName),
 			buildKV("Architecture", arch),
 			buildKV("File Type", fileType),
-			buildKV("UUID", String(uuid))
+			buildKV("UUID", uuid)
 		];
 		if (binarySize != null) {
 			const sizeStr =
@@ -126,7 +125,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		}
 		if (platformName) machoItems.push(buildKV("Platform", platformName));
 		machoItems.push(buildKV(minOSLabel, minOS));
-		machoItems.push(buildKV("Team ID", String(teamId)));
+		machoItems.push(buildKV("Team ID", teamId));
 		wrapper.appendChild(buildCard("Binary Info", ...machoItems));
 	} else if (sourceType === "app") {
 		// ── macOS .app Bundle Summary card ──
@@ -142,19 +141,19 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
 
 		const summaryItems: HTMLElement[] = [
-			buildKV("Bundle ID", String(bundleId)),
-			buildKV("Display Name", String(displayName)),
-			buildKV("Version", String(version)),
-			buildKV("Build", String(buildNumber))
+			buildKV("Bundle ID", bundleId),
+			buildKV("Display Name", displayName),
+			buildKV("Version", version),
+			buildKV("Build", buildNumber)
 		];
 		if (platformName) summaryItems.push(buildKV("Platform", platformName));
-		summaryItems.push(buildKV(minOSLabel, String(displayMinOS)));
+		summaryItems.push(buildKV(minOSLabel, displayMinOS));
 		summaryItems.push(buildKV("Architecture", arch));
 		summaryItems.push(buildKV("File Type", fileType));
-		summaryItems.push(buildKV("UUID", String(uuid)));
+		summaryItems.push(buildKV("UUID", uuid));
 
 		if (category) {
-			summaryItems.push(buildKV("Category", String(category)));
+			summaryItems.push(buildKV("Category", category));
 		}
 
 		// Show detected frameworks
@@ -171,7 +170,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			summaryItems.push(fwRow);
 		}
 
-		summaryItems.push(buildKV("Team ID", String(teamId)));
+		summaryItems.push(buildKV("Team ID", teamId));
 
 		wrapper.appendChild(buildCard("App Summary", ...summaryItems));
 	} else {
@@ -185,17 +184,17 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
 
 		const summaryItems: HTMLElement[] = [
-			buildKV("Bundle ID", String(bundleId)),
-			buildKV("Display Name", String(displayName)),
-			buildKV("Version", String(version)),
-			buildKV("Build", String(buildNumber))
+			buildKV("Bundle ID", bundleId),
+			buildKV("Display Name", displayName),
+			buildKV("Version", version),
+			buildKV("Build", buildNumber)
 		];
 		if (platformName) summaryItems.push(buildKV("Platform", platformName));
-		summaryItems.push(buildKV(minOSLabel, String(minOS)));
+		summaryItems.push(buildKV(minOSLabel, minOS));
 		summaryItems.push(
 			buildKV("Architecture", arch),
 			buildKV("File Type", fileType),
-			buildKV("UUID", String(uuid))
+			buildKV("UUID", uuid)
 		);
 
 		// Show detected frameworks
@@ -218,7 +217,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		encRow.appendChild(encBadge);
 		summaryItems.push(encRow);
 
-		summaryItems.push(buildKV("Team ID", String(teamId)));
+		summaryItems.push(buildKV("Team ID", teamId));
 
 		wrapper.appendChild(buildCard("App Summary", ...summaryItems));
 	}
@@ -228,9 +227,9 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		const binDetails: HTMLElement[] = [
 			buildKV("Architecture", arch),
 			buildKV("File Type", fileType),
-			buildKV("UUID", String(uuid)),
+			buildKV("UUID", uuid),
 			buildKV(minOSLabel, minOS),
-			buildKV("Team ID", String(teamId))
+			buildKV("Team ID", teamId)
 		];
 
 		// Encryption row
@@ -275,7 +274,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		}
 
 		if (hooks.hookedClasses?.length) {
-			hookItems.push(buildKV("Hooked Classes", String(hooks.hookedClasses.length)));
+			hookItems.push(buildKV("Hooked Classes", hooks.hookedClasses.length.toString()));
 		}
 
 		wrapper.appendChild(buildCard("Hooks", ...hookItems));
@@ -285,13 +284,12 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 	const profile = (data as any).provisioningProfile as Record<string, any> | undefined;
 	if (profile) {
 		const provItems: HTMLElement[] = [];
-		if (profile.teamName) provItems.push(buildKV("Team Name", String(profile.teamName)));
-		if (profile.expirationDate)
-			provItems.push(buildKV("Expiration", String(profile.expirationDate)));
+		if (profile.teamName) provItems.push(buildKV("Team Name", profile.teamName));
+		if (profile.expirationDate) provItems.push(buildKV("Expiration", profile.expirationDate));
 		if (profile.deviceCount != null)
-			provItems.push(buildKV("Device Count", String(profile.deviceCount)));
+			provItems.push(buildKV("Device Count", profile.deviceCount.toString()));
 		if (profile.devices)
-			provItems.push(buildKV("Device Count", String(profile.devices.length)));
+			provItems.push(buildKV("Device Count", profile.devices.length.toString()));
 		if (provItems.length > 0) {
 			wrapper.appendChild(buildCard("Provisioning Profile", ...provItems));
 		}

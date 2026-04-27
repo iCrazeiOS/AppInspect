@@ -398,7 +398,6 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
-	// ── export-json ──
 	ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
 		const { sessionId } = args;
 		try {
@@ -480,15 +479,18 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			const props: Electron.OpenDialogOptions["properties"] =
 				process.platform === "darwin" ? ["openFile", "openDirectory"] : ["openFile"];
 
-			const isMac = process.platform === "darwin";
-
 			const filters: Electron.FileFilter[] = [
 				{
 					name: "Supported Files",
-					extensions: isMac ? ["ipa", "deb", "dylib", "app"] : ["ipa", "deb", "dylib"]
+					extensions:
+						process.platform === "darwin"
+							? ["ipa", "tipa", "deb", "dylib", "app"]
+							: ["ipa", "tipa", "deb", "dylib"]
 				},
-				...(isMac ? [{ name: "App Bundles", extensions: ["app"] }] : []),
-				{ name: "IPA Files", extensions: ["ipa"] },
+				...(process.platform === "darwin"
+					? [{ name: "App Bundles", extensions: ["app"] }]
+					: []),
+				{ name: "IPA Files", extensions: ["ipa", "tipa"] },
 				{ name: "DEB Packages", extensions: ["deb"] },
 				{ name: "Mach-O Binaries", extensions: ["dylib"] },
 				{ name: "All Files", extensions: ["*"] }

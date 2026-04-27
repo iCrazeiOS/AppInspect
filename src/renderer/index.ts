@@ -863,6 +863,7 @@ document.addEventListener("drop", (e: DragEvent) => {
 	const lowerPath = filePath.toLowerCase();
 	const supported =
 		lowerPath.endsWith(".ipa") ||
+		lowerPath.endsWith(".tipa") ||
 		lowerPath.endsWith(".deb") ||
 		lowerPath.endsWith(".dylib") ||
 		lowerPath.endsWith(".app");
@@ -870,7 +871,10 @@ document.addEventListener("drop", (e: DragEvent) => {
 		const fileName = filePath.split(/[\\/]/).pop() ?? "";
 		const hasExtension = fileName.includes(".");
 		if (hasExtension) {
-			showToast("Unsupported file type. Supported: IPA, .app, DEB, dylib, Mach-O", "warning");
+			showToast(
+				"Unsupported file type. Supported: IPA/TIPA, .app, DEB, dylib, Mach-O",
+				"warning"
+			);
 			return;
 		}
 	}

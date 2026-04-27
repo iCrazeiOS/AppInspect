@@ -12,8 +12,6 @@ import { CPU_TYPE_ARM, CPU_TYPE_ARM64, CPU_TYPE_X86, CPU_TYPE_X86_64 } from "./m
 // Re-export types for convenience
 export type { DisasmArch, DisasmInstruction } from "../../shared/types";
 
-// ── Capstone Initialization ───────────────────────────────────────────
-
 let initialized = false;
 
 /**
@@ -32,8 +30,6 @@ export async function initCapstone(): Promise<void> {
 export function isCapstoneReady(): boolean {
 	return initialized;
 }
-
-// ── Architecture Mapping ──────────────────────────────────────────────
 
 /**
  * Map Mach-O CPU type to disasm architecture string.
@@ -69,8 +65,6 @@ function getCapstoneConfig(arch: DisasmArch): { csArch: number; csMode: number }
 			return { csArch: Const.CS_ARCH_X86, csMode: Const.CS_MODE_32 };
 	}
 }
-
-// ── Disassembly ───────────────────────────────────────────────────────
 
 /**
  * Disassemble a chunk of bytes.

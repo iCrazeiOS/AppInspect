@@ -107,6 +107,15 @@ function addBinary(info: BinaryInfo, binaries: BinaryInfo[], seenRealPaths: Set<
 	binaries.push(info);
 }
 
+function resolveBundleExecutable(bundlePath: string, fallbackName: string): string | null {
+	const execName = readCFBundleExecutable(path.join(bundlePath, "Info.plist")) ?? fallbackName;
+	const binaryPath = path.join(bundlePath, execName);
+	if (fs.existsSync(binaryPath) && isMachOFile(binaryPath)) {
+		return binaryPath;
+	}
+	return null;
+}
+
 /**
  * Discover binaries in an app bundle: the main executable,
  * frameworks in Frameworks/, and app extensions in PlugIns/.
@@ -176,10 +185,15 @@ export function discoverBinaries(appBundlePath: string): BinaryInfo[] {
 				if (entry.isDirectory() && entry.name.endsWith(".appex")) {
 					const extensionName = path.basename(entry.name, ".appex");
 					const extensionPath = path.join(plugInsDir, entry.name);
+					const extensionBinaryPath = resolveBundleExecutable(
+						extensionPath,
+						extensionName
+					);
+					if (!extensionBinaryPath) continue;
 					addBinary(
 						{
 							name: extensionName,
-							path: extensionPath,
+							path: extensionBinaryPath,
 							type: "extension"
 						},
 						binaries,

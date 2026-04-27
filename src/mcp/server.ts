@@ -28,8 +28,7 @@ console.log = console.error;
 console.info = console.error;
 console.warn = console.error;
 
-// ── BigInt serialisation ─────────────────────────────────────────────
-
+// BigInt serialisation helper — converts BigInt to number or string for JSON
 function bigintReplacer(_key: string, value: unknown): unknown {
 	if (typeof value === "bigint") {
 		if (value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)) {
@@ -44,8 +43,7 @@ function sanitize<T>(obj: T): T {
 	return JSON.parse(JSON.stringify(obj, bigintReplacer)) as T;
 }
 
-// ── Session management ──────────────────────────────────────────────
-
+// Session management — each file path gets its own AnalysisSession
 const sessions = new Map<string, AnalysisSession>();
 let lastPath: string | null = null;
 
@@ -57,8 +55,7 @@ function getSession(filePath?: string): AnalysisSession {
 	return session;
 }
 
-// ── Constants ────────────────────────────────────────────────────────
-
+// Constants for tool configuration
 const DEFAULT_LIMIT = 200;
 
 type SectionName =
@@ -96,8 +93,7 @@ const PATH_PARAM = {
 		"Required when multiple files have been analysed in parallel."
 };
 
-// ── Tool definitions ─────────────────────────────────────────────────
-
+// Tool definitions for MCP protocol
 const TOOLS = [
 	{
 		name: "analyse_file",
@@ -300,8 +296,7 @@ const TOOLS = [
 	}
 ];
 
-// ── Section data helpers ─────────────────────────────────────────────
-
+// Section data helpers — extract and format analysis results for MCP responses
 function getSectionData(cached: AnalysisResult, section: SectionName): unknown {
 	switch (section) {
 		case "strings":
@@ -381,8 +376,7 @@ function buildPaginatedResult(
 	return result;
 }
 
-// ── Response helpers ─────────────────────────────────────────────────
-
+// Response helpers — format MCP tool responses
 function ok(data: unknown) {
 	return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
@@ -391,17 +385,14 @@ function fail(message: string) {
 	return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
-// ── Tool dispatch ────────────────────────────────────────────────────
-
-const noop = () => {};
-
+// Tool dispatch — route MCP tool calls to handlers
 async function handleToolCall(name: string, args: Record<string, unknown>) {
 	switch (name) {
 		case "analyse_file": {
 			const filePath = args.path as string;
 			if (!filePath) return fail("Missing required parameter: path");
 			const session = new AnalysisSession();
-			const result = await session.analyseFile(filePath, noop);
+			const result = await session.analyseFile(filePath, () => {});
 			sessions.set(filePath, session);
 			lastPath = filePath;
 			return ok(sanitize({ ...result.overview, hooks: result.hooks }));
@@ -449,7 +440,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
 			const results = await session.searchAllBinaries(
 				query,
 				tab,
-				noop,
+				() => {},
 				args.isRegex as boolean | undefined,
 				args.caseSensitive as boolean | undefined
 			);
@@ -462,7 +453,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
 			if (index === undefined || index === null) {
 				return fail("Missing required parameter: binaryIndex");
 			}
-			const result = await session.analyseBinary(index, noop);
+			const result = await session.analyseBinary(index, () => {});
 			return ok(sanitize({ ...result.overview, hooks: result.hooks }));
 		}
 
@@ -510,7 +501,6 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
 				return ok(sanitize(result.instructions));
 			}
 
-			// Text format
 			const lines: string[] = [];
 			for (const insn of result.instructions) {
 				if (insn.label) {
@@ -560,8 +550,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>) {
 	}
 }
 
-// ── Server setup ─────────────────────────────────────────────────────
-
+// Server setup — initialize MCP server and connect to stdio transport
 const server = new Server(
 	{ name: "appinspect", version: "0.1.0" },
 	{ capabilities: { tools: {} } }

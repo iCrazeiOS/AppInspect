@@ -2446,7 +2446,7 @@ export function detectFileType(filePath: string): SourceType {
 
 	// Fallback: check extension
 	const ext = path.extname(filePath).toLowerCase();
-	if (ext === ".ipa") return "ipa";
+	if (ext === ".ipa" || ext === ".tipa") return "ipa";
 	if (ext === ".deb") return "deb";
 	if (ext === ".dylib" || ext === ".a") return "macho";
 
