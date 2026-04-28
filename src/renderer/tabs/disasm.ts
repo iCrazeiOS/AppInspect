@@ -19,6 +19,12 @@ interface DisasmTabData {
 	loadCommands: LoadCommand[];
 }
 
+interface DisasmNavigationState {
+	sectionIndex: number;
+	scrollTop: number;
+	address: bigint | null;
+}
+
 let activeViewer: DisasmViewer | null = null;
 let activeSearchBar: SearchBar | null = null;
 
@@ -70,6 +76,7 @@ export async function renderDisasm(
 	}
 
 	const wrapper = el("div", "disasm-tab-wrapper");
+	let currentSectionIndex = 0;
 
 	// Navigation history
 	const backBtn = el("button", "da-nav-btn", "\u276E");
@@ -79,26 +86,39 @@ export async function renderDisasm(
 	forwardBtn.title = "Forward";
 	forwardBtn.disabled = true;
 
-	const navHistory = new NavigationHistory<bigint>(() => {
-		backBtn.disabled = !navHistory.canGoBack();
-		forwardBtn.disabled = !navHistory.canGoForward();
-	});
-
-	function navigateTo(address: bigint): void {
-		navHistory.setNavigating(true);
-		activeViewer?.goToAddress(address);
-		navHistory.setNavigating(false);
+	function updateNavButtons(): void {
 		backBtn.disabled = !navHistory.canGoBack();
 		forwardBtn.disabled = !navHistory.canGoForward();
 	}
 
+	const navHistory = new NavigationHistory<DisasmNavigationState>(updateNavButtons);
+
+	function getCurrentNavigationState(): DisasmNavigationState | null {
+		if (!activeViewer) return null;
+		return {
+			sectionIndex: currentSectionIndex,
+			scrollTop: activeViewer.getScrollTop(),
+			address: activeViewer.getCurrentAddress()
+		};
+	}
+
+	async function navigateTo(state: DisasmNavigationState): Promise<void> {
+		navHistory.setNavigating(true);
+		try {
+			await restoreNavigationState(state);
+		} finally {
+			navHistory.setNavigating(false);
+			updateNavButtons();
+		}
+	}
+
 	backBtn.addEventListener("click", () => {
 		const addr = navHistory.back();
-		if (addr !== null) navigateTo(addr);
+		if (addr !== null) void navigateTo(addr);
 	});
 	forwardBtn.addEventListener("click", () => {
 		const addr = navHistory.forward();
-		if (addr !== null) navigateTo(addr);
+		if (addr !== null) void navigateTo(addr);
 	});
 
 	// Mouse button 4/5 for back/forward
@@ -106,11 +126,11 @@ export async function renderDisasm(
 		if (e.button === 3) {
 			e.preventDefault();
 			const addr = navHistory.back();
-			if (addr !== null) navigateTo(addr);
+			if (addr !== null) void navigateTo(addr);
 		} else if (e.button === 4) {
 			e.preventDefault();
 			const addr = navHistory.forward();
-			if (addr !== null) navigateTo(addr);
+			if (addr !== null) void navigateTo(addr);
 		}
 	});
 
@@ -126,7 +146,6 @@ export async function renderDisasm(
 	// Section picker
 	const sectionPicker = el("div", "da-section-picker");
 	const sectionBtn = el("button", "da-section-btn");
-	let currentSectionIndex = 0;
 
 	function updateSectionButton(): void {
 		const s = sections[currentSectionIndex];
@@ -195,17 +214,48 @@ export async function renderDisasm(
 	let funcDropdownOpen = false;
 	let funcDropdown: HTMLElement | null = null;
 	let sectionFunctions: SectionFunction[] = [];
+	const sectionFunctionCache = new Map<number, SectionFunction[]>();
+	const sectionFunctionRequests = new Map<number, Promise<SectionFunction[]>>();
+
+	function normalizeSectionFunctions(
+		functions: Array<{ name: string; address: number | bigint | string }>
+	): SectionFunction[] {
+		return functions
+			.map((f) => ({
+				name: f.name,
+				address: BigInt(f.address)
+			}))
+			.sort((a, b) => {
+				if (a.address < b.address) return -1;
+				if (a.address > b.address) return 1;
+				return 0;
+			});
+	}
+
+	async function fetchSectionFunctions(sectionIndex: number): Promise<SectionFunction[]> {
+		const cached = sectionFunctionCache.get(sectionIndex);
+		if (cached) return cached;
+
+		const pending = sectionFunctionRequests.get(sectionIndex);
+		if (pending) return pending;
+
+		const request = window.api
+			.getDisasmFunctions(sessionId, sectionIndex)
+			.then((functions) => {
+				const normalized = normalizeSectionFunctions(functions);
+				sectionFunctionCache.set(sectionIndex, normalized);
+				return normalized;
+			})
+			.finally(() => {
+				sectionFunctionRequests.delete(sectionIndex);
+			});
+		sectionFunctionRequests.set(sectionIndex, request);
+		return request;
+	}
 
 	async function loadSectionFunctions(sectionIndex: number): Promise<void> {
 		try {
-			// Use the new API that gets function starts + symbol names
-			const functions = await window.api.getDisasmFunctions(sessionId, sectionIndex);
-
-			// Convert addresses from IPC (may be numbers) to BigInt
-			sectionFunctions = functions.map((f) => ({
-				name: f.name,
-				address: BigInt(f.address as unknown as number | bigint)
-			}));
+			sectionFunctions = await fetchSectionFunctions(sectionIndex);
 
 			funcBtnText.textContent =
 				sectionFunctions.length > 0
@@ -267,13 +317,7 @@ export async function renderDisasm(
 				option.appendChild(nameEl);
 				option.addEventListener("click", () => {
 					closeFuncDropdown();
-					const currentAddr = activeViewer?.getCurrentAddress();
-					if (currentAddr !== null && currentAddr !== undefined) {
-						navHistory.push(currentAddr);
-					}
-					navHistory.push(sym.address);
-					activeViewer?.goToAddress(sym.address);
-					gotoInput.value = `0x${addrStr}`;
+					void jumpToAddress(sym.address);
 				});
 				funcList.appendChild(option);
 			}
@@ -319,6 +363,130 @@ export async function renderDisasm(
 	gotoInput.className = "da-goto-input";
 	gotoInput.placeholder = "0x100004000";
 
+	function findSectionIndexForAddress(address: bigint): number {
+		return sections.findIndex((section) => {
+			const start = BigInt(section.virtualAddr as unknown as number | bigint);
+			const end = start + BigInt(section.size);
+			return address >= start && address < end;
+		});
+	}
+
+	function resolveDisasmAddress(
+		address: bigint
+	): { address: bigint; sectionIndex: number } | null {
+		const directSectionIndex = findSectionIndexForAddress(address);
+		if (directSectionIndex >= 0) {
+			return { address, sectionIndex: directSectionIndex };
+		}
+
+		const currentSection = sections[currentSectionIndex];
+		if (!currentSection) return null;
+
+		const currentSectionStart = BigInt(
+			currentSection.virtualAddr as unknown as number | bigint
+		);
+		const rebasedAddress = currentSectionStart + address;
+		const rebasedSectionIndex = findSectionIndexForAddress(rebasedAddress);
+		if (rebasedSectionIndex >= 0) {
+			return { address: rebasedAddress, sectionIndex: rebasedSectionIndex };
+		}
+
+		return null;
+	}
+
+	function findFunctionForAddress(
+		functions: SectionFunction[] | undefined,
+		address: bigint
+	): SectionFunction | null {
+		if (!functions || functions.length === 0) return null;
+
+		let match: SectionFunction | null = null;
+		for (const fn of functions) {
+			if (fn.address > address) break;
+			match = fn;
+		}
+		return match;
+	}
+
+	function getBranchTargetHint(targetAddress: bigint): string | null {
+		const resolved = resolveDisasmAddress(targetAddress);
+		if (!resolved) return null;
+
+		const section = sections[resolved.sectionIndex];
+		if (!section) return null;
+
+		const sectionLabel = `${section.segname},${section.sectname}`;
+		const functions = sectionFunctionCache.get(resolved.sectionIndex);
+		const fn = findFunctionForAddress(functions, resolved.address);
+		if (fn) {
+			const offset = resolved.address - fn.address;
+			return offset === 0n
+				? `${sectionLabel} ${fn.name}`
+				: `${sectionLabel} ${fn.name}+0x${offset.toString(16).toUpperCase()}`;
+		}
+
+		const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
+		const sectionOffset = resolved.address - sectionStart;
+		return `${sectionLabel}+0x${sectionOffset.toString(16).toUpperCase()}`;
+	}
+
+	async function jumpToAddress(address: bigint, recordHistory = true): Promise<boolean> {
+		const resolved = resolveDisasmAddress(address);
+		if (!resolved) return false;
+
+		const previousState = recordHistory ? getCurrentNavigationState() : null;
+
+		if (resolved.sectionIndex !== currentSectionIndex) {
+			currentSectionIndex = resolved.sectionIndex;
+			updateSectionButton();
+			closeDropdown();
+			closeFuncDropdown();
+			await openSection(resolved.sectionIndex);
+		}
+
+		const jumped = (await activeViewer?.goToAddress(resolved.address)) ?? false;
+		if (jumped) {
+			gotoInput.value = `0x${resolved.address.toString(16).toUpperCase()}`;
+			if (recordHistory) {
+				if (
+					previousState &&
+					(previousState.sectionIndex !== resolved.sectionIndex ||
+						previousState.address !== resolved.address)
+				) {
+					navHistory.push(previousState);
+				}
+				const targetState = getCurrentNavigationState();
+				if (targetState) {
+					navHistory.push(targetState);
+				}
+			}
+		}
+		updateNavButtons();
+		return jumped;
+	}
+
+	async function restoreNavigationState(state: DisasmNavigationState): Promise<boolean> {
+		const section = sections[state.sectionIndex];
+		if (!section) return false;
+
+		if (state.sectionIndex !== currentSectionIndex) {
+			currentSectionIndex = state.sectionIndex;
+			updateSectionButton();
+			closeDropdown();
+			closeFuncDropdown();
+			await openSection(state.sectionIndex);
+		}
+
+		const restored = (await activeViewer?.restoreScrollTop(state.scrollTop)) ?? false;
+		if (state.address !== null) {
+			gotoInput.value = `0x${state.address.toString(16).toUpperCase()}`;
+		}
+		if (!restored && state.address !== null) {
+			return (await activeViewer?.goToAddress(state.address)) ?? false;
+		}
+		return restored;
+	}
+
 	gotoInput.addEventListener("keydown", (e) => {
 		if (e.key === "Enter") {
 			const value = gotoInput.value.trim();
@@ -332,12 +500,7 @@ export async function renderDisasm(
 			} catch {
 				return;
 			}
-			const currentAddr = activeViewer?.getCurrentAddress();
-			if (currentAddr !== null && currentAddr !== undefined) {
-				navHistory.push(currentAddr);
-			}
-			navHistory.push(addr);
-			activeViewer?.goToAddress(addr);
+			void jumpToAddress(addr);
 		}
 	});
 
@@ -390,6 +553,12 @@ export async function renderDisasm(
 	// Register search bar for Ctrl/Cmd+F
 	registerSearchBar(sessionId, "disasm", { focus: () => activeSearchBar?.focus() });
 
+	void Promise.all(sections.map((_, index) => fetchSectionFunctions(index).catch(() => []))).then(
+		() => {
+			activeViewer?.refresh();
+		}
+	);
+
 	// Open section
 	async function openSection(index: number): Promise<void> {
 		const section = sections[index];
@@ -410,15 +579,9 @@ export async function renderDisasm(
 				gotoInput.value = `0x${address.toString(16).toUpperCase()}`;
 			},
 			onBranchClick: (targetAddress) => {
-				// Record where we are before jumping so back returns here
-				const currentAddr = activeViewer?.getCurrentAddress();
-				if (currentAddr !== null && currentAddr !== undefined) {
-					navHistory.push(currentAddr);
-				}
-				navHistory.push(targetAddress);
-				activeViewer?.goToAddress(targetAddress);
-				gotoInput.value = `0x${targetAddress.toString(16).toUpperCase()}`;
-			}
+				void jumpToAddress(targetAddress);
+			},
+			getBranchTargetHint
 		});
 		activeViewer.mount(viewerMount);
 

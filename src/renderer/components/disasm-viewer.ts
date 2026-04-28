@@ -18,6 +18,7 @@ export interface DisasmViewerOptions {
 	sectionIndex: number;
 	onAddressClick?: (address: bigint, offset: number) => void;
 	onBranchClick?: (targetAddress: bigint) => void;
+	getBranchTargetHint?: (targetAddress: bigint) => string | null;
 }
 
 const ROW_HEIGHT = 28;
@@ -28,6 +29,12 @@ const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 interface RowIndexEntry {
 	byteOffset: number;
 	cumulativeRow: number;
+}
+
+interface BranchTarget {
+	address: bigint;
+	text: string;
+	index: number;
 }
 
 export class DisasmViewer {
@@ -51,10 +58,13 @@ export class DisasmViewer {
 
 	private rafId = 0;
 	private boundOnScroll: () => void;
+	private rowIndexReady: Promise<void>;
 
 	// Track rendered range
 	private renderedStart = -1;
 	private renderedEnd = -1;
+	private highlightedAddress: bigint | null = null;
+	private highlightTimer = 0;
 
 	constructor(opts: DisasmViewerOptions) {
 		this.opts = opts;
@@ -64,7 +74,7 @@ export class DisasmViewer {
 		this.boundOnScroll = this.onScroll.bind(this);
 
 		// Fetch row index in the background (provides exact total + byte mapping)
-		window.api
+		this.rowIndexReady = window.api
 			.getDisasmRowIndex(opts.sessionId, opts.sectionIndex)
 			.then((index) => {
 				if (index && index.totalVisualRows > 0) {
@@ -130,7 +140,15 @@ export class DisasmViewer {
 				hi = mid - 1;
 			}
 		}
-		return entries[lo]!.byteOffset;
+		const entry = entries[lo]!;
+		const nextEntry = entries[lo + 1];
+		const rowDelta = Math.max(0, row - entry.cumulativeRow);
+		const estimated = entry.byteOffset + rowDelta * this.getAvgInstructionSize();
+		const upperBound = Math.max(
+			entry.byteOffset,
+			nextEntry ? nextEntry.byteOffset - 1 : this.opts.section.size - 1
+		);
+		return this.alignByteOffset(Math.min(Math.max(entry.byteOffset, estimated), upperBound));
 	}
 
 	/**
@@ -152,7 +170,38 @@ export class DisasmViewer {
 				hi = mid - 1;
 			}
 		}
-		return entries[lo]!.cumulativeRow;
+		const entry = entries[lo]!;
+		const nextEntry = entries[lo + 1];
+		const byteDelta = Math.max(0, byteOffset - entry.byteOffset);
+		const estimated =
+			entry.cumulativeRow + Math.floor(byteDelta / this.getAvgInstructionSize());
+		const upperBound = Math.max(
+			entry.cumulativeRow,
+			nextEntry ? nextEntry.cumulativeRow - 1 : this.totalRows - 1
+		);
+		return Math.min(Math.max(entry.cumulativeRow, estimated), upperBound);
+	}
+
+	private getAvgInstructionSize(): number {
+		switch (this.opts.section.arch) {
+			case "arm64":
+				return 4;
+			case "arm":
+				return 3;
+			case "x86":
+			case "x86_64":
+				return 5;
+		}
+	}
+
+	private alignByteOffset(byteOffset: number): number {
+		if (this.opts.section.arch === "arm64") {
+			return byteOffset - (byteOffset % 4);
+		}
+		if (this.opts.section.arch === "arm") {
+			return byteOffset - (byteOffset % 2);
+		}
+		return byteOffset;
 	}
 
 	mount(container: HTMLElement): void {
@@ -193,6 +242,7 @@ export class DisasmViewer {
 
 	unmount(): void {
 		if (this.rafId) cancelAnimationFrame(this.rafId);
+		if (this.highlightTimer) window.clearTimeout(this.highlightTimer);
 		if (this.content) {
 			this.content.removeEventListener("scroll", this.boundOnScroll);
 		}
@@ -203,6 +253,12 @@ export class DisasmViewer {
 		this.content = null;
 		this.chunks.clear();
 		this.pendingChunks.clear();
+	}
+
+	refresh(): void {
+		this.renderedStart = -1;
+		this.renderedEnd = -1;
+		void this.renderVisibleRows();
 	}
 
 	private onScroll(): void {
@@ -272,8 +328,6 @@ export class DisasmViewer {
 		// Build visual rows from instructions, count rows to find the window
 		// Each instruction is 1 row; instructions with labels add 1 extra row
 		let visualRow = 0;
-		let renderStartIdx = -1;
-		let renderEndIdx = allInsns.length;
 
 		// Find the first loaded instruction's visual row from the index
 		if (allInsns.length > 0) {
@@ -293,8 +347,6 @@ export class DisasmViewer {
 
 			// Check if this instruction's rows overlap with our visible window
 			if (currentVisualRow > startRow && insnStartRow < endRow) {
-				if (renderStartIdx === -1) renderStartIdx = idx;
-				renderEndIdx = idx + 1;
 				rowsToRender.push({ insn, visualRow: insnStartRow });
 			}
 
@@ -325,6 +377,10 @@ export class DisasmViewer {
 
 	private createInstructionRow(insn: DisasmInstruction): HTMLElement {
 		const row = el("div", "da-row");
+		row.dataset.address = insn.address.toString(16);
+		if (this.highlightedAddress === insn.address) {
+			row.classList.add("da-row--jumped");
+		}
 
 		// Address
 		const addrStr = insn.address.toString(16).toUpperCase().padStart(12, "0");
@@ -354,20 +410,23 @@ export class DisasmViewer {
 		const operandsEl = el("span", "da-col-operands");
 		const branchTarget = this.parseBranchTarget(insn);
 		if (branchTarget !== null && this.opts.onBranchClick) {
-			const targetAddr = branchTarget;
+			const targetAddr = branchTarget.address;
 			const targetHex = `0x${targetAddr.toString(16)}`;
-			const labelMatch = insn.operands.match(/(#?0x[0-9a-fA-F]+)/);
-			if (labelMatch) {
-				const before = insn.operands.slice(0, labelMatch.index);
-				const after = insn.operands.slice(labelMatch.index! + labelMatch[0].length);
+			if (branchTarget.text) {
+				const before = insn.operands.slice(0, branchTarget.index);
+				const after = insn.operands.slice(branchTarget.index + branchTarget.text.length);
 				if (before) operandsEl.appendChild(document.createTextNode(before));
-				const link = el("span", "da-branch-target", labelMatch[0]);
+				const link = el("span", "da-branch-target", branchTarget.text);
 				link.title = `Jump to ${targetHex}`;
 				link.addEventListener("click", () => {
 					this.opts.onBranchClick!(targetAddr);
 				});
 				operandsEl.appendChild(link);
 				if (after) operandsEl.appendChild(document.createTextNode(after));
+				const hint = this.opts.getBranchTargetHint?.(targetAddr);
+				if (hint) {
+					operandsEl.appendChild(el("span", "da-branch-hint", ` ; ${hint}`));
+				}
 			} else {
 				operandsEl.textContent = insn.operands;
 			}
@@ -430,7 +489,7 @@ export class DisasmViewer {
 	}
 
 	/** Extract branch target address from a branch/call instruction. */
-	private parseBranchTarget(insn: DisasmInstruction): bigint | null {
+	private parseBranchTarget(insn: DisasmInstruction): BranchTarget | null {
 		const m = insn.mnemonic.toLowerCase();
 		const isBranch =
 			m === "b" ||
@@ -450,11 +509,16 @@ export class DisasmViewer {
 
 		if (!isBranch) return null;
 
-		const match = insn.operands.match(/#?0x([0-9a-fA-F]+)/);
+		const matches = Array.from(insn.operands.matchAll(/#?0x([0-9a-fA-F]+)/g));
+		const match = matches.at(-1);
 		if (!match?.[1]) return null;
 
 		try {
-			return BigInt(`0x${match[1]}`);
+			return {
+				address: BigInt(`0x${match[1]}`),
+				text: match[0],
+				index: match.index ?? 0
+			};
 		} catch {
 			return null;
 		}
@@ -508,19 +572,55 @@ export class DisasmViewer {
 		`;
 	}
 
+	private highlightAddress(address: bigint): void {
+		this.highlightedAddress = address;
+		if (this.highlightTimer) window.clearTimeout(this.highlightTimer);
+		this.highlightTimer = window.setTimeout(() => {
+			this.highlightedAddress = null;
+			this.highlightTimer = 0;
+			const rows = this.rowContainer?.querySelectorAll(".da-row--jumped");
+			rows?.forEach((row) => {
+				row.classList.remove("da-row--jumped");
+			});
+		}, 1400);
+	}
+
+	private flashHighlightedRow(address: bigint): void {
+		const row = this.rowContainer?.querySelector<HTMLElement>(
+			`.da-row[data-address="${address.toString(16)}"]`
+		);
+		if (!row) return;
+
+		row.classList.add("da-row--jumped");
+		row.animate(
+			[
+				{
+					backgroundColor: "rgba(121, 192, 255, 0.36)",
+					boxShadow: "inset 3px 0 0 rgba(121, 192, 255, 0.95)"
+				},
+				{
+					backgroundColor: "rgba(121, 192, 255, 0)",
+					boxShadow: "inset 3px 0 0 rgba(121, 192, 255, 0)"
+				}
+			],
+			{ duration: 1400, easing: "ease-out" }
+		);
+	}
+
 	/** Scroll to a specific address with precision. */
-	async goToAddress(address: bigint): Promise<void> {
-		if (!this.content) return;
+	async goToAddress(address: bigint): Promise<boolean> {
+		if (!this.content) return false;
 
 		const section = this.opts.section;
 		const sectionStart = BigInt(section.virtualAddr as unknown as number | bigint);
 		const sectionEnd = sectionStart + BigInt(section.size);
 
 		if (address < sectionStart || address >= sectionEnd) {
-			return;
+			return false;
 		}
 
 		const relativeOffset = Number(address - sectionStart);
+		await this.rowIndexReady;
 
 		// Ensure the chunk containing this address is loaded
 		const chunkOffset = Math.floor(relativeOffset / CHUNK_SIZE) * CHUNK_SIZE;
@@ -539,6 +639,7 @@ export class DisasmViewer {
 
 		// Fine-tune: find the exact instruction in the DOM and snap to it.
 		// Run twice: adjust then stabilize after re-render.
+		let jumpedAddress: bigint | null = null;
 		for (let pass = 0; pass < 2; pass++) {
 			if (!this.rowContainer || !this.content) break;
 			const rows = this.rowContainer.children;
@@ -550,6 +651,7 @@ export class DisasmViewer {
 				try {
 					const rowAddr = BigInt(`0x${addrEl.textContent}`);
 					if (rowAddr >= address) {
+						jumpedAddress = rowAddr;
 						const snapTarget =
 							i > 0 && rows[i - 1]?.classList.contains("da-label-row")
 								? (rows[i - 1] as HTMLElement)
@@ -572,14 +674,45 @@ export class DisasmViewer {
 			}
 			if (!found) break;
 		}
+
+		this.highlightAddress(jumpedAddress ?? address);
+		this.renderedStart = -1;
+		this.renderedEnd = -1;
+		await this.renderVisibleRows();
+		this.flashHighlightedRow(jumpedAddress ?? address);
+		return true;
+	}
+
+	getScrollTop(): number {
+		return this.content?.scrollTop ?? 0;
+	}
+
+	async restoreScrollTop(scrollTop: number): Promise<boolean> {
+		if (!this.content) return false;
+
+		await this.rowIndexReady;
+		if (!this.content) return false;
+
+		const maxScrollTop = Math.max(0, this.spacerHeight - this.content.clientHeight);
+		this.content.scrollTop = Math.min(Math.max(0, scrollTop), maxScrollTop);
+		this.renderedStart = -1;
+		this.renderedEnd = -1;
+		await this.renderVisibleRows();
+		return true;
 	}
 
 	/** Get the address of the first visible instruction (for navigation history). */
 	getCurrentAddress(): bigint | null {
-		if (!this.rowContainer) return null;
+		if (!this.rowContainer || !this.content) return null;
+		const contentRect = this.content.getBoundingClientRect();
 		const rows = this.rowContainer.children;
 		for (let i = 0; i < rows.length; i++) {
-			const addrEl = (rows[i] as HTMLElement).querySelector(".da-col-address");
+			const row = rows[i] as HTMLElement;
+			if (row.classList.contains("da-label-row")) continue;
+			const rowRect = row.getBoundingClientRect();
+			if (rowRect.bottom < contentRect.top || rowRect.top > contentRect.bottom) continue;
+
+			const addrEl = row.querySelector(".da-col-address");
 			if (!addrEl?.textContent) continue;
 			try {
 				return BigInt(`0x${addrEl.textContent}`);

@@ -303,6 +303,19 @@
 	background: var(--accent-subtle);
 }
 
+.da-row--jumped {
+	animation: da-jump-highlight 1.4s ease-out;
+}
+
+@keyframes da-jump-highlight {
+	0% {
+		background: rgba(121, 192, 255, 0.35);
+	}
+	100% {
+		background: transparent;
+	}
+}
+
 /* Label row (function name) */
 .da-label-row {
 	display: flex;
@@ -398,6 +411,18 @@
 .da-branch-target:hover {
 	color: var(--accent-hover);
 	text-decoration-style: solid;
+}
+
+.da-branch-hint {
+	margin-left: 10px;
+	color: var(--text-muted);
+	font-style: italic;
+	opacity: 0.85;
+}
+
+.da-row:hover .da-branch-hint {
+	color: var(--text);
+	opacity: 0.9;
 }
 
 /* Navigation buttons */

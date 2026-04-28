@@ -30,6 +30,7 @@ import type {
 	PlistValue,
 	SecurityFinding,
 	LoadCommand as SharedLoadCommand,
+	Section as SharedSection,
 	SourceType,
 	StringEntry,
 	SymbolEntry
@@ -1153,6 +1154,7 @@ export class AnalysisSession {
 
 		// Disassemble each function, apply trimming, count visual rows (insns + labels)
 		const entries: Array<{ byteOffset: number; cumulativeRow: number }> = [];
+		const rowIndexStride = 1024;
 		let cumulativeRow = 0;
 
 		for (let i = 0; i < boundaries.length; i++) {
@@ -1163,6 +1165,7 @@ export class AnalysisSession {
 			const funcFileOffset = section.fileOffset + funcByteOffset;
 
 			entries.push({ byteOffset: funcByteOffset, cumulativeRow });
+			let lastIndexedRow = cumulativeRow;
 
 			const hexResult = this.readHex(funcFileOffset, funcSize);
 			if (!hexResult || hexResult.data.length === 0) continue;
@@ -1173,6 +1176,16 @@ export class AnalysisSession {
 				instructions = this.trimAfterReturn(instructions);
 
 				for (const insn of instructions) {
+					const insnRow = cumulativeRow;
+					const insnByteOffset = Number(insn.address - sectionStart);
+					const lastEntry = entries[entries.length - 1];
+					if (
+						insnRow - lastIndexedRow >= rowIndexStride &&
+						lastEntry?.byteOffset !== insnByteOffset
+					) {
+						entries.push({ byteOffset: insnByteOffset, cumulativeRow: insnRow });
+						lastIndexedRow = insnRow;
+					}
 					// Label row adds an extra visual row
 					if (labelMap.has(insn.address)) cumulativeRow++;
 					cumulativeRow++; // instruction row
@@ -1542,7 +1555,62 @@ export class AnalysisSession {
 			}
 		}
 
+		if (functions.length === 0) {
+			return this.getSyntheticDisasmFunctions(section);
+		}
+
 		return functions;
+	}
+
+	private findSourceSection(section: DisasmSection): SharedSection | null {
+		if (!this.result) return null;
+
+		for (const lc of this.result.headers.loadCommands) {
+			if (lc.type !== "segment") continue;
+			for (const sect of lc.segment.sections) {
+				if (
+					sect.segname.trim() === section.segname &&
+					sect.sectname.trim() === section.sectname &&
+					sect.addr === section.virtualAddr
+				) {
+					return sect;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private getSyntheticDisasmFunctions(
+		section: DisasmSection
+	): Array<{ address: bigint; name: string }> {
+		if (section.size <= 0) return [];
+
+		if (section.sectname === "__stubs") {
+			const sourceSection = this.findSourceSection(section);
+			const stride =
+				sourceSection?.reserved2 && sourceSection.reserved2 > 0
+					? sourceSection.reserved2
+					: 4;
+			const functions: Array<{ address: bigint; name: string }> = [];
+
+			for (let offset = 0; offset < section.size; offset += stride) {
+				const address = section.virtualAddr + BigInt(offset);
+				functions.push({
+					address,
+					name: `stub_${address.toString(16).toUpperCase()}`
+				});
+			}
+
+			return functions;
+		}
+
+		return [
+			{
+				address: section.virtualAddr,
+				name: `${section.segname},${section.sectname}`
+			}
+		];
 	}
 
 	// ── Library dependency graph ────────────────────────────────────────
