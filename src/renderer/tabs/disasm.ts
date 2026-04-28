@@ -581,6 +581,7 @@ export async function renderDisasm(
 			onBranchClick: (targetAddress) => {
 				void jumpToAddress(targetAddress);
 			},
+			canJumpToAddress: (targetAddress) => resolveDisasmAddress(targetAddress) !== null,
 			getBranchTargetHint
 		});
 		activeViewer.mount(viewerMount);

@@ -18,6 +18,7 @@ export interface DisasmViewerOptions {
 	sectionIndex: number;
 	onAddressClick?: (address: bigint, offset: number) => void;
 	onBranchClick?: (targetAddress: bigint) => void;
+	canJumpToAddress?: (targetAddress: bigint) => boolean;
 	getBranchTargetHint?: (targetAddress: bigint) => string | null;
 }
 
@@ -31,7 +32,7 @@ interface RowIndexEntry {
 	cumulativeRow: number;
 }
 
-interface BranchTarget {
+interface InstructionTarget {
 	address: bigint;
 	text: string;
 	index: number;
@@ -53,12 +54,13 @@ export class DisasmViewer {
 
 	// Cache: byteOffset -> instructions
 	private chunks = new Map<number, DisasmInstruction[]>();
-	private pendingChunks = new Set<number>();
+	private pendingChunks = new Map<number, Promise<void>>();
 	private loadedBytes = 0;
 
 	private rafId = 0;
 	private boundOnScroll: () => void;
 	private rowIndexReady: Promise<void>;
+	private renderPass = 0;
 
 	// Track rendered range
 	private renderedStart = -1;
@@ -281,12 +283,17 @@ export class DisasmViewer {
 		const startRow = Math.max(0, firstVisibleRow - BUFFER_ROWS);
 		const endRow = Math.min(this.totalRows, firstVisibleRow + visibleRows + BUFFER_ROWS);
 
-		// Skip if range hasn't changed
-		if (startRow === this.renderedStart && endRow === this.renderedEnd) {
+		// Skip if range hasn't changed and there is already visible content.
+		if (
+			startRow === this.renderedStart &&
+			endRow === this.renderedEnd &&
+			this.rowContainer.children.length > 0
+		) {
 			return;
 		}
 		this.renderedStart = startRow;
 		this.renderedEnd = endRow;
+		const renderPass = ++this.renderPass;
 
 		// Use the row index to map visual rows to byte offsets
 		const startByte = this.rowToByteOffset(startRow);
@@ -305,7 +312,7 @@ export class DisasmViewer {
 			offset < chunkEnd && offset < this.opts.section.size;
 			offset += CHUNK_SIZE
 		) {
-			if (!this.chunks.has(offset) && !this.pendingChunks.has(offset)) {
+			if (!this.chunks.has(offset)) {
 				loadPromises.push(this.loadChunk(offset));
 			}
 		}
@@ -313,11 +320,23 @@ export class DisasmViewer {
 		if (loadPromises.length > 0) {
 			await Promise.all(loadPromises);
 		}
+		if (!this.content || !this.rowContainer || !this.spacer) return;
+		if (renderPass !== this.renderPass) return;
+		if (this.content.scrollTop !== scrollTop) {
+			this.renderedStart = -1;
+			this.renderedEnd = -1;
+			await this.renderVisibleRows();
+			return;
+		}
 
-		// Collect ALL instructions from loaded chunks, sorted by offset
+		// Collect instructions only from the current render window. Loaded chunks may be
+		// far apart after jumps, and treating them as contiguous breaks virtual row math.
 		const allInsns: DisasmInstruction[] = [];
-		const sortedOffsets = Array.from(this.chunks.keys()).sort((a, b) => a - b);
-		for (const offset of sortedOffsets) {
+		for (
+			let offset = chunkStart;
+			offset < chunkEnd && offset < this.opts.section.size;
+			offset += CHUNK_SIZE
+		) {
 			const chunk = this.chunks.get(offset);
 			if (!chunk) continue;
 			for (const insn of chunk) {
@@ -335,7 +354,10 @@ export class DisasmViewer {
 			visualRow = this.byteOffsetToRow(firstInsnByteOffset);
 		}
 
-		const rowsToRender: Array<{ insn: DisasmInstruction; visualRow: number }> = [];
+		const rowsToRender: Array<{
+			insn: DisasmInstruction;
+			visualRow: number;
+		}> = [];
 		let currentVisualRow = visualRow;
 
 		for (let idx = 0; idx < allInsns.length; idx++) {
@@ -347,7 +369,10 @@ export class DisasmViewer {
 
 			// Check if this instruction's rows overlap with our visible window
 			if (currentVisualRow > startRow && insnStartRow < endRow) {
-				rowsToRender.push({ insn, visualRow: insnStartRow });
+				rowsToRender.push({
+					insn,
+					visualRow: insnStartRow
+				});
 			}
 
 			// Stop if we're past the visible range
@@ -408,15 +433,21 @@ export class DisasmViewer {
 
 		// Operands — make branch targets clickable
 		const operandsEl = el("span", "da-col-operands");
-		const branchTarget = this.parseBranchTarget(insn);
-		if (branchTarget !== null && this.opts.onBranchClick) {
-			const targetAddr = branchTarget.address;
+		const instructionTarget = this.parseInstructionTarget(insn);
+		if (
+			instructionTarget !== null &&
+			this.opts.onBranchClick &&
+			(this.opts.canJumpToAddress?.(instructionTarget.address) ?? true)
+		) {
+			const targetAddr = instructionTarget.address;
 			const targetHex = `0x${targetAddr.toString(16)}`;
-			if (branchTarget.text) {
-				const before = insn.operands.slice(0, branchTarget.index);
-				const after = insn.operands.slice(branchTarget.index + branchTarget.text.length);
+			if (instructionTarget.text) {
+				const before = insn.operands.slice(0, instructionTarget.index);
+				const after = insn.operands.slice(
+					instructionTarget.index + instructionTarget.text.length
+				);
 				if (before) operandsEl.appendChild(document.createTextNode(before));
-				const link = el("span", "da-branch-target", branchTarget.text);
+				const link = el("span", "da-branch-target", instructionTarget.text);
 				link.title = `Jump to ${targetHex}`;
 				link.addEventListener("click", () => {
 					this.opts.onBranchClick!(targetAddr);
@@ -488,8 +519,8 @@ export class DisasmViewer {
 		return "other";
 	}
 
-	/** Extract branch target address from a branch/call instruction. */
-	private parseBranchTarget(insn: DisasmInstruction): BranchTarget | null {
+	/** Extract a clickable address target from control-flow instructions. */
+	private parseInstructionTarget(insn: DisasmInstruction): InstructionTarget | null {
 		const m = insn.mnemonic.toLowerCase();
 		const isBranch =
 			m === "b" ||
@@ -507,17 +538,31 @@ export class DisasmViewer {
 			m === "call" ||
 			m.startsWith("j");
 
-		if (!isBranch) return null;
+		if (isBranch) {
+			return this.parseLastImmediateAddress(insn.operands);
+		}
 
-		const matches = Array.from(insn.operands.matchAll(/#?0x([0-9a-fA-F]+)/g));
+		return null;
+	}
+
+	private parseLastImmediateAddress(operands: string): InstructionTarget | null {
+		const matches = Array.from(operands.matchAll(/#?0x([0-9a-fA-F]+)/g));
 		const match = matches.at(-1);
 		if (!match?.[1]) return null;
 
+		return this.buildInstructionTarget(match[1], match[0], match.index ?? 0);
+	}
+
+	private buildInstructionTarget(
+		hexAddress: string,
+		text: string,
+		index: number
+	): InstructionTarget | null {
 		try {
 			return {
-				address: BigInt(`0x${match[1]}`),
-				text: match[0],
-				index: match.index ?? 0
+				address: BigInt(`0x${hexAddress}`),
+				text,
+				index
 			};
 		} catch {
 			return null;
@@ -525,24 +570,28 @@ export class DisasmViewer {
 	}
 
 	private async loadChunk(byteOffset: number): Promise<void> {
-		if (this.pendingChunks.has(byteOffset)) return;
-		this.pendingChunks.add(byteOffset);
+		const pending = this.pendingChunks.get(byteOffset);
+		if (pending) return pending;
 
-		try {
-			const result = await window.api.readDisasm(
-				this.opts.sessionId,
-				this.opts.sectionIndex,
-				byteOffset,
-				CHUNK_SIZE
-			);
+		const request = (async () => {
+			try {
+				const result = await window.api.readDisasm(
+					this.opts.sessionId,
+					this.opts.sectionIndex,
+					byteOffset,
+					CHUNK_SIZE
+				);
 
-			if (result && result.instructions.length > 0) {
-				this.chunks.set(byteOffset, result.instructions);
-				this.loadedBytes += result.bytesConsumed;
+				if (result && result.instructions.length > 0) {
+					this.chunks.set(byteOffset, result.instructions);
+					this.loadedBytes += result.bytesConsumed;
+				}
+			} finally {
+				this.pendingChunks.delete(byteOffset);
 			}
-		} finally {
-			this.pendingChunks.delete(byteOffset);
-		}
+		})();
+		this.pendingChunks.set(byteOffset, request);
+		return request;
 	}
 
 	private updateStats(): void {
