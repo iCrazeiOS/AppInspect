@@ -135,13 +135,58 @@ function parseStringsFile(buf: Buffer): Record<string, string> {
 		// Fall through to old-style format
 	}
 
-	const text = buf.toString("utf-8");
+	function decodeText(b: Buffer): string {
+		// UTF-8 BOM
+		if (b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) {
+			return b.subarray(3).toString("utf-8");
+		}
+
+		// UTF-16 BOMs
+		if (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe) {
+			return b.subarray(2).toString("utf16le");
+		}
+		if (b.length >= 2 && b[0] === 0xfe && b[1] === 0xff) {
+			// Convert BE -> LE by swapping byte pairs
+			const body = b.subarray(2);
+			const swapped = Buffer.alloc(body.length);
+			for (let i = 0; i + 1 < body.length; i += 2) {
+				swapped[i] = body[i + 1]!;
+				swapped[i + 1] = body[i]!;
+			}
+			return swapped.toString("utf16le");
+		}
+
+		// Heuristic: old-style .strings are often UTF-16 (with or without BOM)
+		if (hasBinaryContent(b)) {
+			return b.toString("utf16le");
+		}
+
+		return b.toString("utf-8");
+	}
+
+	function unescapeStringsText(s: string): string {
+		// Apple .strings sometimes uses \UXXXX sequences.
+		return s
+			.replace(/\\U([0-9a-fA-F]{4})/g, (_m, hex: string) =>
+				String.fromCharCode(Number.parseInt(hex, 16))
+			)
+			.replace(/\\u([0-9a-fA-F]{4})/g, (_m, hex: string) =>
+				String.fromCharCode(Number.parseInt(hex, 16))
+			)
+			.replace(/\\"/g, '"')
+			.replace(/\\n/g, "\n")
+			.replace(/\\r/g, "\r")
+			.replace(/\\t/g, "\t")
+			.replace(/\\\\/g, "\\");
+	}
+
+	const text = decodeText(buf);
 
 	// Old-style .strings format: "key" = "value";
 	const regex = /"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;/g;
 	for (const match of text.matchAll(regex)) {
-		const key = match[1]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
-		const value = match[2]!.replace(/\\"/g, '"').replace(/\\n/g, "\n").replace(/\\\\/g, "\\");
+		const key = unescapeStringsText(match[1]!);
+		const value = unescapeStringsText(match[2]!);
 		result[key] = value;
 	}
 
@@ -176,6 +221,31 @@ export function extractLocalisationStrings(rootPath: string): LocalisationString
 		}
 	}
 
+	function walkLproj(dir: string, language: string): void {
+		if (totalSize >= maxTotal) return;
+
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+
+		for (const entry of entries) {
+			if (totalSize >= maxTotal) break;
+			const fullPath = path.join(dir, entry.name);
+
+			if (entry.isDirectory()) {
+				walkLproj(fullPath, language);
+				continue;
+			}
+
+			if (entry.isFile() && entry.name.endsWith(".strings")) {
+				readStringsFile(fullPath, language);
+			}
+		}
+	}
+
 	function walk(dir: string): void {
 		if (totalSize >= maxTotal) return;
 
@@ -195,19 +265,9 @@ export function extractLocalisationStrings(rootPath: string): LocalisationString
 				if (entry.name === "_CodeSignature") continue;
 
 				if (entry.name.endsWith(".lproj")) {
-					// Process all .strings files in this lproj
+					// Process all .strings files anywhere within this lproj (e.g. storyboardc)
 					const language = entry.name.replace(/\.lproj$/, "");
-					let files: fs.Dirent[];
-					try {
-						files = fs.readdirSync(fullPath, { withFileTypes: true });
-					} catch {
-						continue;
-					}
-					for (const file of files) {
-						if (file.isFile() && file.name.endsWith(".strings")) {
-							readStringsFile(path.join(fullPath, file.name), language);
-						}
-					}
+					walkLproj(fullPath, language);
 				} else {
 					walk(fullPath);
 				}
