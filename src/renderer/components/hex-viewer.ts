@@ -27,8 +27,6 @@ export interface HexViewerOptions {
 	currentRegionIndex?: number;
 	/** Called when the user picks a different region from the dropdown */
 	onRegionChange?: (index: number) => void;
-	/** Called when the viewer is closed */
-	onClose?: () => void;
 }
 
 const DEFAULT_BYTES_PER_ROW = 16;
@@ -328,15 +326,6 @@ export class HexViewer {
 		});
 		gotoWrap.appendChild(gotoInput);
 		toolbar.appendChild(gotoWrap);
-
-		// Close
-		const close = el("button", "hv-close-btn", "\u2715");
-		close.title = "Close hex viewer";
-		close.addEventListener("click", () => {
-			this.unmount();
-			this.opts.onClose?.();
-		});
-		toolbar.appendChild(close);
 
 		return toolbar;
 	}

@@ -186,23 +186,6 @@
   border-color: var(--accent);
 }
 
-.hv-close-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 3px;
-  line-height: 1;
-  transition: color 100ms ease, background-color 100ms ease;
-}
-
-.hv-close-btn:hover {
-  color: #f85149;
-  background-color: rgba(248, 81, 73, 0.1);
-}
-
 /* Search bar */
 .hv-search {
   display: flex;

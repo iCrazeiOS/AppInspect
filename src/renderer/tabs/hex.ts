@@ -164,11 +164,7 @@ export function renderHex(
 			regions: region.regions,
 			allRegions: pickerRegions,
 			currentRegionIndex: index,
-			onRegionChange: openRegion,
-			onClose: () => {
-				activeHexViewer = null;
-				viewerMount.innerHTML = "";
-			}
+			onRegionChange: openRegion
 		});
 		activeHexViewer.mount(viewerMount);
 		registerSearchBar(sessionId, "hex", { focus: () => activeHexViewer?.focusSearch() });
