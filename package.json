@@ -16,7 +16,7 @@
     "dist:win": "bun run build && electron-builder --win",
     "dist:win:portable": "bun run build && electron-builder --win portable",
     "dist:linux": "bun run build && electron-builder --linux",
-    "build:mcp": "bun build src/mcp/server.ts --outfile dist/mcp/server.js --target bun --external @modelcontextprotocol/sdk --external bplist-parser --external plist --external fflate --external electron",
+    "build:mcp": "bun build src/mcp/server.ts --outfile dist/mcp/server.js --target bun --external @modelcontextprotocol/sdk --external bplist-parser --external plist --external fflate --external electron --external zod",
     "mcp": "bun dist/mcp/server.js",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
@@ -77,6 +77,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "bplist-parser": "^0.3.2",
-    "plist": "^3.1.0"
+    "plist": "^3.1.0",
+    "zod": "^4.3.6"
   }
 }

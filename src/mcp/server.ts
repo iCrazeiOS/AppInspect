@@ -14,11 +14,12 @@
  *   get_section     — Detailed data for a specific section with filtering
  *   search          — Cross-binary search
  *   switch_binary   — Switch to a different binary in the container
+ *   read_hex        — Read raw bytes from the active binary
  */
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import type { AnalysisResult } from "../shared/types";
@@ -50,30 +51,27 @@ const sessions = new Map<string, AnalysisSession>();
 let lastPath: string | null = null;
 
 function getSession(filePath?: string): AnalysisSession {
-	const key = filePath !== undefined ? filePath : lastPath;
+	const key = filePath ?? lastPath;
 	if (!key) throw new Error("No file loaded. Call analyse_file first.");
 	const session = sessions.get(key);
 	if (!session) throw new Error(`No session for ${key}. Call analyse_file first.`);
 	return session;
 }
 
+/** Resolve an analysis result, optionally targeting a specific binary by index. */
+async function resolveResult(filePath?: string, binary?: number): Promise<AnalysisResult> {
+	const session = getSession(filePath);
+	if (binary !== undefined) return (await session.resolveBinary(binary)).result;
+	const cached = session.getResult();
+	if (!cached) throw new Error("No analysis result available.");
+	return cached;
+}
+
 // ── Constants ────────────────────────────────────────────────────────
 
 const DEFAULT_LIMIT = 200;
 
-type SectionName =
-	| "strings"
-	| "headers"
-	| "libraries"
-	| "symbols"
-	| "classes"
-	| "entitlements"
-	| "infoPlist"
-	| "security"
-	| "files"
-	| "hooks";
-
-const SECTION_NAMES: SectionName[] = [
+const SECTION_NAMES = [
 	"strings",
 	"headers",
 	"libraries",
@@ -84,168 +82,28 @@ const SECTION_NAMES: SectionName[] = [
 	"security",
 	"files",
 	"hooks"
-];
+] as const;
+
+type SectionName = (typeof SECTION_NAMES)[number];
 
 /** Sections that return filterable/paginatable arrays */
 const PAGINATED_SECTIONS = new Set<SectionName>(["strings", "symbols", "classes", "libraries"]);
 
-const PATH_PARAM = {
-	type: "string",
-	description:
+const pathParam = z
+	.string()
+	.optional()
+	.describe(
 		"Path of the file to query (optional — defaults to the last analysed file). " +
-		"Required when multiple files have been analysed in parallel."
-};
+			"Required when multiple files have been analysed in parallel."
+	);
 
-// ── Tool definitions ─────────────────────────────────────────────────
-
-const TOOLS = [
-	{
-		name: "analyse_file",
-		description:
-			"Analyse an iOS/macOS binary file (IPA, Mach-O, DEB, or .app bundle). " +
-			"Must be called before any other tool. Returns an overview summary " +
-			"including source type, Mach-O header, build version, hardening flags, " +
-			"and available binaries. The result is cached for the session — call " +
-			"this once, then use the other tools to query the data. Multiple files " +
-			"can be analysed in parallel; pass the file path to query tools to " +
-			"target a specific analysis.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				path: {
-					type: "string",
-					description: "Absolute path to the file to analyse"
-				}
-			},
-			required: ["path"]
-		}
-	},
-	{
-		name: "get_overview",
-		description:
-			"Get the analysis overview for a loaded file. Includes source type, " +
-			"Mach-O header, build version, encryption info, hardening flags, " +
-			"Info.plist summary, team ID, UUID, detected frameworks, and hook " +
-			"detection.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				path: PATH_PARAM
-			}
-		}
-	},
-	{
-		name: "get_section",
-		description:
-			"Get detailed data for a specific analysis section. Use filter, offset, " +
-			"and limit for large sections (strings, symbols, classes, libraries). " +
-			"Sections: strings (embedded binary strings + localisation), " +
-			"headers (Mach-O header + load commands), libraries (linked dylibs/" +
-			"frameworks), symbols (exported/imported/local), classes (ObjC classes " +
-			"+ methods + protocols), entitlements (code signing), infoPlist " +
-			"(Info.plist), security (findings + hardening), files (bundle file " +
-			"tree), hooks (jailbreak hook detection).",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				section: {
-					type: "string",
-					enum: SECTION_NAMES,
-					description: "Section to retrieve"
-				},
-				filter: {
-					type: "string",
-					description:
-						"Case-insensitive substring filter on primary field: " +
-						"value (strings), name (symbols/classes/libraries)"
-				},
-				offset: {
-					type: "number",
-					description: "Items to skip (default: 0). Array sections only."
-				},
-				limit: {
-					type: "number",
-					description: `Max items to return (default: ${DEFAULT_LIMIT}). Array sections only.`
-				},
-				path: PATH_PARAM
-			},
-			required: ["section"]
-		}
-	},
-	{
-		name: "search",
-		description:
-			"Search across all binaries in the loaded container (main binary, " +
-			"frameworks, extensions) for a query string. Returns matches with " +
-			"binary name and index.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				query: { type: "string", description: "Search query" },
-				tab: {
-					type: "string",
-					enum: ["classes", "strings", "symbols", "libraries"],
-					description: "Data type to search"
-				},
-				isRegex: { type: "boolean", description: "Treat query as regex (default: false)" },
-				caseSensitive: {
-					type: "boolean",
-					description: "Case-sensitive match (default: false)"
-				},
-				path: PATH_PARAM
-			},
-			required: ["query", "tab"]
-		}
-	},
-	{
-		name: "switch_binary",
-		description:
-			"Switch analysis to a different binary within the loaded container " +
-			"(e.g. a framework or app extension). Use get_overview to see " +
-			"available binaries and their indices in overview.ipa.binaries.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				binaryIndex: {
-					type: "number",
-					description: "Index of the binary (from overview.ipa.binaries)"
-				},
-				path: PATH_PARAM
-			},
-			required: ["binaryIndex"]
-		}
-	},
-	{
-		name: "read_hex",
-		description:
-			"Read raw hex bytes from the active binary at a given offset. " +
-			"Returns formatted hex dump or raw byte array. Use for inspecting " +
-			"raw binary content at specific offsets (e.g. segment/section data). " +
-			"Max 65536 bytes per request.",
-		inputSchema: {
-			type: "object" as const,
-			properties: {
-				offset: {
-					type: "number",
-					description:
-						"Byte offset within the binary (e.g. segment fileoff or section offset)"
-				},
-				length: {
-					type: "number",
-					description: "Number of bytes to read (max 65536, default 256)"
-				},
-				format: {
-					type: "string",
-					enum: ["raw", "hexdump"],
-					description:
-						"Output format: 'hexdump' returns formatted text (default), 'raw' returns byte array"
-				},
-				path: PATH_PARAM
-			},
-			required: ["offset"]
-		}
-	}
-];
+const binaryParam = z
+	.number()
+	.optional()
+	.describe(
+		"Index of the binary to target (from overview.ipa.binaries; defaults to the active binary). " +
+			"Query any binary directly without switch_binary."
+	);
 
 // ── Section data helpers ─────────────────────────────────────────────
 
@@ -334,136 +192,195 @@ function ok(data: unknown) {
 	return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
-function fail(message: string) {
-	return { content: [{ type: "text" as const, text: message }], isError: true as const };
-}
-
-// ── Tool dispatch ────────────────────────────────────────────────────
-
 const noop = () => {};
-
-async function handleToolCall(name: string, args: Record<string, unknown>) {
-	switch (name) {
-		case "analyse_file": {
-			const filePath = args.path as string;
-			if (!filePath) return fail("Missing required parameter: path");
-			const session = new AnalysisSession();
-			const result = await session.analyseFile(filePath, noop);
-			sessions.set(filePath, session);
-			lastPath = filePath;
-			return ok(sanitize({ ...result.overview, hooks: result.hooks }));
-		}
-
-		case "get_overview": {
-			const session = getSession(args.path as string | undefined);
-			const cached = session.getResult();
-			if (!cached) return fail("No analysis result available.");
-			return ok(sanitize({ ...cached.overview, hooks: cached.hooks }));
-		}
-
-		case "get_section": {
-			const session = getSession(args.path as string | undefined);
-			const cached = session.getResult();
-			if (!cached) return fail("No analysis result available.");
-			const section = args.section as string;
-			if (!SECTION_NAMES.includes(section as SectionName)) {
-				return fail(`Unknown section: ${section}. Valid: ${SECTION_NAMES.join(", ")}`);
-			}
-
-			const s = section as SectionName;
-			const data = getSectionData(cached, s);
-
-			if (PAGINATED_SECTIONS.has(s)) {
-				return ok(
-					buildPaginatedResult(
-						data,
-						s,
-						args.filter as string | undefined,
-						args.offset as number | undefined,
-						args.limit as number | undefined
-					)
-				);
-			}
-
-			return ok(sanitize(data));
-		}
-
-		case "search": {
-			const session = getSession(args.path as string | undefined);
-			const query = args.query as string;
-			const tab = args.tab as SearchableTab;
-			if (!query) return fail("Missing required parameter: query");
-			const results = await session.searchAllBinaries(
-				query,
-				tab,
-				noop,
-				args.isRegex as boolean | undefined,
-				args.caseSensitive as boolean | undefined
-			);
-			return ok(results);
-		}
-
-		case "switch_binary": {
-			const session = getSession(args.path as string | undefined);
-			const index = args.binaryIndex as number;
-			if (index === undefined || index === null) {
-				return fail("Missing required parameter: binaryIndex");
-			}
-			const result = await session.analyseBinary(index, noop);
-			return ok(sanitize({ ...result.overview, hooks: result.hooks }));
-		}
-
-		case "read_hex": {
-			const session = getSession(args.path as string | undefined);
-			const offset = args.offset as number;
-			if (offset === undefined || offset === null) {
-				return fail("Missing required parameter: offset");
-			}
-			const length = (args.length as number) ?? 256;
-			const format = (args.format as string) ?? "hexdump";
-
-			const result = session.readHex(offset, length);
-			if (!result) return fail("No binary loaded or offset out of range.");
-
-			if (format === "hexdump") {
-				return ok({
-					offset: result.offset,
-					length: result.length,
-					fileSize: result.fileSize,
-					hexdump: formatHexdump(result.data, result.offset)
-				});
-			}
-
-			return ok(result);
-		}
-
-		default:
-			return fail(`Unknown tool: ${name}`);
-	}
-}
 
 // ── Server setup ─────────────────────────────────────────────────────
 
-const server = new Server(
-	{ name: "appinspect", version: "0.1.0" },
-	{ capabilities: { tools: {} } }
+const server = new McpServer({ name: "appinspect", version: "0.1.0" });
+
+server.registerTool(
+	"analyse_file",
+	{
+		description:
+			"Analyse an iOS/macOS binary file (IPA, Mach-O, DEB, or .app bundle). " +
+			"Must be called before any other tool. Returns an overview summary " +
+			"including source type, Mach-O header, build version, hardening flags, " +
+			"and available binaries. The result is cached for the session — call " +
+			"this once, then use the other tools to query the data. Multiple files " +
+			"can be analysed in parallel; pass the file path to query tools to " +
+			"target a specific analysis.",
+		inputSchema: {
+			path: z.string().describe("Absolute path to the file to analyse")
+		}
+	},
+	async ({ path }) => {
+		const session = new AnalysisSession();
+		const result = await session.analyseFile(path, noop);
+		sessions.set(path, session);
+		lastPath = path;
+		return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+	}
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-	tools: TOOLS
-}));
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-	try {
-		return await handleToolCall(
-			request.params.name,
-			(request.params.arguments ?? {}) as Record<string, unknown>
-		);
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		return fail(message);
+server.registerTool(
+	"get_overview",
+	{
+		description:
+			"Get the analysis overview for a loaded file. Includes source type, " +
+			"Mach-O header, build version, encryption info, hardening flags, " +
+			"Info.plist summary, team ID, UUID, detected frameworks, and hook " +
+			"detection.",
+		inputSchema: { binary: binaryParam, path: pathParam }
+	},
+	async ({ binary, path }) => {
+		const cached = await resolveResult(path, binary);
+		return ok(sanitize({ ...cached.overview, hooks: cached.hooks }));
 	}
-});
+);
+
+server.registerTool(
+	"get_section",
+	{
+		description:
+			"Get detailed data for a specific analysis section. Use filter, offset, " +
+			"and limit for large sections (strings, symbols, classes, libraries). " +
+			"Sections: strings (embedded binary strings + localisation), " +
+			"headers (Mach-O header + load commands), libraries (linked dylibs/" +
+			"frameworks), symbols (exported/imported/local), classes (ObjC classes " +
+			"+ methods + protocols), entitlements (code signing), infoPlist " +
+			"(Info.plist), security (findings + hardening), files (bundle file " +
+			"tree), hooks (jailbreak hook detection).",
+		inputSchema: {
+			section: z.enum(SECTION_NAMES).describe("Section to retrieve"),
+			filter: z
+				.string()
+				.optional()
+				.describe(
+					"Case-insensitive substring filter on primary field: " +
+						"value (strings), name (symbols/classes/libraries)"
+				),
+			offset: z
+				.number()
+				.optional()
+				.describe("Items to skip (default: 0). Array sections only."),
+			limit: z
+				.number()
+				.optional()
+				.describe(`Max items to return (default: ${DEFAULT_LIMIT}). Array sections only.`),
+			binary: binaryParam,
+			path: pathParam
+		}
+	},
+	async ({ section, filter, offset, limit, binary, path }) => {
+		const cached = await resolveResult(path, binary);
+		const data = getSectionData(cached, section);
+
+		if (PAGINATED_SECTIONS.has(section)) {
+			return ok(buildPaginatedResult(data, section, filter, offset, limit));
+		}
+
+		return ok(sanitize(data));
+	}
+);
+
+server.registerTool(
+	"search",
+	{
+		description:
+			"Search across all binaries in the loaded container (main binary, " +
+			"frameworks, extensions) for a query string. Returns matches with " +
+			"binary name and index.",
+		inputSchema: {
+			query: z.string().describe("Search query"),
+			tab: z
+				.enum(["classes", "strings", "symbols", "libraries"])
+				.describe("Data type to search"),
+			isRegex: z.boolean().optional().describe("Treat query as regex (default: false)"),
+			caseSensitive: z.boolean().optional().describe("Case-sensitive match (default: false)"),
+			path: pathParam
+		}
+	},
+	async ({ query, tab, isRegex, caseSensitive, path }) => {
+		const session = getSession(path);
+		const results = await session.searchAllBinaries(
+			query,
+			tab as SearchableTab,
+			noop,
+			isRegex,
+			caseSensitive
+		);
+		return ok(results);
+	}
+);
+
+server.registerTool(
+	"switch_binary",
+	{
+		description:
+			"Switch the active binary within the loaded container (e.g. a framework " +
+			"or app extension), so subsequent calls default to it. Use get_overview " +
+			"to see available binaries and their indices in overview.ipa.binaries. " +
+			"To query one binary without changing the active one, pass the `binary` " +
+			"parameter to get_overview, get_section, or read_hex instead.",
+		inputSchema: {
+			binaryIndex: z.number().describe("Index of the binary (from overview.ipa.binaries)"),
+			path: pathParam
+		}
+	},
+	async ({ binaryIndex, path }) => {
+		const session = getSession(path);
+		const result = await session.analyseBinary(binaryIndex, noop);
+		return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+	}
+);
+
+server.registerTool(
+	"read_hex",
+	{
+		description:
+			"Read raw hex bytes from the active binary at a given offset. " +
+			"Returns formatted hex dump or raw byte array. Use for inspecting " +
+			"raw binary content at specific offsets (e.g. segment/section data). " +
+			"Max 65536 bytes per request.",
+		inputSchema: {
+			offset: z
+				.number()
+				.describe("Byte offset within the binary (e.g. segment fileoff or section offset)"),
+			length: z
+				.number()
+				.optional()
+				.describe("Number of bytes to read (max 65536, default 256)"),
+			format: z
+				.enum(["raw", "hexdump"])
+				.optional()
+				.describe(
+					"Output format: 'hexdump' returns formatted text (default), 'raw' returns byte array"
+				),
+			binary: binaryParam,
+			path: pathParam
+		}
+	},
+	async ({ offset, length, format, binary, path }) => {
+		const session = getSession(path);
+		const len = length ?? 256;
+		const result =
+			binary !== undefined
+				? await session.readHexForBinary(binary, offset, len)
+				: session.readHex(offset, len);
+		if (!result) throw new Error("No binary loaded or offset out of range.");
+
+		if ((format ?? "hexdump") === "hexdump") {
+			return ok({
+				offset: result.offset,
+				length: result.length,
+				fileSize: result.fileSize,
+				hexdump: formatHexdump(result.data, result.offset)
+			});
+		}
+
+		return ok(result);
+	}
+);
 
 // Clean up stale cache entries on startup and exit
 pruneCache();

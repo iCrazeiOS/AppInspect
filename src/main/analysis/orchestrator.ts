@@ -897,6 +897,8 @@ export class AnalysisSession {
 	private activeBinaryName: string = "";
 	private fatSliceOffset: number = 0;
 	private searchIndex: Map<number, BinarySearchIndex> | null = null;
+	/** Lazily-computed results for non-active binaries, keyed by binary index. */
+	private binaryCache = new Map<number, { result: AnalysisResult; fatSliceOffset: number }>();
 
 	// ── Getters ────────────────────────────────────────────────────────
 
@@ -929,7 +931,25 @@ export class AnalysisSession {
 		offset: number,
 		length: number
 	): { offset: number; length: number; data: number[]; fileSize: number } | null {
-		const binaryPath = this.getActiveBinaryPath();
+		return this.readHexAt(this.getActiveBinaryPath(), this.fatSliceOffset, offset, length);
+	}
+
+	/** Read raw bytes from a specific binary without changing the active one. */
+	async readHexForBinary(
+		binaryIndex: number,
+		offset: number,
+		length: number
+	): Promise<{ offset: number; length: number; data: number[]; fileSize: number } | null> {
+		const { path, fatSliceOffset } = await this.resolveBinary(binaryIndex);
+		return this.readHexAt(path, fatSliceOffset, offset, length);
+	}
+
+	private readHexAt(
+		binaryPath: string | null,
+		fatSliceOffset: number,
+		offset: number,
+		length: number
+	): { offset: number; length: number; data: number[]; fileSize: number } | null {
 		if (!binaryPath) return null;
 
 		const MAX_LEN = 65536;
@@ -939,13 +959,11 @@ export class AnalysisSession {
 		try {
 			const stat = fs.fstatSync(fd);
 			const fileSize = stat.size;
-			const absOffset = this.fatSliceOffset + offset;
+			const absOffset = fatSliceOffset + offset;
 
 			// Compute the logical binary slice size
 			const sliceSize =
-				this.fatSliceOffset > 0
-					? Math.min(fileSize - this.fatSliceOffset, fileSize)
-					: fileSize;
+				fatSliceOffset > 0 ? Math.min(fileSize - fatSliceOffset, fileSize) : fileSize;
 
 			if (absOffset >= fileSize) {
 				return { offset, length: 0, data: [], fileSize: sliceSize };
@@ -1481,27 +1499,64 @@ export class AnalysisSession {
 		);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
-		// Rebuild the result with the new binary data but keep IPA-level info
-		const result = buildAnalysisResult(
+		const result = this.composeBinaryResult(binaryResult);
+		this.result = result;
+		return result;
+	}
+
+	/**
+	 * Resolve a binary's analysis result without changing the active binary.
+	 * Returns the active result directly, otherwise lazily computes and caches it.
+	 */
+	async resolveBinary(
+		binaryIndex: number
+	): Promise<{ result: AnalysisResult; fatSliceOffset: number; path: string }> {
+		if (!this.result) {
+			throw new Error("No previous analysis. Run analyseFile first.");
+		}
+		if (binaryIndex < 0 || binaryIndex >= this.binaries.length) {
+			throw new Error(
+				`Binary index ${binaryIndex} out of range (0-${this.binaries.length - 1})`
+			);
+		}
+
+		const binary = this.binaries[binaryIndex]!;
+		if (binary.name === this.activeBinaryName) {
+			return { result: this.result, fatSliceOffset: this.fatSliceOffset, path: binary.path };
+		}
+
+		let entry = this.binaryCache.get(binaryIndex);
+		if (!entry) {
+			const binaryResult = await analyseBinaryFile(binary.path, () => {}, 0);
+			entry = {
+				result: this.composeBinaryResult(binaryResult),
+				fatSliceOffset: binaryResult.fatSliceOffset
+			};
+			this.binaryCache.set(binaryIndex, entry);
+		}
+		return { ...entry, path: binary.path };
+	}
+
+	/** Merge per-binary analysis with the container-level info held on the session. */
+	private composeBinaryResult(binaryResult: BinaryAnalysisResult): AnalysisResult {
+		const base = this.result!;
+		return buildAnalysisResult(
 			binaryResult,
 			{
-				...this.result.overview,
+				...base.overview,
 				...binaryOverviewFields(binaryResult),
-				teamId: binaryResult.teamId ?? this.result.overview.teamId
+				teamId: binaryResult.teamId ?? base.overview.teamId
 			},
 			{
-				localisationStrings: this.result.localisationStrings,
+				localisationStrings: base.localisationStrings,
 				entitlements:
 					binaryResult.entitlements.length > 0
 						? binaryResult.entitlements
-						: this.result.entitlements,
-				infoPlist: this.result.infoPlist,
-				files: this.result.files
+						: base.entitlements,
+				infoPlist: base.infoPlist,
+				files: base.files
 			}
 		);
-
-		this.result = result;
-		return result;
 	}
 
 	// ── Analyse bare Mach-O / dylib ──────────────────────────────────

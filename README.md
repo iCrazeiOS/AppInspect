@@ -155,11 +155,13 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `search` | Cross-binary search across all binaries in the loaded container |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
-| `switch_binary` | Switch to a different binary (framework/extension) within the container |
+| `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
 **`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`
 
 All query tools (`get_overview`, `get_section`, `search`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
+
+`get_overview`, `get_section`, and `read_hex` also accept an optional `binary` index (from `overview.ipa.binaries`) to query any binary in the container directly, without `switch_binary` changing the active one.
 
 ### Example workflow
 

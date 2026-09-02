@@ -94,6 +94,31 @@ describe("AnalysisSession.readHex", () => {
 	});
 });
 
+describe("AnalysisSession.resolveBinary", () => {
+	let session: AnalysisSession;
+
+	beforeAll(async () => {
+		session = new AnalysisSession();
+		await session.analyseMachO(TEST_FILE, () => {});
+	});
+
+	it("resolves the active binary without recomputing", async () => {
+		const { result, path: binPath } = await session.resolveBinary(0);
+		expect(session.getResult()).toBe(result);
+		expect(binPath).toBe(TEST_FILE);
+	});
+
+	it("reads hex from a specific binary index", async () => {
+		const result = await session.readHexForBinary(0, 0, 4);
+		expect(result).not.toBeNull();
+		expect(result!.data).toEqual([0xcf, 0xfa, 0xed, 0xfe]);
+	});
+
+	it("throws for an out-of-range binary index", async () => {
+		await expect(session.resolveBinary(5)).rejects.toThrow("out of range");
+	});
+});
+
 describe("AnalysisSession.searchHex", () => {
 	let session: AnalysisSession;
 
