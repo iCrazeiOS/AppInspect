@@ -3,8 +3,9 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { vmaddrToFileOffset } from "../address";
 import type { Section64, Segment64 } from "../load-commands";
-import { extractStrings, type StringEntry, vmaddrToFileOffset } from "../strings";
+import { extractStrings, type StringEntry } from "../strings";
 
 // ── Fixture Helpers ──────────────────────────────────────────────────
 

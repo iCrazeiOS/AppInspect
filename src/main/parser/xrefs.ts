@@ -7,9 +7,9 @@
  * function(s) that reference them.
  */
 
+import { vmaddrToFileOffset } from "./address";
 import type { Section64, Segment64 } from "./load-commands";
 import { CPU_TYPE_ARM, CPU_TYPE_ARM64, CPU_TYPE_X86, CPU_TYPE_X86_64 } from "./macho";
-import { vmaddrToFileOffset } from "./strings";
 import type { SymbolEntry } from "./symbols";
 
 // ── Function starts parsing ──────────────────────────────────────────

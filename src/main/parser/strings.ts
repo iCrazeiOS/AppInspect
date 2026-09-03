@@ -13,6 +13,7 @@
  * downstream consumers (e.g. security scan).
  */
 
+import { vmaddrToFileOffset } from "./address";
 import type { Section64, Segment64 } from "./load-commands";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -50,19 +51,6 @@ const CFSTRING_LENGTH_OFFSET_64 = 24;
 const CFSTRING_LENGTH_OFFSET_32 = 12;
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Convert a virtual memory address to a file offset using the segment list.
- * Returns null if no segment contains the given vmaddr.
- */
-export function vmaddrToFileOffset(vmaddr: bigint, segments: Segment64[]): number | null {
-	for (const seg of segments) {
-		if (vmaddr >= seg.vmaddr && vmaddr < seg.vmaddr + seg.vmsize) {
-			return Number(vmaddr - seg.vmaddr) + Number(seg.fileoff);
-		}
-	}
-	return null;
-}
 
 /**
  * Find a section by trimmed segname and sectname across all segments.

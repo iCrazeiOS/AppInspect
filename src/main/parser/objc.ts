@@ -13,6 +13,7 @@
  * Does NOT parse ivar types, property attributes, or category merging.
  */
 
+import { vmaddrToFileOffset } from "./address";
 import type { Section64, Segment64 } from "./load-commands";
 import { readCString } from "./load-commands";
 
@@ -97,20 +98,6 @@ const POINTER_SIZE_64 = 8;
 const POINTER_SIZE_32 = 4;
 
 // ── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Convert a virtual memory address to a file offset using segment
- * mappings. Returns null if the vmaddr doesn't fall within any segment.
- */
-export function vmaddrToFileOffset(vmaddr: bigint, segments: Segment64[]): number | null {
-	for (const seg of segments) {
-		if (vmaddr >= seg.vmaddr && vmaddr < seg.vmaddr + seg.vmsize) {
-			const offset = Number(vmaddr - seg.vmaddr) + Number(seg.fileoff);
-			return offset;
-		}
-	}
-	return null;
-}
 
 /**
  * For dyld_shared_cache extracted binaries, pointers may have auth/tag bits

@@ -3,13 +3,9 @@
  */
 
 import { describe, expect, it } from "bun:test";
+import { vmaddrToFileOffset } from "../address";
 import type { Section64, Segment64 } from "../load-commands";
-import {
-	extractObjCMetadata,
-	type ObjCMetadata,
-	resolvePointer,
-	vmaddrToFileOffset
-} from "../objc";
+import { extractObjCMetadata, type ObjCMetadata, resolvePointer } from "../objc";
 
 // ── Fixture Helpers ──────────────────────────────────────────────────
 
