@@ -285,16 +285,6 @@ export class AnalysisSession {
 		}
 		this.infoPlist = infoPlistData;
 
-		// Mobileprovision entitlements (supplementary)
-		try {
-			const mpResult = parseMobileprovision(appBundlePath);
-			if (mpResult && mpResult.ok && mpResult.data.Entitlements) {
-				// These will be merged if code-signature entitlements are empty
-			}
-		} catch {
-			// Non-critical
-		}
-
 		// Steps 4-12: Analyse main binary (index 0)
 		progressCallback("Reading binary...", 25);
 		const mainBinary = binaries[0]!;
