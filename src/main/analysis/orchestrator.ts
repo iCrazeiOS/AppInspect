@@ -173,12 +173,25 @@ interface BinaryAnalysisResult {
 	fatSliceOffset: number;
 }
 
-async function analyseBinaryFile(
+/**
+ * Terminal analysis steps that produce standalone outputs and feed none of the
+ * name sources (libraries, symbols, strings, classes). Set a flag to skip that
+ * step and yield its empty default. Used by the search index, which keeps only
+ * names — see `ensureSearchIndex`. Defaults to running everything.
+ */
+export interface ScanOptions {
+	skipCodesign?: boolean; // code signature + entitlements + teamId
+	skipSecurity?: boolean; // security findings + hardening
+	skipHooks?: boolean; // hook detection
+}
+
+export async function analyseBinaryFile(
 	binaryPath: string,
 	progressCallback: (phase: string, percent: number) => void,
 	basePercent: number,
 	preferredCpuType?: number,
-	preferredCpuSubtype?: number
+	preferredCpuSubtype?: number,
+	options: ScanOptions = {}
 ): Promise<BinaryAnalysisResult> {
 	const errors: string[] = [];
 
@@ -664,61 +677,65 @@ async function analyseBinaryFile(
 	// Step 11: Parse code signature + entitlements
 	progressCallback("Parsing code signature...", basePercent + 50);
 	await yieldToEventLoop();
-	try {
-		if (lcResult.codeSignatureInfo) {
-			const csResult = parseCodeSignature(
-				buffer,
-				lcResult.codeSignatureInfo.offset,
-				lcResult.codeSignatureInfo.size
-			);
-			if (csResult?.entitlements) {
-				entitlements = convertEntitlements(csResult.entitlements);
+	if (!options.skipCodesign) {
+		try {
+			if (lcResult.codeSignatureInfo) {
+				const csResult = parseCodeSignature(
+					buffer,
+					lcResult.codeSignatureInfo.offset,
+					lcResult.codeSignatureInfo.size
+				);
+				if (csResult?.entitlements) {
+					entitlements = convertEntitlements(csResult.entitlements);
+				}
+				if (csResult?.codeDirectory?.teamID) {
+					teamId = csResult.codeDirectory.teamID;
+				}
 			}
-			if (csResult?.codeDirectory?.teamID) {
-				teamId = csResult.codeDirectory.teamID;
-			}
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`Code signature parse error: ${msg}`);
 		}
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`Code signature parse error: ${msg}`);
 	}
 
 	// Step 12: Run security scan (first pass — without xrefs)
 	progressCallback("Running security scan...", basePercent + 52);
 	await yieldToEventLoop();
-	try {
-		// Convert strings back to the format security.ts expects
-		const securityStrings = strings.map((s) => ({
-			value: s.value,
-			sectionSource: s.sectionSource,
-			offset: s.offset
-		}));
+	if (!options.skipSecurity) {
+		try {
+			// Convert strings back to the format security.ts expects
+			const securityStrings = strings.map((s) => ({
+				value: s.value,
+				sectionSource: s.sectionSource,
+				offset: s.offset
+			}));
 
-		// Convert symbols to the format expected by security (with bigint address)
-		const securitySymbols = rawSymbols.map((s) => ({
-			name: s.name,
-			type: s.type as "exported" | "imported" | "local",
-			address: s.address,
-			sectionIndex: s.sectionIndex
-		}));
+			// Convert symbols to the format expected by security (with bigint address)
+			const securitySymbols = rawSymbols.map((s) => ({
+				name: s.name,
+				type: s.type as "exported" | "imported" | "local",
+				address: s.address,
+				sectionIndex: s.sectionIndex
+			}));
 
-		findings = runSecurityScan({
-			strings: securityStrings,
-			symbols: securitySymbols,
-			headerFlags: header.flags,
-			encryption: encryptionInfo,
-			loadCommands: lcResult.loadCommands.map((lc) => ({ cmd: lc.cmd })),
-			platform: buildVersion?.platform
-		});
+			findings = runSecurityScan({
+				strings: securityStrings,
+				symbols: securitySymbols,
+				headerFlags: header.flags,
+				encryption: encryptionInfo,
+				loadCommands: lcResult.loadCommands.map((lc) => ({ cmd: lc.cmd })),
+				platform: buildVersion?.platform
+			});
 
-		hardening = getBinaryHardening({
-			symbols: securitySymbols,
-			headerFlags: header.flags,
-			encryption: encryptionInfo
-		});
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`Security scan error: ${msg}`);
+			hardening = getBinaryHardening({
+				symbols: securitySymbols,
+				headerFlags: header.flags,
+				encryption: encryptionInfo
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`Security scan error: ${msg}`);
+		}
 	}
 
 	// Step 12b: Enrich findings with function names (only if there are
@@ -773,7 +790,9 @@ async function analyseBinaryFile(
 	}
 
 	// Step 13: Detect hooks
-	hooks = detectHooks(symbols, classes, strings);
+	if (!options.skipHooks) {
+		hooks = detectHooks(symbols, classes, strings);
+	}
 
 	return {
 		header,
@@ -1204,7 +1223,21 @@ export class AnalysisSession {
 			);
 			await yieldToEventLoop();
 			try {
-				const result = await analyseBinaryFile(bin.path, () => {}, 0);
+				// Index-only light path: the index keeps solely names, so skip the
+				// terminal steps (codesign/security/hooks) that feed none of them.
+				// Every other caller passes no options and gets the full result.
+				const result = await analyseBinaryFile(
+					bin.path,
+					() => {},
+					0,
+					undefined,
+					undefined,
+					{
+						skipCodesign: true,
+						skipSecurity: true,
+						skipHooks: true
+					}
+				);
 				this.searchIndex.set(i, {
 					classes: result.classes.map((c) => c.name),
 					strings: result.strings.map((s) => s.value),
