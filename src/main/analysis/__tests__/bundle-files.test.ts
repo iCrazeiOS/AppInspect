@@ -68,15 +68,20 @@ describe("extractLocalisationStrings", () => {
 	it("parses old-style UTF-16LE .strings files (common on macOS)", () => {
 		const appPath = path.join(TMP_DIR, "TestUtf16.app");
 		const contentsPath = path.join(appPath, "Contents");
-		const stringsPath = path.join(contentsPath, "Resources", "en.lproj", "DFLocalizable.strings");
+		const stringsPath = path.join(
+			contentsPath,
+			"Resources",
+			"en.lproj",
+			"DFLocalizable.strings"
+		);
 
 		const body = Buffer.from('"HELLO" = "Hello";\n', "utf16le");
 		const withBom = Buffer.concat([Buffer.from([0xff, 0xfe]), body]);
 		writeFile(stringsPath, withBom);
 
 		const results = extractLocalisationStrings(contentsPath);
-		expect(results.some((r) => r.language === "en" && r.key === "HELLO" && r.value === "Hello")).toBe(
-			true
-		);
+		expect(
+			results.some((r) => r.language === "en" && r.key === "HELLO" && r.value === "Hello")
+		).toBe(true);
 	});
 });

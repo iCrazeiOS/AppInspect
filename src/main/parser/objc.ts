@@ -374,6 +374,177 @@ export function buildMethodSignature(
 	return sig;
 }
 
+/**
+ * Enrich classes with method names recovered from the symbol table.
+ *
+ * dyld_shared_cache-extracted binaries often have method lists whose relative
+ * selector offsets point outside the file, leaving methods with type encodings
+ * but empty selectors. ObjC symbols like `-[Class selector:]` carry the names;
+ * this merges them back in, matching unnamed entries to symbols by argument
+ * count (colons in the selector == argument types in the encoding). Mutates
+ * `classes` in place.
+ */
+export function enrichMethodsFromSymbols(classes: ObjCClass[], symbols: { name: string }[]): void {
+	const classesNeedingEnrichment = classes.filter(
+		(c) => c.methods.length > 0 && c.methods.some((m) => m.selector === "")
+	);
+	const classesWithNoMethods = classes.filter((c) => c.methods.length === 0);
+
+	if (
+		(classesNeedingEnrichment.length === 0 && classesWithNoMethods.length === 0) ||
+		symbols.length === 0
+	) {
+		return;
+	}
+
+	// Build map: className → ordered methods from ObjC symbols like -[Class method:]
+	const symMethodMap = new Map<string, { selector: string; prefix: string }[]>();
+	for (const sym of symbols) {
+		const m = sym.name.match(/^([+-])\[(\S+)\s+(.+)\]$/);
+		if (!m) continue;
+		const className = m[2]!;
+		if (!symMethodMap.has(className)) symMethodMap.set(className, []);
+		symMethodMap.get(className)!.push({ selector: m[3]!, prefix: m[1]! });
+	}
+
+	// Merge: fill in selector names from symbols, keep type encodings from method list.
+	// Method list and symbol table may be in different orders, so match by
+	// argument count (colons in selector == arg types in encoding).
+	for (const cls of classesNeedingEnrichment) {
+		const symMethods = symMethodMap.get(cls.name);
+		if (!symMethods) continue;
+
+		const symInstanceMethods = symMethods.filter((m) => m.prefix === "-");
+		const symClassMethods = symMethods.filter((m) => m.prefix === "+");
+
+		// Group unnamed method entries by arg count (from type encoding)
+		// Type encoding args = total decoded types - 3 (return, self, _cmd)
+		const skipNested = (enc: string, pos: number, open: string, close: string): number => {
+			let depth = 1;
+			let i = pos + 1;
+			while (i < enc.length && depth > 0) {
+				if (enc[i] === open) depth++;
+				else if (enc[i] === close) depth--;
+				i++;
+			}
+			return i;
+		};
+		const countArgsFromEncoding = (enc: string): number => {
+			let count = 0;
+			let pos = 0;
+			while (pos < enc.length) {
+				const ch = enc[pos]!;
+				// Skip offset digits
+				if ((ch >= "0" && ch <= "9") || ch === "-") {
+					pos++;
+					continue;
+				}
+				// Skip qualifiers
+				if ("rnNoORV".includes(ch)) {
+					pos++;
+					continue;
+				}
+				// Count a type
+				if (ch === "{") {
+					pos = skipNested(enc, pos, "{", "}");
+				} else if (ch === "(") {
+					pos = skipNested(enc, pos, "(", ")");
+				} else if (ch === "[") {
+					pos = skipNested(enc, pos, "[", "]");
+				} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === "?") {
+					pos += 2;
+				} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === '"') {
+					const c = enc.indexOf('"', pos + 2);
+					pos = c !== -1 ? c + 1 : pos + 1;
+				} else if (ch === "^") {
+					pos++;
+					continue;
+				} // pointer prefix, next char is the type
+				else {
+					pos++;
+				}
+				count++;
+			}
+			return Math.max(0, count - 3); // subtract return, self, _cmd
+		};
+
+		// Match unnamed method entries against symbols by arg count.
+		// Process instance and class methods separately using the _isClassMethod flag.
+		const matchMethodGroup = (symGroup: typeof symInstanceMethods, isClassMethod: boolean) => {
+			const byArgCount = new Map<
+				number,
+				{ method: (typeof cls.methods)[0]; enc: string }[]
+			>();
+			for (const method of cls.methods) {
+				if (method.selector !== "") continue;
+				if (isClassMethod !== !!method._isClassMethod) continue;
+				const enc = method.signature; // raw type encoding stored when name was empty
+				const argc = countArgsFromEncoding(enc);
+				if (!byArgCount.has(argc)) byArgCount.set(argc, []);
+				byArgCount.get(argc)!.push({ method, enc });
+			}
+
+			const usedSymbols = new Set<number>();
+			for (const [argc, entries] of byArgCount) {
+				const matchingSyms = symGroup
+					.map((s, i) => ({ s, i }))
+					.filter(
+						({ s, i }) =>
+							!usedSymbols.has(i) && (s.selector.match(/:/g) || []).length === argc
+					);
+
+				const limit = Math.min(entries.length, matchingSyms.length);
+				for (let j = 0; j < limit; j++) {
+					const { method, enc } = entries[j]!;
+					const { s, i } = matchingSyms[j]!;
+					method.selector = s.selector;
+					method.signature = enc
+						? buildMethodSignature(s.selector, enc, s.prefix === "-")
+						: `${s.prefix}${s.selector}`;
+					usedSymbols.add(i);
+				}
+			}
+
+			// Assign any remaining unmatched symbols to remaining unnamed methods in this group
+			const remainingSyms = symGroup.filter((_, i) => !usedSymbols.has(i));
+			const remainingMethods = cls.methods.filter(
+				(m) => m.selector === "" && isClassMethod === !!m._isClassMethod
+			);
+			for (let j = 0; j < Math.min(remainingMethods.length, remainingSyms.length); j++) {
+				remainingMethods[j]!.selector = remainingSyms[j]!.selector;
+				remainingMethods[j]!.signature =
+					`${remainingSyms[j]!.prefix}${remainingSyms[j]!.selector}`;
+			}
+
+			return usedSymbols;
+		};
+
+		matchMethodGroup(symInstanceMethods, false);
+		matchMethodGroup(symClassMethods, true);
+
+		// Add class methods (+) not already matched to a metaclass entry
+		for (const cm of symClassMethods) {
+			if (!cls.methods.some((m) => m.selector === cm.selector)) {
+				cls.methods.push({ selector: cm.selector, signature: `+${cm.selector}` });
+			}
+		}
+
+		// Remove any remaining unnamed methods
+		cls.methods = cls.methods.filter((m) => m.selector !== "");
+	}
+
+	// Classes with no methods at all — populate entirely from symbols
+	for (const cls of classesWithNoMethods) {
+		const symMethods = symMethodMap.get(cls.name);
+		if (symMethods) {
+			cls.methods = symMethods.map((m) => ({
+				selector: m.selector,
+				signature: `${m.prefix}${m.selector}`
+			}));
+		}
+	}
+}
+
 // ── Section Finders ──────────────────────────────────────────────────
 
 /**

@@ -17,7 +17,6 @@ import type {
 	SymbolEntry
 } from "../../shared/types";
 import type { LoadCommandsResult, Section64, Segment64 } from "../parser/load-commands";
-import { buildMethodSignature } from "../parser/objc";
 import type { StringEntry as ParserStringEntry } from "../parser/strings";
 import type { SymbolEntry as ParserSymbol } from "../parser/symbols";
 
@@ -37,16 +36,6 @@ function decodeSourceVersion(version: bigint): string {
 	if (c !== 0) return `${a}.${b}.${c}`;
 	if (b !== 0) return `${a}.${b}`;
 	return `${a}`;
-}
-
-/** Build signature from prefix (-/+), selector, and raw type encoding using the full ObjC type parser. */
-export function buildMethodSignatureFromParts(
-	prefix: string,
-	selector: string,
-	typeEncoding: string
-): string {
-	if (!typeEncoding) return `${prefix}${selector}`;
-	return buildMethodSignature(selector, typeEncoding, prefix === "-");
 }
 
 export function convertSection(s: Section64): Section {
