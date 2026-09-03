@@ -197,19 +197,21 @@ describe("parseCodeSignature", () => {
 		]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.entitlements).not.toBeNull();
-		expect(result!.entitlements!["com.apple.security.app-sandbox"]).toBe(true);
-		expect(result!.entitlements!["com.apple.application-identifier"]).toBe(
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		const data = result.data;
+
+		expect(data.entitlements).not.toBeNull();
+		expect(data.entitlements!["com.apple.security.app-sandbox"]).toBe(true);
+		expect(data.entitlements!["com.apple.application-identifier"]).toBe(
 			"TEAM123.com.example.app"
 		);
 
-		expect(result!.codeDirectory).not.toBeNull();
-		expect(result!.codeDirectory!.teamID).toBe("TEAM123ABC");
-		expect(result!.codeDirectory!.flags).toBe(0x00020002);
-		expect(result!.codeDirectory!.codeLimit).toBe(131072);
-		expect(result!.codeDirectory!.hashType).toBe(2);
-		expect(result!.codeDirectory!.version).toBe(0x20400);
+		expect(data.codeDirectory).not.toBeNull();
+		expect(data.codeDirectory!.teamID).toBe("TEAM123ABC");
+		expect(data.codeDirectory!.flags).toBe(0x00020002);
+		expect(data.codeDirectory!.codeLimit).toBe(131072);
+		expect(data.codeDirectory!.hashType).toBe(2);
+		expect(data.codeDirectory!.version).toBe(0x20400);
 	});
 
 	it("should extract entitlements XML correctly", () => {
@@ -222,10 +224,10 @@ describe("parseCodeSignature", () => {
 		const buffer = buildSuperBlob([{ type: CS_SLOT_ENTITLEMENTS, data: entBlob }]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.entitlements).not.toBeNull();
-		expect(result!.entitlements!["get-task-allow"]).toBe(true);
-		expect(result!.entitlementsRaw).toContain("get-task-allow");
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.entitlements).not.toBeNull();
+		expect(result.data.entitlements!["get-task-allow"]).toBe(true);
+		expect(result.data.entitlementsRaw).toContain("get-task-allow");
 	});
 
 	it("should extract teamID from code directory with version >= 0x20200", () => {
@@ -237,9 +239,9 @@ describe("parseCodeSignature", () => {
 		const buffer = buildSuperBlob([{ type: CS_SLOT_CODEDIRECTORY, data: cdBlob }]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.codeDirectory).not.toBeNull();
-		expect(result!.codeDirectory!.teamID).toBe("9F86D081885");
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.codeDirectory).not.toBeNull();
+		expect(result.data.codeDirectory!.teamID).toBe("9F86D081885");
 	});
 
 	it("should not extract teamID from code directory with version < 0x20200", () => {
@@ -251,19 +253,19 @@ describe("parseCodeSignature", () => {
 		const buffer = buildSuperBlob([{ type: CS_SLOT_CODEDIRECTORY, data: cdBlob }]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.codeDirectory).not.toBeNull();
-		expect(result!.codeDirectory!.teamID).toBeNull();
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.codeDirectory).not.toBeNull();
+		expect(result.data.codeDirectory!.teamID).toBeNull();
 	});
 
-	it("should return null for missing/zero code signature offset", () => {
+	it("should return an error for missing/zero code signature offset", () => {
 		const buffer = new ArrayBuffer(100);
-		expect(parseCodeSignature(buffer, 0, 0)).toBeNull();
-		expect(parseCodeSignature(buffer, 0, 4)).toBeNull();
+		expect(parseCodeSignature(buffer, 0, 0).ok).toBe(false);
+		expect(parseCodeSignature(buffer, 0, 4).ok).toBe(false);
 		expect(extractEntitlements(buffer, 0, 0)).toBeNull();
 	});
 
-	it("should throw on invalid SuperBlob magic", () => {
+	it("should return an error on invalid SuperBlob magic", () => {
 		const buf = new ArrayBuffer(64);
 		const view = new DataView(buf);
 		// Write some garbage magic
@@ -271,7 +273,10 @@ describe("parseCodeSignature", () => {
 		writeU32BE(view, 4, 64);
 		writeU32BE(view, 8, 0);
 
-		expect(() => parseCodeSignature(buf, 0, 64)).toThrow(/Invalid SuperBlob magic/);
+		const result = parseCodeSignature(buf, 0, 64);
+		expect(result.ok).toBe(false);
+		if (result.ok) return;
+		expect(result.error).toMatch(/Invalid SuperBlob magic/);
 	});
 
 	it("should return null entitlements when SuperBlob has no entitlements blob", () => {
@@ -284,11 +289,11 @@ describe("parseCodeSignature", () => {
 		const buffer = buildSuperBlob([{ type: CS_SLOT_CODEDIRECTORY, data: cdBlob }]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.entitlements).toBeNull();
-		expect(result!.entitlementsRaw).toBeNull();
-		expect(result!.codeDirectory).not.toBeNull();
-		expect(result!.codeDirectory!.teamID).toBe("TEAM999");
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.entitlements).toBeNull();
+		expect(result.data.entitlementsRaw).toBeNull();
+		expect(result.data.codeDirectory).not.toBeNull();
+		expect(result.data.codeDirectory!.teamID).toBe("TEAM999");
 	});
 
 	it("should handle SuperBlob at a non-zero offset in the buffer", () => {
@@ -302,9 +307,9 @@ describe("parseCodeSignature", () => {
 
 		const csSize = buffer.byteLength - prefixSize;
 		const result = parseCodeSignature(buffer, prefixSize, csSize);
-		expect(result).not.toBeNull();
-		expect(result!.entitlements).not.toBeNull();
-		expect(result!.entitlements!["com.apple.developer.team-identifier"]).toBe("ABCXYZ");
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.entitlements).not.toBeNull();
+		expect(result.data.entitlements!["com.apple.developer.team-identifier"]).toBe("ABCXYZ");
 	});
 
 	it("should skip unrecognised blob types without errors", () => {
@@ -323,9 +328,9 @@ describe("parseCodeSignature", () => {
 		]);
 
 		const result = parseCodeSignature(buffer, 0, buffer.byteLength);
-		expect(result).not.toBeNull();
-		expect(result!.entitlements).not.toBeNull();
-		expect(result!.entitlements!["test-key"]).toBe(true);
+		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
+		expect(result.data.entitlements).not.toBeNull();
+		expect(result.data.entitlements!["test-key"]).toBe(true);
 	});
 });
 

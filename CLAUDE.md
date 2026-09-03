@@ -47,7 +47,7 @@ Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mti
 - **Types/interfaces:** PascalCase. Use `import type` for type-only imports
 - **Functions:** camelCase. **Constants:** UPPER_SNAKE_CASE
 - **Exports:** named exports, no default exports
-- **Error handling:** result types (`{ ok, data/error }`) for parsers, try-catch with informative messages at boundaries. Parsers continue gracefully on individual failures
+- **Error handling:** parsers with a hard-failure mode (input is either valid and fully parseable or not — `macho.ts`, `plist.ts`, `codesign.ts`) return the shared `Result<T>` from `src/main/parser/result.ts` (`{ ok, data } | { ok, error }`) and never throw for malformed-but-expected input. Collection extractors (`strings`, `symbols`, `load-commands`, `objc`, `chained-fixups`, `xrefs`) return partial data best-effort, skipping malformed entries — an empty result is meaningful, not a failure. Use try-catch with informative messages at boundaries
 - **BigInt:** used internally for addresses, converted to number/string before IPC serialisation (see `bigintReplacer` in MCP server)
 - **Linter:** Biome (see "Linting & Formatting" section)
 - Keep implementations minimal. No unnecessary abstractions, helpers, or wrapper functions - unless it will sufficiently improve readability, or reduce code duplication

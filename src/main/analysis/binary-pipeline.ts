@@ -401,23 +401,22 @@ export async function analyseBinaryFile(
 	progressCallback("Parsing code signature...", basePercent + 50);
 	await yieldToEventLoop();
 	if (!options.skipCodesign) {
-		try {
-			if (lcResult.codeSignatureInfo) {
-				const csResult = parseCodeSignature(
-					buffer,
-					lcResult.codeSignatureInfo.offset,
-					lcResult.codeSignatureInfo.size
-				);
-				if (csResult?.entitlements) {
-					entitlements = convertEntitlements(csResult.entitlements);
+		if (lcResult.codeSignatureInfo) {
+			const csResult = parseCodeSignature(
+				buffer,
+				lcResult.codeSignatureInfo.offset,
+				lcResult.codeSignatureInfo.size
+			);
+			if (csResult.ok) {
+				if (csResult.data.entitlements) {
+					entitlements = convertEntitlements(csResult.data.entitlements);
 				}
-				if (csResult?.codeDirectory?.teamID) {
-					teamId = csResult.codeDirectory.teamID;
+				if (csResult.data.codeDirectory?.teamID) {
+					teamId = csResult.data.codeDirectory.teamID;
 				}
+			} else {
+				errors.push(`Code signature parse error: ${csResult.error}`);
 			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`Code signature parse error: ${msg}`);
 		}
 	}
 

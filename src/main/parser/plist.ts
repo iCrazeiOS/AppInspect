@@ -9,20 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import bplist from "bplist-parser";
 import plist from "plist";
-
-// ── Result Types ──────────────────────────────────────────────────────
-
-export interface ParseSuccess<T> {
-	ok: true;
-	data: T;
-}
-
-export interface ParseError {
-	ok: false;
-	error: string;
-}
-
-export type ParseResult<T> = ParseSuccess<T> | ParseError;
+import type { Result } from "./result";
 
 // ── Info.plist Types ──────────────────────────────────────────────────
 
@@ -127,7 +114,7 @@ function extractPrivacyStrings(raw: Record<string, unknown>): Record<string, str
  * Parse Info.plist from an extracted .app bundle directory.
  * Returns null when Info.plist does not exist.
  */
-export function parseInfoPlist(appBundlePath: string): ParseResult<InfoPlistData> | null {
+export function parseInfoPlist(appBundlePath: string): Result<InfoPlistData> | null {
 	const plistPath = path.join(appBundlePath, "Info.plist");
 
 	if (!fs.existsSync(plistPath)) {
@@ -169,9 +156,7 @@ export function parseInfoPlist(appBundlePath: string): ParseResult<InfoPlistData
  * Extracts the XML plist from the CMS/DER envelope by finding XML boundaries.
  * Returns null when embedded.mobileprovision does not exist.
  */
-export function parseMobileprovision(
-	appBundlePath: string
-): ParseResult<MobileprovisionData> | null {
+export function parseMobileprovision(appBundlePath: string): Result<MobileprovisionData> | null {
 	const provisionPath = path.join(appBundlePath, "embedded.mobileprovision");
 
 	if (!fs.existsSync(provisionPath)) {

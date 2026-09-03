@@ -14,6 +14,7 @@
 import plist from "plist";
 import { readCString } from "./load-commands";
 import { silenceXmldom } from "./plist";
+import type { Result } from "./result";
 
 // ── Magic Constants ──────────────────────────────────────────────────
 
@@ -158,19 +159,25 @@ function parseCodeDirectoryBlob(
  * @param buffer   The full Mach-O file buffer
  * @param csOffset Byte offset to the SuperBlob (from LC_CODE_SIGNATURE)
  * @param csSize   Size in bytes of the code signature region
- * @returns Parsed code signature info, or null if offset/size is invalid
+ * @returns Parsed code signature info, or an error if offset/size/magic is invalid
  */
 export function parseCodeSignature(
 	buffer: ArrayBuffer,
 	csOffset: number,
 	csSize: number
-): CodeSignatureResult | null {
+): Result<CodeSignatureResult> {
 	if (csOffset == null || csSize == null || csOffset < 0 || csSize < 12) {
-		return null;
+		return {
+			ok: false,
+			error: `Invalid code signature region (offset ${csOffset}, size ${csSize})`
+		};
 	}
 
 	if (csOffset + csSize > buffer.byteLength) {
-		return null;
+		return {
+			ok: false,
+			error: `Code signature region out of bounds (offset ${csOffset} + size ${csSize} > ${buffer.byteLength})`
+		};
 	}
 
 	const view = new DataView(buffer);
@@ -178,9 +185,10 @@ export function parseCodeSignature(
 	// Read SuperBlob header
 	const magic = view.getUint32(csOffset, false);
 	if (magic !== CS_MAGIC_SUPERBLOB) {
-		throw new Error(
-			`Invalid SuperBlob magic: 0x${magic.toString(16).padStart(8, "0")} (expected 0xFADE0CC0)`
-		);
+		return {
+			ok: false,
+			error: `Invalid SuperBlob magic: 0x${magic.toString(16).padStart(8, "0")} (expected 0xFADE0CC0)`
+		};
 	}
 
 	const _length = view.getUint32(csOffset + 4, false);
@@ -233,7 +241,7 @@ export function parseCodeSignature(
 		}
 	}
 
-	return result;
+	return { ok: true, data: result };
 }
 
 /**
@@ -250,5 +258,5 @@ export function extractEntitlements(
 	csSize: number
 ): Record<string, unknown> | null {
 	const result = parseCodeSignature(buffer, csOffset, csSize);
-	return result?.entitlements ?? null;
+	return result.ok ? (result.data.entitlements ?? null) : null;
 }

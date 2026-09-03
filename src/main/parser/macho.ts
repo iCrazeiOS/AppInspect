@@ -9,6 +9,7 @@
  */
 
 import * as fs from "node:fs";
+import type { Result } from "./result";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -73,8 +74,6 @@ export interface MachOFile {
 	littleEndian: boolean;
 	is64Bit: boolean;
 }
-
-export type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
 // ── Fat Header Parsing ─────────────────────────────────────────────────
 
