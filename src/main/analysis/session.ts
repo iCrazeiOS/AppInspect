@@ -324,7 +324,7 @@ export class AnalysisSession {
 		let infoPlistData: Record<string, PlistValue> = {};
 		try {
 			const plistResult = parseInfoPlist(appBundlePath);
-			if (plistResult && plistResult.ok) {
+			if (plistResult?.ok) {
 				infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
 			} else if (plistResult && !plistResult.ok) {
 				errors.push(`Info.plist: ${plistResult.error}`);
@@ -346,7 +346,7 @@ export class AnalysisSession {
 		if (finalEntitlements.length === 0) {
 			try {
 				const mpResult = parseMobileprovision(appBundlePath);
-				if (mpResult && mpResult.ok && mpResult.data.Entitlements) {
+				if (mpResult?.ok && mpResult.data.Entitlements) {
 					finalEntitlements = convertEntitlements(mpResult.data.Entitlements);
 				}
 			} catch {
@@ -678,7 +678,7 @@ export class AnalysisSession {
 			// Look for filter plist next to the dylib
 			const filterPlistPath = path.join(
 				path.dirname(mainBinary.path),
-				mainBinaryName + ".plist"
+				`${mainBinaryName}.plist`
 			);
 			if (fs.existsSync(filterPlistPath)) {
 				const filterBuf = fs.readFileSync(filterPlistPath);
@@ -735,7 +735,7 @@ export class AnalysisSession {
 		// missing one as null, so only a thrown error reaches the catch below.
 		try {
 			const plistResult = parseInfoPlist(plistDir);
-			if (plistResult && plistResult.ok) {
+			if (plistResult?.ok) {
 				infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
 			} else if (plistResult && !plistResult.ok) {
 				console.warn(`[plist] ${plistResult.error} (at ${plistDir})`);
@@ -746,7 +746,7 @@ export class AnalysisSession {
 			// Try the .app root as fallback
 			try {
 				const plistResult = parseInfoPlist(appPath);
-				if (plistResult && plistResult.ok) {
+				if (plistResult?.ok) {
 					infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
 				}
 			} catch {

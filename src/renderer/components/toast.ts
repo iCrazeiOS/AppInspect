@@ -7,6 +7,8 @@
 
 export type ToastType = "error" | "warning" | "info" | "success";
 
+type ToastElement = HTMLDivElement & { _timer?: ReturnType<typeof setTimeout> };
+
 let container: HTMLDivElement | null = null;
 
 function ensureContainer(): HTMLDivElement {
@@ -56,11 +58,11 @@ export function showToast(message: string, type: ToastType = "error"): void {
 
 	// Auto-dismiss after 5 seconds
 	const timer = setTimeout(() => dismiss(toast), 5000);
-	(toast as any)._timer = timer;
+	(toast as ToastElement)._timer = timer;
 }
 
 function dismiss(toast: HTMLDivElement): void {
-	clearTimeout((toast as any)._timer);
+	clearTimeout((toast as ToastElement)._timer);
 	toast.classList.remove("toast--visible");
 	toast.classList.add("toast--exit");
 	toast.addEventListener(

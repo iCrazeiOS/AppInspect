@@ -399,7 +399,7 @@ class GraphRenderer {
 			const g = document.createElementNS(SVG_NS, "g");
 			g.classList.add("gr-node", nodeClass(nd));
 			if (nd.weak) g.classList.add("gr-node--weak");
-			g.dataset["id"] = nd.id;
+			g.dataset.id = nd.id;
 
 			const circle = document.createElementNS(SVG_NS, "circle");
 			circle.classList.add("gr-node-circle");
@@ -485,7 +485,7 @@ class GraphRenderer {
 			const el = document.elementFromPoint(ev.clientX, ev.clientY);
 			const nodeEl = el?.closest?.(".gr-node");
 			if (nodeEl) {
-				const id = (nodeEl as HTMLElement).dataset["id"];
+				const id = (nodeEl as HTMLElement).dataset.id;
 				const nd = this.nodes.find((n) => n.id === id);
 				if (nd) this.scheduleTooltip(nd);
 			}
@@ -515,7 +515,7 @@ class GraphRenderer {
 		this.svg.addEventListener("mousedown", (ev) => {
 			const target = (ev.target as Element).closest(".gr-node");
 			if (target) {
-				const id = (target as HTMLElement).dataset["id"];
+				const id = (target as HTMLElement).dataset.id;
 				const nd = this.nodes.find((n) => n.id === id);
 				if (!nd) return;
 				this.cancelTooltip();
@@ -545,7 +545,7 @@ class GraphRenderer {
 			(ev) => {
 				const target = (ev.target as Element).closest(".gr-node");
 				if (!target) return;
-				const id = (target as HTMLElement).dataset["id"];
+				const id = (target as HTMLElement).dataset.id;
 				const nd = this.nodes.find((n) => n.id === id);
 				if (!nd) return;
 				this.scheduleTooltip(nd);

@@ -250,7 +250,7 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
 
 	if (ch === "^") {
 		const inner = decodeType(enc, pos + 1);
-		return { type: inner.type + " *", next: inner.next };
+		return { type: `${inner.type} *`, next: inner.next };
 	}
 
 	if (ch === "@") {
@@ -258,7 +258,7 @@ function decodeType(enc: string, pos: number): { type: string; next: number } {
 		if (pos + 1 < enc.length && enc[pos + 1] === '"') {
 			const end = enc.indexOf('"', pos + 2);
 			if (end !== -1) {
-				return { type: enc.slice(pos + 2, end) + " *", next: end + 1 };
+				return { type: `${enc.slice(pos + 2, end)} *`, next: end + 1 };
 			}
 		}
 		return { type: "id", next: pos + 1 };

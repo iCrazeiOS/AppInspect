@@ -76,7 +76,7 @@ function parseARMembers(buf: Buffer): ARMember[] {
 		}
 
 		const size = parseInt(sizeStr, 10);
-		if (isNaN(size)) break;
+		if (Number.isNaN(size)) break;
 
 		const dataOffset = pos + AR_HEADER_SIZE;
 		members.push({ name, size, offset: dataOffset });
@@ -99,7 +99,7 @@ function parseControlFile(text: string): DEBControlInfo {
 		if (line.startsWith(" ") || line.startsWith("\t")) {
 			// Continuation of previous field
 			if (currentKey) {
-				fields[currentKey] += "\n" + line.trim();
+				fields[currentKey] += `\n${line.trim()}`;
 			}
 		} else {
 			const colonIdx = line.indexOf(":");
@@ -111,15 +111,15 @@ function parseControlFile(text: string): DEBControlInfo {
 	}
 
 	return {
-		package: fields["package"] ?? "",
-		name: fields["name"] ?? fields["package"] ?? "",
-		version: fields["version"] ?? "",
-		architecture: fields["architecture"] ?? "",
-		description: fields["description"] ?? "",
-		author: fields["author"],
-		maintainer: fields["maintainer"],
-		section: fields["section"],
-		depends: fields["depends"],
+		package: fields.package ?? "",
+		name: fields.name ?? fields.package ?? "",
+		version: fields.version ?? "",
+		architecture: fields.architecture ?? "",
+		description: fields.description ?? "",
+		author: fields.author,
+		maintainer: fields.maintainer,
+		section: fields.section,
+		depends: fields.depends,
 		installedSize: fields["installed-size"] ? parseInt(fields["installed-size"], 10) : undefined
 	};
 }
@@ -133,7 +133,7 @@ function extractTar(tarPath: string, destDir: string): Promise<void> {
 	// On macOS/Linux, use system tar.
 	const tarBin =
 		process.platform === "win32"
-			? path.join(process.env["SYSTEMROOT"] ?? "C:\\Windows", "System32", "tar.exe")
+			? path.join(process.env.SYSTEMROOT ?? "C:\\Windows", "System32", "tar.exe")
 			: "tar";
 
 	return new Promise((resolve, reject) => {

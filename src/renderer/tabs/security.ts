@@ -54,13 +54,17 @@ const EVIDENCE_COLLAPSED_LEN = 200;
 
 // ── Render ──
 
-export function renderSecurity(container: HTMLElement, data: any, sessionId: string = ""): void {
+export function renderSecurity(
+	container: HTMLElement,
+	data: unknown,
+	sessionId: string = ""
+): void {
 	container.innerHTML = "";
 
-	const sec: SecurityData = (data?.findings ? data : data?.security) ?? {
-		findings: [],
-		hardening: {}
-	};
+	const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+	const sec: Partial<SecurityData> = (
+		obj && "findings" in obj ? obj : (obj?.security ?? {})
+	) as Partial<SecurityData>;
 	const findings = sec.findings ?? [];
 	const hardening = sec.hardening ?? ({} as BinaryHardening);
 
@@ -177,7 +181,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 
 	// Restore saved search state
 	const savedState = getSearchState(sessionId, "security");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 
@@ -208,9 +212,9 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 						f.message.toLowerCase().includes(lower) ||
 						f.category.toLowerCase().includes(lower) ||
 						f.evidence.toLowerCase().includes(lower) ||
-						(f.location && f.location.toLowerCase().includes(lower)) ||
-						(f.functionName && f.functionName.toLowerCase().includes(lower)) ||
-						(f.source && f.source.toLowerCase().includes(lower))
+						f.location?.toLowerCase().includes(lower) ||
+						f.functionName?.toLowerCase().includes(lower) ||
+						f.source?.toLowerCase().includes(lower)
 				);
 			}
 		}
@@ -276,7 +280,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 				const eviText = document.createElement("span");
 				eviText.className = "sec-finding-evidence-text";
 				eviText.textContent = isLong
-					? finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026"
+					? `${finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN)}\u2026`
 					: finding.evidence;
 				makeCopyable(eviText, () => finding.evidence);
 				evi.appendChild(eviText);
@@ -289,7 +293,7 @@ export function renderSecurity(container: HTMLElement, data: any, sessionId: str
 						expanded = !expanded;
 						eviText.textContent = expanded
 							? finding.evidence
-							: finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN) + "\u2026";
+							: `${finding.evidence.slice(0, EVIDENCE_COLLAPSED_LEN)}\u2026`;
 						expandBtn.textContent = expanded ? "Show less" : "Show more";
 					});
 					evi.appendChild(expandBtn);

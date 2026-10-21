@@ -51,9 +51,9 @@ export function renderSymbols(
 	const rows = entries.map((e) => {
 		const addr =
 			typeof e.address === "number"
-				? "0x" + (e.address >>> 0).toString(16).padStart(8, "0")
+				? `0x${(e.address >>> 0).toString(16).padStart(8, "0")}`
 				: typeof e.address === "string" && !e.address.startsWith("0x")
-					? "0x" + e.address
+					? `0x${e.address}`
 					: String(e.address ?? "0x0");
 		return {
 			name: e.demangled ?? e.name ?? "",
@@ -127,7 +127,7 @@ export function renderSymbols(
 
 	for (const opt of typeOptions) {
 		const btn = document.createElement("button");
-		btn.className = "filter-chip" + (opt.value === activeType ? " filter-chip--active" : "");
+		btn.className = `filter-chip${opt.value === activeType ? " filter-chip--active" : ""}`;
 		btn.textContent = opt.label;
 
 		// Add badge color indicator
@@ -144,7 +144,7 @@ export function renderSymbols(
 				b.classList.toggle("filter-chip--active", val === activeType);
 			}
 			if (xbin.active) {
-				table.setFilter(activeType === "all" ? null : (row) => row["type"] === activeType);
+				table.setFilter(activeType === "all" ? null : (row) => row.type === activeType);
 				updateCount();
 			} else {
 				applyFilters();
@@ -185,7 +185,7 @@ export function renderSymbols(
 		table.setColumns(CROSS_BINARY_COLUMNS);
 		table.setStorageKey("cols:symbols:xbin");
 		table.setData(xrows);
-		table.setFilter(activeType === "all" ? null : (row) => row["type"] === activeType);
+		table.setFilter(activeType === "all" ? null : (row) => row.type === activeType);
 		updateCount();
 	}
 
@@ -208,12 +208,12 @@ export function renderSymbols(
 	function applyFilters(): void {
 		table.setFilter((row) => {
 			// Type filter
-			if (activeType !== "all" && row["type"] !== activeType) return false;
+			if (activeType !== "all" && row.type !== activeType) return false;
 
 			// Text/regex filter — match the displayed and raw name
 			if (!searchTerm) return true;
-			const name = String(row["name"] ?? "");
-			const nameRaw = String(row["nameRaw"] ?? "");
+			const name = String(row.name ?? "");
+			const nameRaw = String(row.nameRaw ?? "");
 			if (searchRegex) {
 				try {
 					const re = new RegExp(searchTerm, "i");
@@ -234,7 +234,7 @@ export function renderSymbols(
 
 	// Restore saved search state (must happen after table is created)
 	const savedState = getSearchState(sessionId, "symbols");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 

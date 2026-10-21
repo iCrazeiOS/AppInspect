@@ -24,16 +24,19 @@ function classifyKey(key: string): BadgeLevel {
 
 export function renderEntitlements(
 	container: HTMLElement,
-	data: any,
+	data: unknown,
 	sessionId: string = ""
 ): void {
 	container.innerHTML = "";
 
 	// data may be { embedded: {...}, profile: {...} } or a flat object
-	const embedded: Record<string, unknown> | null = data?.embedded ?? data?.entitlements ?? null;
-	const profile: Record<string, unknown> | null = data?.profile ?? null;
-	const flat: Record<string, unknown> | null =
-		embedded ?? (data && typeof data === "object" && !Array.isArray(data) ? data : null);
+	const obj: Record<string, unknown> | null =
+		data && typeof data === "object" && !Array.isArray(data)
+			? (data as Record<string, unknown>)
+			: null;
+	const embedded = (obj?.embedded ?? obj?.entitlements ?? null) as Record<string, unknown> | null;
+	const profile = (obj?.profile ?? null) as Record<string, unknown> | null;
+	const flat: Record<string, unknown> | null = embedded ?? obj;
 
 	if (!flat || Object.keys(flat).length === 0) {
 		const empty = new EmptyState({

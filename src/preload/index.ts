@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import type { AppSettings } from "../shared/types";
 
 contextBridge.exposeInMainWorld("api", {
 	analyseFile: (filePath: string) => ipcRenderer.invoke("analyse-file", { path: filePath }),
@@ -17,7 +18,7 @@ contextBridge.exposeInMainWorld("api", {
 		ipcRenderer.invoke("export-json", { sessionId, tabs }),
 	openFilePicker: () => ipcRenderer.invoke("open-file-picker"),
 	getSettings: () => ipcRenderer.invoke("get-settings"),
-	setSettings: (settings: any) => ipcRenderer.invoke("set-settings", settings),
+	setSettings: (settings: AppSettings) => ipcRenderer.invoke("set-settings", settings),
 	searchAllBinaries: (
 		sessionId: string,
 		query: string,

@@ -2,13 +2,23 @@
  * Overview tab renderer — app summary, binary hardening, provisioning.
  */
 
-import type { AnalysisResult } from "../../shared/types";
+import type { AnalysisResult, HookInfo } from "../../shared/types";
 import { EmptyState } from "../components";
 import { makeCopyable } from "../utils/clipboard";
 import { el } from "../utils/dom";
 import { decodeCpuType, decodeFileType, decodePlatform, isMacOSPlatform } from "../utils/macho";
 
-type OverviewData = AnalysisResult["overview"];
+interface ProvisioningProfileSummary {
+	teamName?: string;
+	expirationDate?: string | number;
+	deviceCount?: number;
+	devices?: unknown[];
+}
+
+type OverviewData = AnalysisResult["overview"] & {
+	hooks?: HookInfo;
+	provisioningProfile?: ProvisioningProfileSummary;
+};
 
 /** Display names for XCFramework Info.plist SupportedPlatform / SupportedPlatformVariant */
 const XCF_PLATFORM_NAMES: Record<string, string> = {
@@ -74,10 +84,10 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 	const wrapper = el("div", "ov-grid");
 
 	// ── Summary card (adapts to source type) ──
-	const sourceType = (data as any).sourceType ?? "ipa";
+	const sourceType = data.sourceType ?? "ipa";
 	const { header, buildVersion, encryptionInfo, hardening, ipa } = data;
 
-	const infoPlist = (data as any).infoPlist as Record<string, any> | undefined;
+	const infoPlist = data.infoPlist;
 	const minOS = buildVersion?.minos ?? "N/A";
 	const platform = buildVersion?.platform ?? 0;
 	const platformName = platform ? decodePlatform(platform) : "";
@@ -91,12 +101,12 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		? buildBadge("Encrypted", "red")
 		: buildBadge("Not Encrypted", "green");
 
-	const teamId = (data as any).teamId ?? "N/A";
-	const uuid = (data as any).uuid ?? "N/A";
+	const teamId = data.teamId ?? "N/A";
+	const uuid = data.uuid ?? "N/A";
 
 	if (sourceType === "deb") {
 		// ── DEB Package Info card ──
-		const debControl = (data as any).debControl as Record<string, any> | undefined;
+		const debControl = data.debControl;
 		const debItems: HTMLElement[] = [];
 		if (debControl) {
 			debItems.push(buildKV("Package", String(debControl.package || "N/A")));
@@ -123,7 +133,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		wrapper.appendChild(buildCard("Package Info", ...debItems));
 	} else if (sourceType === "macho") {
 		// ── Bare Mach-O Binary Info card ──
-		const filePath = (data as any).filePath ?? "N/A";
+		const filePath = data.filePath ?? "N/A";
 		const fileName = filePath.split(/[\\/]/).pop() ?? "N/A";
 		const binarySize = ipa?.binaries?.[0]?.size;
 
@@ -146,19 +156,16 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		wrapper.appendChild(buildCard("Binary Info", ...machoItems));
 	} else if (sourceType === "app") {
 		// ── macOS .app Bundle Summary card ──
-		const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+		const bundleId = infoPlist?.CFBundleIdentifier ?? "N/A";
 		const displayName =
-			infoPlist?.["CFBundleDisplayName"] ??
-			infoPlist?.["CFBundleName"] ??
-			ipa?.appName ??
-			"N/A";
-		const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
-		const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
-		const lsMinSys = infoPlist?.["LSMinimumSystemVersion"];
+			infoPlist?.CFBundleDisplayName ?? infoPlist?.CFBundleName ?? ipa?.appName ?? "N/A";
+		const version = infoPlist?.CFBundleShortVersionString ?? "N/A";
+		const buildNumber = infoPlist?.CFBundleVersion ?? "N/A";
+		const lsMinSys = infoPlist?.LSMinimumSystemVersion;
 		const displayMinOS = lsMinSys ? String(lsMinSys) : minOS;
-		const category = infoPlist?.["LSApplicationCategoryType"];
+		const category = infoPlist?.LSApplicationCategoryType;
 
-		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
+		const appFrameworks = data.appFrameworks;
 
 		const summaryItems: HTMLElement[] = [
 			buildKV("Bundle ID", String(bundleId)),
@@ -197,9 +204,9 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		// ── XCFramework Summary + Slices cards ──
 		const summaryItems: HTMLElement[] = [
 			buildKV("Name", String(ipa?.appName ?? "N/A")),
-			buildKV("Bundle ID", String(infoPlist?.["CFBundleIdentifier"] ?? "N/A")),
-			buildKV("Version", String(infoPlist?.["CFBundleShortVersionString"] ?? "N/A")),
-			buildKV("Build", String(infoPlist?.["CFBundleVersion"] ?? "N/A"))
+			buildKV("Bundle ID", String(infoPlist?.CFBundleIdentifier ?? "N/A")),
+			buildKV("Version", String(infoPlist?.CFBundleShortVersionString ?? "N/A")),
+			buildKV("Build", String(infoPlist?.CFBundleVersion ?? "N/A"))
 		];
 		if (platformName) summaryItems.push(buildKV("Platform", platformName));
 		summaryItems.push(
@@ -234,16 +241,13 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		wrapper.appendChild(buildCard(`Slices (${libraries.length})`, ...sliceItems));
 	} else {
 		// ── IPA App Summary card (existing) ──
-		const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";
+		const bundleId = infoPlist?.CFBundleIdentifier ?? "N/A";
 		const displayName =
-			infoPlist?.["CFBundleDisplayName"] ??
-			infoPlist?.["CFBundleName"] ??
-			ipa?.appName ??
-			"N/A";
-		const version = infoPlist?.["CFBundleShortVersionString"] ?? "N/A";
-		const buildNumber = infoPlist?.["CFBundleVersion"] ?? "N/A";
+			infoPlist?.CFBundleDisplayName ?? infoPlist?.CFBundleName ?? ipa?.appName ?? "N/A";
+		const version = infoPlist?.CFBundleShortVersionString ?? "N/A";
+		const buildNumber = infoPlist?.CFBundleVersion ?? "N/A";
 
-		const appFrameworks = (data as any).appFrameworks as string[] | undefined;
+		const appFrameworks = data.appFrameworks;
 
 		const summaryItems: HTMLElement[] = [
 			buildKV("Bundle ID", String(bundleId)),
@@ -313,13 +317,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 	wrapper.appendChild(buildCard("Binary Hardening", ...hardeningItems));
 
 	// ── Hooks summary (compact — full detail in Hooks tab) ──
-	const hooks = (data as any).hooks as
-		| {
-				frameworks?: string[];
-				targetBundles?: string[];
-				hookedClasses?: string[];
-		  }
-		| undefined;
+	const hooks = data.hooks;
 
 	if (
 		hooks &&
@@ -343,7 +341,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 	}
 
 	// ── Provisioning Profile card (if available) ──
-	const profile = (data as any).provisioningProfile as Record<string, any> | undefined;
+	const profile = data.provisioningProfile;
 	if (profile) {
 		const provItems: HTMLElement[] = [];
 		if (profile.teamName) provItems.push(buildKV("Team Name", String(profile.teamName)));

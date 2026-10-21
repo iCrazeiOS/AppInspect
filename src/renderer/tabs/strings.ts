@@ -78,7 +78,7 @@ export function renderStrings(
 	const binaryRows = binaryEntries.map((e) => ({
 		value: e.value,
 		source: e.sectionSource ?? "",
-		offsetHex: "0x" + (e.offset >>> 0).toString(16).padStart(4, "0"),
+		offsetHex: `0x${(e.offset >>> 0).toString(16).padStart(4, "0")}`,
 		_offset: typeof e.offset === "number" ? e.offset : 0
 	}));
 
@@ -130,14 +130,12 @@ export function renderStrings(
 		toggleBar.className = "strings-mode-toggle";
 
 		binaryBtn = document.createElement("button");
-		binaryBtn.className =
-			"strings-mode-btn" + (mode === "binary" ? " strings-mode-btn--active" : "");
+		binaryBtn.className = `strings-mode-btn${mode === "binary" ? " strings-mode-btn--active" : ""}`;
 		binaryBtn.textContent = "Binary";
 		binaryBtn.addEventListener("click", () => switchMode("binary"));
 
 		localisationBtn = document.createElement("button");
-		localisationBtn.className =
-			"strings-mode-btn" + (mode === "localisation" ? " strings-mode-btn--active" : "");
+		localisationBtn.className = `strings-mode-btn${mode === "localisation" ? " strings-mode-btn--active" : ""}`;
 		localisationBtn.textContent = "Localisations";
 		localisationBtn.addEventListener("click", () => switchMode("localisation"));
 
@@ -249,8 +247,7 @@ export function renderStrings(
 		if (mode === "binary") {
 			for (const section of sections) {
 				const chip = document.createElement("button");
-				chip.className =
-					"filter-chip" + (activeSections.has(section) ? " filter-chip--active" : "");
+				chip.className = `filter-chip${activeSections.has(section) ? " filter-chip--active" : ""}`;
 				chip.textContent = section;
 				chip.addEventListener("click", () => {
 					if (activeSections.has(section)) {
@@ -268,8 +265,7 @@ export function renderStrings(
 		} else {
 			for (const lang of languages) {
 				const chip = document.createElement("button");
-				chip.className =
-					"filter-chip" + (activeLanguages.has(lang) ? " filter-chip--active" : "");
+				chip.className = `filter-chip${activeLanguages.has(lang) ? " filter-chip--active" : ""}`;
 				chip.textContent = lang;
 				chip.addEventListener("click", () => {
 					if (activeLanguages.has(lang)) {
@@ -309,16 +305,16 @@ export function renderStrings(
 	function applyFilters(): void {
 		if (mode === "binary") {
 			table.setFilter((row) => {
-				const src = String(row["source"] ?? "");
+				const src = String(row.source ?? "");
 				if (src && !activeSections.has(src)) return false;
-				return matchesSearch(String(row["value"] ?? ""));
+				return matchesSearch(String(row.value ?? ""));
 			});
 		} else {
 			table.setFilter((row) => {
-				const lang = String(row["language"] ?? "");
+				const lang = String(row.language ?? "");
 				if (lang && !activeLanguages.has(lang)) return false;
-				const key = String(row["key"] ?? "");
-				const val = String(row["value"] ?? "");
+				const key = String(row.key ?? "");
+				const val = String(row.value ?? "");
 				return matchesSearch(key) || matchesSearch(val);
 			});
 		}
@@ -359,7 +355,7 @@ export function renderStrings(
 
 	// Restore saved search state (must happen after table is created)
 	const savedState = getSearchState(sessionId, "strings");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 

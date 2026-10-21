@@ -1,6 +1,7 @@
 // Renderer entry point
 /// <reference path="./global.d.ts" />
 
+import type { TabName } from "../shared/ipc-types";
 import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { showToast } from "./components/toast";
 import {
@@ -136,7 +137,7 @@ function jumpToSectionTab(index: number): void {
 	const visibleBtns = Array.from(tabButtons).filter((btn) => !btn.classList.contains("hidden"));
 	const btn = visibleBtns[index];
 	if (btn) {
-		const tabId = btn.dataset["tab"];
+		const tabId = btn.dataset.tab;
 		if (tabId) switchSectionTab(tabId);
 	}
 }
@@ -188,7 +189,7 @@ $<HTMLElement>("#sidebar").addEventListener("keydown", (e: KeyboardEvent) => {
 	// Enter on a tab button → focus the tab's main content
 	if (e.key === "Enter" && target.classList.contains("tab-btn")) {
 		e.preventDefault();
-		const tabId = (target as HTMLButtonElement).dataset["tab"];
+		const tabId = (target as HTMLButtonElement).dataset.tab;
 		if (!tabId) return;
 		switchSectionTab(tabId);
 		// Try focusing immediately (already-loaded tab); if not ready, set pending flag
@@ -220,7 +221,7 @@ $<HTMLElement>("#sidebar").addEventListener("keydown", (e: KeyboardEvent) => {
 		next.focus();
 		// If it's a section tab button, also activate it
 		if (next.classList.contains("tab-btn")) {
-			const tabId = (next as HTMLButtonElement).dataset["tab"];
+			const tabId = (next as HTMLButtonElement).dataset.tab;
 			if (tabId) switchSectionTab(tabId);
 		}
 	}
@@ -276,7 +277,7 @@ function checkEncryptionBanner(tab: FileTabState, result: AnalysisResult): void 
 function updateEncryptionBanner(): void {
 	const tab = getActiveFileTab();
 	let banner = document.getElementById("encryption-banner");
-	if (tab && tab.isEncrypted && !tab.encryptionBannerDismissed) {
+	if (tab?.isEncrypted && !tab.encryptionBannerDismissed) {
 		if (!banner) {
 			banner = document.createElement("div");
 			banner.id = "encryption-banner";
@@ -361,7 +362,7 @@ function switchSectionTab(tabId: string): void {
 	if (tab) tab.currentSectionTab = tabId;
 
 	tabButtons.forEach((btn) => {
-		btn.classList.toggle("active", btn.dataset["tab"] === tabId);
+		btn.classList.toggle("active", btn.dataset.tab === tabId);
 	});
 
 	tabPanels.forEach((panel) => {
@@ -376,7 +377,7 @@ function switchSectionTab(tabId: string): void {
 	}
 
 	// Lazy-load tab data
-	if (tab && tab.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
+	if (tab?.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
 		loadTabData(tabId);
 	} else if (changed && tab) {
 		restoreScroll(tab, tabId);
@@ -403,52 +404,51 @@ async function loadTabData(tabId: string): Promise<void> {
 	}
 
 	try {
-		const tabData = await window.api.getTabData(
-			tab.sessionId,
-			tabId as import("../shared/ipc-types").TabName
-		);
+		// The sidebar uses the legacy "infoplist" id while the IPC tab name is "infoPlist"
+		const tabName: TabName = tabId === "infoplist" ? "infoPlist" : (tabId as TabName);
+		const tabData = await window.api.getTabData(tab.sessionId, tabName);
 		tab.loadedSectionTabs.add(tabId);
 
 		const panel = document.getElementById(`tab-${tabId}`);
 		if (panel && tabData != null) {
 			const sid = tab.sessionId;
 			const binCount = tab.analysisResult?.overview?.ipa?.binaries?.length ?? 1;
-			switch (tabId) {
+			switch (tabData.tab) {
 				case "overview":
-					renderOverview(panel, (tabData as any)?.data ?? tabData);
+					renderOverview(panel, tabData.data);
 					break;
 				case "libraries":
-					renderLibraries(panel, (tabData as any)?.data ?? tabData, binCount, sid);
+					renderLibraries(panel, tabData.data, binCount, sid);
 					break;
 				case "headers":
-					renderHeaders(panel, (tabData as any)?.data ?? tabData);
+					renderHeaders(panel, tabData.data);
 					break;
 				case "strings":
-					renderStrings(panel, (tabData as any)?.data ?? tabData, binCount, sid);
+					renderStrings(panel, tabData.data, binCount, sid);
 					break;
 				case "symbols":
-					renderSymbols(panel, (tabData as any)?.data ?? tabData, binCount, sid);
+					renderSymbols(panel, tabData.data, binCount, sid);
 					break;
 				case "security":
-					renderSecurity(panel, (tabData as any)?.data ?? tabData, sid);
+					renderSecurity(panel, tabData.data, sid);
 					break;
 				case "files":
-					renderFiles(panel, (tabData as any)?.data ?? tabData, sid);
+					renderFiles(panel, tabData.data, sid);
 					break;
 				case "classes":
-					renderClasses(panel, (tabData as any)?.data ?? tabData, binCount, sid);
+					renderClasses(panel, tabData.data, binCount, sid);
 					break;
 				case "entitlements":
-					renderEntitlements(panel, (tabData as any)?.data ?? tabData, sid);
+					renderEntitlements(panel, tabData.data, sid);
 					break;
-				case "infoplist":
-					renderPlist(panel, (tabData as any)?.data ?? tabData, sid);
+				case "infoPlist":
+					renderPlist(panel, tabData.data, sid);
 					break;
 				case "hooks":
-					renderHooks(panel, (tabData as any)?.data ?? tabData);
+					renderHooks(panel, tabData.data);
 					break;
 				case "size":
-					renderSize(panel, (tabData as any)?.data ?? tabData, sid);
+					renderSize(panel, tabData.data, sid);
 					break;
 				default:
 					break;
@@ -473,7 +473,7 @@ async function loadTabData(tabId: string): Promise<void> {
 
 tabButtons.forEach((btn) => {
 	btn.addEventListener("click", () => {
-		const tabId = btn.dataset["tab"];
+		const tabId = btn.dataset.tab;
 		if (tabId) switchSectionTab(tabId);
 		btn.blur();
 	});
@@ -508,7 +508,7 @@ function populateBinarySelector(binaries: BinaryInfo[]): void {
 		const opt = document.createElement("option");
 		opt.value = String(i);
 		opt.textContent = `${bin.name}  [${binaryTypeBadge(bin.type)}]`;
-		opt.dataset["binType"] = bin.type;
+		opt.dataset.binType = bin.type;
 		binaryDropdown.appendChild(opt);
 	}
 
@@ -548,7 +548,7 @@ async function handleBinaryChange(): Promise<void> {
 	if (!tab) return;
 
 	const selectedIndex = parseInt(binaryDropdown.value, 10);
-	if (isNaN(selectedIndex) || selectedIndex === tab.currentBinaryIndex) return;
+	if (Number.isNaN(selectedIndex) || selectedIndex === tab.currentBinaryIndex) return;
 
 	tab.currentBinaryIndex = selectedIndex;
 	binaryDropdown.disabled = true;
@@ -656,9 +656,9 @@ async function handleArchChange(): Promise<void> {
 	if (!tab) return;
 
 	const idx = parseInt(archDropdown.value, 10);
-	if (isNaN(idx) || idx === tab.currentArchIndex) return;
+	if (Number.isNaN(idx) || idx === tab.currentArchIndex) return;
 	const fatArchs = tab.analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
-	if (!fatArchs || !fatArchs[idx]) return;
+	if (!fatArchs?.[idx]) return;
 
 	tab.currentArchIndex = idx;
 	const cpuType = fatArchs[idx].cputype;
@@ -834,7 +834,7 @@ async function startAnalysis(filePath: string): Promise<void> {
 			if (overviewPanel) {
 				renderOverview(
 					overviewPanel,
-					Object.assign({}, result.overview, { hooks: (result as any).hooks }) as any
+					Object.assign({}, result.overview, { hooks: result.hooks })
 				);
 				restoreScroll(tab, "overview");
 			}
@@ -987,7 +987,7 @@ async function handleExportTab(tabName: string): Promise<void> {
 	const tab = getActiveFileTab();
 	if (!tab) return;
 	try {
-		const result = await window.api.exportJSON(tab.sessionId, [tabName as any]);
+		const result = await window.api.exportJSON(tab.sessionId, [tabName as TabName]);
 		if (result.success) {
 			showToast(`Exported ${tabName} to ${result.path}`, "success");
 		}
@@ -1002,7 +1002,7 @@ $<HTMLButtonElement>("#btn-export-all").addEventListener("click", handleExportAl
 exportTabBtns.forEach((btn) => {
 	btn.addEventListener("click", (e) => {
 		e.stopPropagation();
-		const tabName = btn.dataset["exportTab"];
+		const tabName = btn.dataset.exportTab;
 		if (tabName) {
 			handleExportTab(tabName);
 		}
@@ -1040,7 +1040,7 @@ async function saveNumberSetting(
 	el: HTMLInputElement
 ): Promise<void> {
 	const val = parseInt(el.value, 10);
-	if (isNaN(val) || val < 1) return;
+	if (Number.isNaN(val) || val < 1) return;
 	try {
 		const current = await window.api.getSettings();
 		current[key] = val;
