@@ -43,7 +43,7 @@ describe("safeJoin", () => {
 	});
 
 	it("accepts a flat member name", () => {
-		expect(safeJoin("/base/dir", "data.tar.xz")).toBe("/base/dir/data.tar.xz");
+		expect(safeJoin("/base/dir", "data.tar.xz")).toBe(path.resolve("/base/dir", "data.tar.xz"));
 	});
 });
 
