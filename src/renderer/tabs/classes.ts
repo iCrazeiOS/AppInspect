@@ -12,6 +12,7 @@ import {
 	createCrossBinaryState,
 	doCrossBinarySearch
 } from "../utils/cross-binary-search";
+import { highlightLogos, highlightObjCMethod } from "../utils/highlight";
 import { loadWidths, saveWidths } from "../utils/layout-store";
 import { generateLogosHook, parseMethodSignature } from "../utils/logos-hook";
 
@@ -682,7 +683,7 @@ export function renderClasses(
 				if (selectedProtoMethod?.method === m) {
 					li.classList.add("cls-method-active");
 				}
-				li.textContent = m.signature || m.selector;
+				li.innerHTML = highlightObjCMethod(m.signature || m.selector);
 				li.title = m.selector;
 				li.addEventListener("click", () => {
 					selectedProtoMethod = { method: m, isClassMethod };
@@ -1033,7 +1034,7 @@ export function renderClasses(
 			if (selectedMethod && selectedMethod === m) {
 				li.classList.add("cls-method-active");
 			}
-			li.textContent = sig;
+			li.innerHTML = highlightObjCMethod(sig);
 			li.title = "Click to inspect";
 			li.addEventListener("click", () => {
 				// In global search, also select the parent class
@@ -1113,7 +1114,7 @@ export function renderClasses(
 		// Full method signature (wrapping)
 		const sigBlock = document.createElement("div");
 		sigBlock.className = "cls-sb-sig";
-		sigBlock.textContent = sig;
+		sigBlock.innerHTML = highlightObjCMethod(sig);
 		inner.appendChild(sigBlock);
 
 		// ── Copy buttons section ──
@@ -1159,7 +1160,7 @@ export function renderClasses(
 
 			const codeBlock = document.createElement("pre");
 			codeBlock.className = "cls-sb-code";
-			codeBlock.textContent = hookCode;
+			codeBlock.innerHTML = highlightLogos(hookCode);
 			hookSection.appendChild(codeBlock);
 
 			const copyHookBtn = document.createElement("button");
@@ -1224,7 +1225,7 @@ export function renderClasses(
 		// Method signature
 		const sigBlock = document.createElement("div");
 		sigBlock.className = "cls-sb-sig";
-		sigBlock.textContent = sig;
+		sigBlock.innerHTML = highlightObjCMethod(sig);
 		inner.appendChild(sigBlock);
 
 		// Copy buttons
