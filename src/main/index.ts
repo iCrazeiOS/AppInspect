@@ -66,7 +66,7 @@ const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
 	{ role: "forceReload" },
 	...(isDev ? [{ role: "toggleDevTools" as const }] : []),
 	{ type: "separator" as const },
-	{ role: "zoomIn" as const },
+	{ role: "zoomIn", accelerator: "CmdOrCtrl+=" },
 	{ role: "zoomOut" as const },
 	{ role: "resetZoom" as const }
 ];
