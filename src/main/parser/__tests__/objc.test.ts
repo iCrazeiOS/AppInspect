@@ -263,7 +263,7 @@ describe("objc", () => {
 
 			expect(result.classes.length).toBe(1);
 			expect(result.classes[0]!.name).toBe("AppDelegate");
-			expect(result.classes[0]!.methods.map((m: any) => m.selector)).toEqual([
+			expect(result.classes[0]!.methods.map((m) => m.selector)).toEqual([
 				"viewDidLoad",
 				"applicationDidFinishLaunching:"
 			]);
@@ -474,9 +474,7 @@ describe("objc", () => {
 
 			expect(result.classes.length).toBe(1);
 			expect(result.classes[0]!.name).toBe("RelativeClass");
-			expect(result.classes[0]!.methods.map((m: any) => m.selector)).toEqual([
-				"initWithFrame:"
-			]);
+			expect(result.classes[0]!.methods.map((m) => m.selector)).toEqual(["initWithFrame:"]);
 		});
 
 		it("extracts class protocol conformances from baseProtocols", () => {

@@ -75,5 +75,5 @@ export function decodeFileType(filetype: number): string {
 }
 
 export function hexStr(n: number): string {
-	return "0x" + n.toString(16).toUpperCase().padStart(8, "0");
+	return `0x${n.toString(16).toUpperCase().padStart(8, "0")}`;
 }

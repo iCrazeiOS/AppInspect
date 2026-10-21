@@ -150,7 +150,7 @@ export function updateCrossBinaryHint(
 ): void {
 	if (state.active && !searchValue && state.results.length === 0 && !state.loading) {
 		hint.innerHTML = "";
-		const singular = label.endsWith("ies") ? label.slice(0, -3) + "y" : label.slice(0, -1);
+		const singular = label.endsWith("ies") ? `${label.slice(0, -3)}y` : label.slice(0, -1);
 		const text = document.createElement("span");
 		text.textContent = `Type a ${singular} name to search across all binaries.`;
 		hint.appendChild(text);

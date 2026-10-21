@@ -173,11 +173,11 @@ describe("buildSizeBreakdown", () => {
 			true
 		);
 		const byName = Object.fromEntries(result.modules.map((m) => [m.name, m]));
-		expect(byName["Alpha"]!.size).toBe(0x30);
-		expect(byName["Alpha"]!.codeSize).toBe(0x30);
+		expect(byName.Alpha!.size).toBe(0x30);
+		expect(byName.Alpha!.codeSize).toBe(0x30);
 		expect(byName["OpenSSL / BoringSSL"]!.size).toBe(0xc0);
 		// The 0x10 bytes before the first symbol are unattributed
-		expect(byName["Unattributed"]!.size).toBe(0x10);
+		expect(byName.Unattributed!.size).toBe(0x10);
 		expect(result.attributedSize).toBe(0xf0);
 		expect(result.sectionSize).toBe(0x100);
 		expect(result.modules[0]!.name).toBe("OpenSSL / BoringSSL");

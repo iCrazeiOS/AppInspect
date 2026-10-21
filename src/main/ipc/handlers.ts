@@ -195,7 +195,6 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					return sanitizeBigInts({ tab: "entitlements", data: entObj });
 				}
 				case "infoPlist":
-				case "infoplist" as any:
 					return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
 				case "security":
 					return sanitizeBigInts({ tab: "security", data: cached.security });

@@ -56,44 +56,42 @@ function buildSummary(plist: Record<string, unknown>): PlistSummary {
 		if (typeof value === "string" && value) facts.push({ label, value, mono });
 	};
 
-	fact("Bundle ID", plist["CFBundleIdentifier"], true);
-	fact("Display Name", plist["CFBundleDisplayName"] ?? plist["CFBundleName"]);
-	fact("Version", plist["CFBundleShortVersionString"]);
-	fact("Build", plist["CFBundleVersion"]);
-	fact("Executable", plist["CFBundleExecutable"], true);
-	fact("Minimum OS", plist["MinimumOSVersion"] ?? plist["LSMinimumSystemVersion"]);
-	fact("SDK", plist["DTSDKName"], true);
-	fact("Platform", plist["DTPlatformName"], true);
+	fact("Bundle ID", plist.CFBundleIdentifier, true);
+	fact("Display Name", plist.CFBundleDisplayName ?? plist.CFBundleName);
+	fact("Version", plist.CFBundleShortVersionString);
+	fact("Build", plist.CFBundleVersion);
+	fact("Executable", plist.CFBundleExecutable, true);
+	fact("Minimum OS", plist.MinimumOSVersion ?? plist.LSMinimumSystemVersion);
+	fact("SDK", plist.DTSDKName, true);
+	fact("Platform", plist.DTPlatformName, true);
 
 	const families: string[] = [];
-	const deviceFamily = Array.isArray(plist["UIDeviceFamily"]) ? plist["UIDeviceFamily"] : [];
+	const deviceFamily = Array.isArray(plist.UIDeviceFamily) ? plist.UIDeviceFamily : [];
 	for (const raw of deviceFamily) {
 		const name = DEVICE_FAMILIES[Number(raw)];
 		if (name) families.push(name);
 	}
 	if (families.length > 0) facts.push({ label: "Device Family", value: families.join(", ") });
 
-	fact("Category", plist["LSApplicationCategoryType"]);
+	fact("Category", plist.LSApplicationCategoryType);
 
-	const requires = asStringArray(plist["UIRequiredDeviceCapabilities"]);
+	const requires = asStringArray(plist.UIRequiredDeviceCapabilities);
 	if (requires.length > 0) facts.push({ label: "Requires", value: requires.join(", ") });
 
-	const platforms = asStringArray(plist["CFBundleSupportedPlatforms"]);
+	const platforms = asStringArray(plist.CFBundleSupportedPlatforms);
 	if (platforms.length > 0) {
 		facts.push({ label: "Supported Platforms", value: platforms.join(", ") });
 	}
 
-	fact("Primary Language", plist["CFBundleDevelopmentRegion"], true);
+	fact("Primary Language", plist.CFBundleDevelopmentRegion, true);
 
 	const urlSchemes: string[] = [];
-	for (const entry of Array.isArray(plist["CFBundleURLTypes"]) ? plist["CFBundleURLTypes"] : []) {
-		urlSchemes.push(
-			...asStringArray((entry as Record<string, unknown>)?.["CFBundleURLSchemes"])
-		);
+	for (const entry of Array.isArray(plist.CFBundleURLTypes) ? plist.CFBundleURLTypes : []) {
+		urlSchemes.push(...asStringArray((entry as Record<string, unknown>)?.CFBundleURLSchemes));
 	}
 	if (urlSchemes.length > 0) chips.push({ label: "URL Schemes", items: urlSchemes });
 
-	const backgroundModes = asStringArray(plist["UIBackgroundModes"]);
+	const backgroundModes = asStringArray(plist.UIBackgroundModes);
 	if (backgroundModes.length > 0) {
 		chips.push({ label: "Background Modes", items: backgroundModes });
 	}
@@ -110,23 +108,23 @@ function buildSummary(plist: Record<string, unknown>): PlistSummary {
 		chips.push({ label: "Privacy Strings", items: privacyItems, titles: privacyTitles });
 	}
 
-	const ats = plist["NSAppTransportSecurity"] as Record<string, unknown> | undefined;
+	const ats = plist.NSAppTransportSecurity as Record<string, unknown> | undefined;
 	if (ats) {
 		const atsItems: string[] = [];
-		if (ats["NSAllowsArbitraryLoads"] === true) atsItems.push("Allows Arbitrary Loads");
-		const domains = ats["NSExceptionDomains"] as Record<string, unknown> | undefined;
+		if (ats.NSAllowsArbitraryLoads === true) atsItems.push("Allows Arbitrary Loads");
+		const domains = ats.NSExceptionDomains as Record<string, unknown> | undefined;
 		if (domains) atsItems.push(...Object.keys(domains));
-		if (ats["NSAllowsArbitraryLoadsInWebContent"] === true) {
+		if (ats.NSAllowsArbitraryLoadsInWebContent === true) {
 			atsItems.push("Allows Arbitrary Loads In Web Content");
 		}
-		if (ats["NSAllowsLocalNetworking"] === true) atsItems.push("Allows Local Networking");
+		if (ats.NSAllowsLocalNetworking === true) atsItems.push("Allows Local Networking");
 		if (atsItems.length > 0) {
 			chips.push({ label: "ATS", items: atsItems, tone: "warn", copyable: true });
 		}
 	}
 
 	const orientations: Array<[string, unknown]> = [
-		["Orientations", plist["UISupportedInterfaceOrientations"]],
+		["Orientations", plist.UISupportedInterfaceOrientations],
 		["Orientations (iPad)", plist["UISupportedInterfaceOrientations~ipad"]]
 	];
 	for (const [label, raw] of orientations) {
@@ -135,11 +133,11 @@ function buildSummary(plist: Record<string, unknown>): PlistSummary {
 	}
 
 	const documentTypes = new Set<string>();
-	const docTypeEntries = Array.isArray(plist["CFBundleDocumentTypes"])
-		? plist["CFBundleDocumentTypes"]
+	const docTypeEntries = Array.isArray(plist.CFBundleDocumentTypes)
+		? plist.CFBundleDocumentTypes
 		: [];
 	for (const entry of docTypeEntries) {
-		const name = (entry as Record<string, unknown>)?.["CFBundleTypeName"];
+		const name = (entry as Record<string, unknown>)?.CFBundleTypeName;
 		if (typeof name === "string" && name) documentTypes.add(name);
 	}
 	if (documentTypes.size > 0) {
@@ -149,14 +147,15 @@ function buildSummary(plist: Record<string, unknown>): PlistSummary {
 	return { facts, chips };
 }
 
-export function renderPlist(container: HTMLElement, data: any, sessionId: string = ""): void {
+export function renderPlist(container: HTMLElement, data: unknown, sessionId: string = ""): void {
 	container.innerHTML = "";
 
 	// data may be the raw plist object directly, or { raw: {...}, extracted: {...} }
-	const plist: Record<string, unknown> | null =
-		data?.raw ??
-		data?.plist ??
-		(data && typeof data === "object" && !Array.isArray(data) ? data : null);
+	const obj =
+		data && typeof data === "object" && !Array.isArray(data)
+			? (data as Record<string, unknown>)
+			: null;
+	const plist = (obj?.raw ?? obj?.plist ?? obj) as Record<string, unknown> | null;
 
 	if (!plist || Object.keys(plist).length === 0) {
 		const empty = new EmptyState({
@@ -255,7 +254,7 @@ export function renderPlist(container: HTMLElement, data: any, sessionId: string
 
 	// Restore saved search state
 	const savedState = getSearchState(sessionId, "plist");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 }

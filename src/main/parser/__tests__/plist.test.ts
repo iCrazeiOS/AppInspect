@@ -116,7 +116,7 @@ describe("parseInfoPlist", () => {
 
 		const result = parseInfoPlist(appDir);
 		expect(result).not.toBeNull();
-		if (!result || !result.ok) {
+		if (!result?.ok) {
 			throw new Error("Expected successful parse");
 		}
 
@@ -143,7 +143,7 @@ describe("parseInfoPlist", () => {
 
 		const result = parseInfoPlist(appDir);
 		expect(result).not.toBeNull();
-		if (!result || !result.ok) throw new Error("Expected successful parse");
+		if (!result?.ok) throw new Error("Expected successful parse");
 
 		expect(result.data.privacyUsageStrings).toEqual({
 			NSCameraUsageDescription: "We need camera access for scanning",
@@ -157,7 +157,7 @@ describe("parseInfoPlist", () => {
 
 		const result = parseInfoPlist(appDir);
 		expect(result).not.toBeNull();
-		if (!result || !result.ok) throw new Error("Expected successful parse");
+		if (!result?.ok) throw new Error("Expected successful parse");
 
 		expect(result.data.raw.CFBundleIdentifier).toBe("com.example.testapp");
 		expect(result.data.raw.NSCameraUsageDescription).toBe("We need camera access for scanning");
@@ -200,7 +200,7 @@ describe("parseMobileprovision", () => {
 
 		const result = parseMobileprovision(appDir);
 		expect(result).not.toBeNull();
-		if (!result || !result.ok) {
+		if (!result?.ok) {
 			throw new Error(`Expected successful parse, got: ${JSON.stringify(result)}`);
 		}
 

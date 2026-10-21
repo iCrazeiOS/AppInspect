@@ -51,14 +51,14 @@ let pendingClassSelect: string | null = null;
 
 export function renderClasses(
 	container: HTMLElement,
-	data: any,
+	data: ClassesData | null,
 	binaryCount: number = 1,
 	sessionId: string = ""
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container");
 
-	const classesData = data as ClassesData | null;
+	const classesData = data;
 	if (!classesData || (!classesData.classes?.length && !classesData.protocols?.length)) {
 		const empty = new EmptyState({
 			icon: "\u{1F3D7}",
@@ -555,7 +555,7 @@ export function renderClasses(
 
 	// Restore saved search state (must happen after spacer/rowContainer are created)
 	const savedState = getSearchState(sessionId, "classes");
-	if (savedState && savedState.term) {
+	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
 
