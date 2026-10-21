@@ -33,6 +33,7 @@ export const LC_REEXPORT_DYLIB = 0x8000001f;
 export const LC_DYLD_INFO_ONLY = 0x80000022;
 export const LC_LOAD_UPWARD_DYLIB = 0x80000023;
 export const LC_DYLD_CHAINED_FIXUPS = 0x80000034;
+export const LC_DYLD_EXPORTS_TRIE = 0x80000033;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -190,6 +191,8 @@ export interface LoadCommandsResult {
 	codeSignatureInfo: { offset: number; size: number } | null;
 	chainedFixupsInfo: { offset: number; size: number } | null;
 	functionStartsInfo: { offset: number; size: number } | null;
+	/** Export trie from LC_DYLD_EXPORTS_TRIE or LC_DYLD_INFO(_ONLY) */
+	exportTrieInfo: { offset: number; size: number } | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -320,7 +323,8 @@ export function parseLoadCommands(
 		symtabInfo: null,
 		codeSignatureInfo: null,
 		chainedFixupsInfo: null,
-		functionStartsInfo: null
+		functionStartsInfo: null,
+		exportTrieInfo: null
 	};
 
 	const endOffset = offset + sizeofcmds;
@@ -460,6 +464,12 @@ export function parseLoadCommands(
 					exportOff: view.getUint32(cursor + 40, le),
 					exportSize: view.getUint32(cursor + 44, le)
 				};
+				if (dyldInfo.exportSize > 0) {
+					result.exportTrieInfo = {
+						offset: dyldInfo.exportOff,
+						size: dyldInfo.exportSize
+					};
+				}
 				parsed = dyldInfo;
 				break;
 			}
@@ -570,6 +580,18 @@ export function parseLoadCommands(
 				const path = readCString(view, cursor + pathOffset, cmdsize - pathOffset);
 				const rp: RpathCommand = { cmd, cmdsize, path };
 				parsed = rp;
+				break;
+			}
+
+			case LC_DYLD_EXPORTS_TRIE: {
+				const et: LinkeditDataCommand = {
+					cmd,
+					cmdsize,
+					dataoff: view.getUint32(cursor + 8, le),
+					datasize: view.getUint32(cursor + 12, le)
+				};
+				result.exportTrieInfo = { offset: et.dataoff, size: et.datasize };
+				parsed = et;
 				break;
 			}
 

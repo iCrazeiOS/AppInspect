@@ -16,7 +16,8 @@ import type {
 	LibraryGraphData,
 	LocalisationString,
 	PlistValue,
-	SecurityFinding
+	SecurityFinding,
+	SizeTreeNode
 } from "../../shared/types";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import { extractDEB } from "../deb/extractor";
@@ -29,6 +30,7 @@ import {
 	isMacOSAppBundle
 } from "../ipa/extractor";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
+import { discoverXCFramework, findXCFramework, isXCFrameworkPath } from "../xcframework/discovery";
 import type { BinaryAnalysisResult } from "./binary-pipeline";
 import {
 	analyseBinaryFile,
@@ -48,6 +50,7 @@ import { type HexReadResult, readHexAt, searchHexInFile } from "./hex";
 import { buildLibraryGraph } from "./library-graph";
 import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "./search-index";
 import { scanBundleFileContents } from "./security";
+import { buildSizeTree } from "./size-tree";
 
 export class AnalysisSession {
 	// ── State ──────────────────────────────────────────────────────────
@@ -134,6 +137,41 @@ export class AnalysisSession {
 		return buildLibraryGraph(this.binaries, this.result, this.activeBinaryName);
 	}
 
+	// ── Size treemap ────────────────────────────────────────────────────
+
+	/**
+	 * Bundle contents for the treemap, with the active binary split into its
+	 * modules. XCFrameworks show the active slice's .framework as it would be
+	 * embedded in an app (headers, modules and .tbd stubs excluded); bare
+	 * Mach-O files show just the binary.
+	 */
+	getSizeTree(): SizeTreeNode {
+		if (!this.result) throw new Error("No previous analysis. Run analyseFile first.");
+		const activePath = this.getActiveBinaryPath();
+		if (!activePath) throw new Error("No active binary");
+
+		let root: string;
+		const sourceType = this.result.overview.sourceType;
+		if (sourceType === "macho") {
+			root = activePath;
+		} else if (sourceType === "xcframework") {
+			let dir = path.dirname(activePath);
+			while (!dir.endsWith(".framework") && dir !== path.dirname(dir))
+				dir = path.dirname(dir);
+			root = dir.endsWith(".framework") ? dir : path.dirname(activePath);
+		} else {
+			root = this.appBundlePath ?? path.dirname(activePath);
+		}
+
+		// An XCFramework slice is a build input: show only what embedding it ships
+		return buildSizeTree(
+			root,
+			{ path: activePath, breakdown: this.result.size },
+			new Set(this.binaries.map((b) => path.resolve(b.path))),
+			sourceType === "xcframework"
+		);
+	}
+
 	// ── Cross-binary search ────────────────────────────────────────────
 
 	/** Build (or return cached) lightweight per-binary search index. */
@@ -163,7 +201,8 @@ export class AnalysisSession {
 					{
 						skipCodesign: true,
 						skipSecurity: true,
-						skipHooks: true
+						skipHooks: true,
+						skipSize: true
 					}
 				);
 				this.searchIndex.set(i, {
@@ -263,6 +302,11 @@ export class AnalysisSession {
 		await yieldToEventLoop();
 		const appBundlePath = discoverAppBundle(cacheDir);
 		if (!appBundlePath) {
+			// Zipped XCFrameworks (e.g. SwiftPM binary targets) share the ZIP magic
+			const xcframeworkPath = findXCFramework(cacheDir);
+			if (xcframeworkPath) {
+				return this.analyseXCFramework(xcframeworkPath, progressCallback, ipaPath);
+			}
 			throw new Error("No .app bundle found in IPA Payload directory");
 		}
 		this.appBundlePath = appBundlePath;
@@ -811,6 +855,141 @@ export class AnalysisSession {
 		return result;
 	}
 
+	// ── Analyse .xcframework ───────────────────────────────────────
+
+	/**
+	 * Analyse an .xcframework — enumerate its platform slices and parse the first
+	 * dynamic one. `sourcePath` is the file the user opened when the framework
+	 * was extracted from a ZIP.
+	 */
+	async analyseXCFramework(
+		xcframeworkPath: string,
+		progressCallback: (phase: string, percent: number) => void,
+		sourcePath: string = xcframeworkPath
+	): Promise<AnalysisResult> {
+		this.filePath = sourcePath;
+		this.appBundlePath = xcframeworkPath;
+
+		// Step 1: Discover slices
+		progressCallback("Discovering slices...", 5);
+		await yieldToEventLoop();
+		const { slices, binaries } = discoverXCFramework(xcframeworkPath);
+		this.binaries = binaries;
+		this.searchIndex = null;
+
+		if (binaries.length === 0) {
+			throw new Error(
+				slices.length > 0
+					? "XCFramework contains only static libraries, which are not supported"
+					: "No binaries found in XCFramework"
+			);
+		}
+
+		const mainBinary = binaries[0]!;
+		const mainSlice = slices.find((s) => s.absoluteBinaryPath === mainBinary.path)!;
+		const libraryDir = fs.statSync(mainSlice.libraryPath).isDirectory()
+			? mainSlice.libraryPath
+			: path.dirname(mainSlice.libraryPath);
+
+		// Step 2: Parse the main slice's Info.plist (flat iOS or macOS Resources/ layout)
+		progressCallback("Parsing plists...", 10);
+		let infoPlistData: Record<string, PlistValue> = {};
+		for (const dir of [libraryDir, path.join(libraryDir, "Resources")]) {
+			try {
+				const plistResult = parseInfoPlist(dir);
+				if (!plistResult) continue;
+				if (plistResult.ok) {
+					infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+				} else {
+					console.warn(`[plist] ${plistResult.error} (at ${dir})`);
+				}
+				break;
+			} catch {
+				// Non-critical
+			}
+		}
+
+		// Steps 3-12: Analyse main slice binary
+		progressCallback("Reading binary...", 15);
+		this.activeBinaryName = mainBinary.name;
+		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+		this.fatSliceOffset = binaryResult.fatSliceOffset;
+
+		// Scan the main slice's bundle files for secrets (other slices ship the same resources)
+		progressCallback("Scanning bundle files...", 80);
+		await yieldToEventLoop();
+		let bundleFindings: SecurityFinding[] = [];
+		try {
+			const bundleFiles = readBundleFiles(libraryDir);
+			if (bundleFiles.length > 0) {
+				bundleFindings = scanBundleFileContents(bundleFiles);
+			}
+		} catch {
+			// Non-critical
+		}
+
+		// Flag leaked development artifacts — walk the whole XCFramework, since
+		// dSYMs sit beside the library in each slice directory
+		let bundleArtifactFindings: SecurityFinding[] = [];
+		try {
+			bundleArtifactFindings = findBundleDebugArtifacts(xcframeworkPath);
+		} catch {
+			// Non-critical
+		}
+
+		let localisationStrings: LocalisationString[] = [];
+		try {
+			localisationStrings = extractLocalisationStrings(libraryDir);
+		} catch {
+			// Non-critical
+		}
+
+		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+
+		const mergedSecurity = {
+			findings: [
+				...binaryResult.security.findings,
+				...bundleFindings,
+				...bundleArtifactFindings,
+				...extraBinaryFindings
+			],
+			hardening: binaryResult.security.hardening
+		};
+
+		progressCallback("Building file tree...", 95);
+		await yieldToEventLoop();
+		const files = buildFileTree(xcframeworkPath);
+
+		const result = buildAnalysisResult(
+			binaryResult,
+			{
+				sourceType: "xcframework",
+				filePath: sourcePath,
+				ipa: {
+					bundlePath: xcframeworkPath,
+					appName: path.basename(xcframeworkPath, path.extname(xcframeworkPath)),
+					binaries: assembleBinaryList(binaries)
+				},
+				...binaryOverviewFields(binaryResult),
+				infoPlist: infoPlistData,
+				xcframeworkLibraries: slices.map(
+					({ libraryPath: _l, absoluteBinaryPath: _b, ...lib }) => lib
+				)
+			},
+			{
+				localisationStrings,
+				entitlements: binaryResult.entitlements,
+				infoPlist: infoPlistData,
+				security: mergedSecurity,
+				files
+			}
+		);
+
+		this.result = result;
+		progressCallback("Analysis complete", 100);
+		return result;
+	}
+
 	// ── Unified file analysis entry point ────────────────────────────
 
 	/** Analyse any supported file — auto-detects type and dispatches to the right method. */
@@ -823,6 +1002,9 @@ export class AnalysisSession {
 			const stat = fs.statSync(filePath);
 			if (stat.isDirectory() && filePath.endsWith(".app")) {
 				return this.analyseApp(filePath, progressCallback);
+			}
+			if (stat.isDirectory() && isXCFrameworkPath(filePath)) {
+				return this.analyseXCFramework(filePath, progressCallback);
 			}
 		} catch {
 			// Not a directory — continue with file-based detection
@@ -839,6 +1021,8 @@ export class AnalysisSession {
 				return this.analyseDEB(filePath, progressCallback);
 			case "app":
 				return this.analyseApp(filePath, progressCallback);
+			case "xcframework":
+				return this.analyseXCFramework(filePath, progressCallback);
 		}
 	}
 }

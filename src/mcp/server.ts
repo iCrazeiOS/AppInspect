@@ -15,10 +15,11 @@
  *   set the APPINSPECT_ALLOW_ROOT environment variable (see below).
  *
  * Tools:
- *   analyse_file   — Load and analyse a file (IPA, Mach-O, DEB, .app)
+ *   analyse_file   — Load and analyse a file (IPA, Mach-O, DEB, .app, .xcframework)
  *   get_overview    — Analysis summary (header, hardening, hooks, etc.)
  *   get_section     — Detailed data for a specific section with filtering
  *   search          — Cross-binary search
+ *   get_size_tree   — Bundle files as a size tree, active binary split into modules
  *   switch_binary   — Switch to a different binary in the container
  *   read_hex        — Read raw bytes from the active binary
  */
@@ -29,7 +30,7 @@ import { z } from "zod";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
-import type { AnalysisResult } from "../shared/types";
+import type { AnalysisResult, SizeTreeNode } from "../shared/types";
 
 // Keep stdout clean for MCP protocol — redirect console to stderr
 console.log = console.error;
@@ -102,7 +103,8 @@ const SECTION_NAMES = [
 	"infoPlist",
 	"security",
 	"files",
-	"hooks"
+	"hooks",
+	"size"
 ] as const;
 
 type SectionName = (typeof SECTION_NAMES)[number];
@@ -157,6 +159,8 @@ function getSectionData(cached: AnalysisResult, section: SectionName): unknown {
 			return cached.files;
 		case "hooks":
 			return cached.hooks;
+		case "size":
+			return cached.size;
 	}
 }
 
@@ -225,7 +229,7 @@ server.registerTool(
 	"analyse_file",
 	{
 		description:
-			"Analyse an iOS/macOS binary file (IPA, Mach-O, DEB, or .app bundle). " +
+			"Analyse an iOS/macOS binary file (IPA, Mach-O, DEB, .app bundle, or .xcframework). " +
 			"Must be called before any other tool. Returns an overview summary " +
 			"including source type, Mach-O header, build version, hardening flags, " +
 			"and available binaries. The result is cached for the session — call " +
@@ -275,7 +279,9 @@ server.registerTool(
 			"frameworks), symbols (exported/imported/local), classes (ObjC classes " +
 			"+ methods + protocols), entitlements (code signing), infoPlist " +
 			"(Info.plist), security (findings + hardening), files (bundle file " +
-			"tree), hooks (jailbreak hook detection).",
+			"tree), hooks (jailbreak hook detection), size (bytes per " +
+			"segment/section and per module — Swift module, C++ namespace, ObjC " +
+			"class prefix, C library — attributed from symbols and function starts).",
 		inputSchema: {
 			section: z.enum(SECTION_NAMES).describe("Section to retrieve"),
 			filter: z
@@ -336,6 +342,39 @@ server.registerTool(
 			caseSensitive
 		);
 		return ok(results);
+	}
+);
+
+server.registerTool(
+	"get_size_tree",
+	{
+		description:
+			"Bundle contents as a size tree (what the desktop app's Size > Blocks treemap " +
+			"shows): every file in the bundle — for XCFrameworks, the active slice's " +
+			".framework as embedded in an app, so Headers, PrivateHeaders, Modules " +
+			"(.swiftmodule/.modulemap) and .tbd stubs are left out and listed in the " +
+			"root's `excluded` — with the active binary split into its modules (kind " +
+			"'module') and the bytes no module owns (kind 'overhead'). Core ML models " +
+			"(.mlmodelc/.mlpackage/.mlmodel) are single 'mlmodel' leaves. Children are " +
+			"sorted by size, descending.",
+		inputSchema: {
+			maxDepth: z
+				.number()
+				.optional()
+				.describe("Levels of children to include below the root (default: 3)"),
+			path: pathParam
+		}
+	},
+	async ({ maxDepth = 3, path }) => {
+		const prune = (node: SizeTreeNode, depth: number): SizeTreeNode => {
+			if (!node.children) return node;
+			if (depth >= maxDepth) {
+				const { children, ...rest } = node;
+				return { ...rest, childCount: children.length } as SizeTreeNode;
+			}
+			return { ...node, children: node.children.map((c) => prune(c, depth + 1)) };
+		};
+		return ok(prune(getSession(path).getSizeTree(), 0));
 	}
 );
 

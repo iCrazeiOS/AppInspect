@@ -10,6 +10,20 @@ import { decodeCpuType, decodeFileType, decodePlatform, isMacOSPlatform } from "
 
 type OverviewData = AnalysisResult["overview"];
 
+/** Display names for XCFramework Info.plist SupportedPlatform / SupportedPlatformVariant */
+const XCF_PLATFORM_NAMES: Record<string, string> = {
+	ios: "iOS",
+	macos: "macOS",
+	tvos: "tvOS",
+	watchos: "watchOS",
+	xros: "visionOS",
+	driverkit: "DriverKit"
+};
+const XCF_VARIANT_NAMES: Record<string, string> = {
+	simulator: "Simulator",
+	maccatalyst: "Mac Catalyst"
+};
+
 // ── Card builders ──
 
 function buildKV(label: string, value: string, extraClass?: string): HTMLElement {
@@ -179,6 +193,45 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		summaryItems.push(buildKV("Team ID", String(teamId)));
 
 		wrapper.appendChild(buildCard("App Summary", ...summaryItems));
+	} else if (sourceType === "xcframework") {
+		// ── XCFramework Summary + Slices cards ──
+		const summaryItems: HTMLElement[] = [
+			buildKV("Name", String(ipa?.appName ?? "N/A")),
+			buildKV("Bundle ID", String(infoPlist?.["CFBundleIdentifier"] ?? "N/A")),
+			buildKV("Version", String(infoPlist?.["CFBundleShortVersionString"] ?? "N/A")),
+			buildKV("Build", String(infoPlist?.["CFBundleVersion"] ?? "N/A"))
+		];
+		if (platformName) summaryItems.push(buildKV("Platform", platformName));
+		summaryItems.push(
+			buildKV(minOSLabel, String(minOS)),
+			buildKV("Architecture", arch),
+			buildKV("File Type", fileType),
+			buildKV("UUID", String(uuid)),
+			buildKV("Team ID", String(teamId))
+		);
+		wrapper.appendChild(buildCard("XCFramework Summary", ...summaryItems));
+
+		const libraries = data.xcframeworkLibraries ?? [];
+		const sliceItems = libraries.map((lib) => {
+			const row = el("div", "ov-kv");
+			row.appendChild(el("span", "ov-kv-label", lib.identifier));
+			const value = el("span", "ov-badge-group");
+			const variant = lib.platformVariant
+				? ` ${XCF_VARIANT_NAMES[lib.platformVariant] ?? lib.platformVariant}`
+				: "";
+			const platformLabel = XCF_PLATFORM_NAMES[lib.platform] ?? lib.platform;
+			value.appendChild(
+				el(
+					"span",
+					"ov-kv-value",
+					`${platformLabel}${variant} · ${lib.architectures.join(", ")}`
+				)
+			);
+			if (!lib.analysable) value.appendChild(buildBadge("Static", "yellow"));
+			row.appendChild(value);
+			return row;
+		});
+		wrapper.appendChild(buildCard(`Slices (${libraries.length})`, ...sliceItems));
 	} else {
 		// ── IPA App Summary card (existing) ──
 		const bundleId = infoPlist?.["CFBundleIdentifier"] ?? "N/A";

@@ -10,12 +10,16 @@ import * as path from "node:path";
 
 import type { SourceType } from "../../shared/types";
 import { MACHO_MAGICS } from "../parser/macho";
+import { isXCFrameworkPath } from "../xcframework/discovery";
 
 export function detectFileType(filePath: string): SourceType {
-	// Handle directories: .app bundles are valid, anything else is not
+	// Handle directories: .app bundles and .xcframeworks are valid, anything else is not
 	if (fs.statSync(filePath).isDirectory()) {
 		if (filePath.endsWith(".app")) return "ipa";
-		throw new Error("The selected folder is not a valid .app bundle or supported file.");
+		if (isXCFrameworkPath(filePath)) return "xcframework";
+		throw new Error(
+			"The selected folder is not a valid .app bundle, .xcframework, or supported file."
+		);
 	}
 
 	const fd = fs.openSync(filePath, "r");

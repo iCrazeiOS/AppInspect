@@ -354,6 +354,36 @@ describe("parseExportTrie", () => {
 		expect(byName.get("_f")!.type).toBe("exported");
 		expect(byName.get("_g")!.type).toBe("exported");
 	});
+
+	it("skips re-exports and absolute symbols, which have no address in this image", () => {
+		// root -> "_r" (re-export: flags 0x08, ordinal 1, empty import name)
+		//      -> "_a" (absolute: flags 0x02, value 7)
+		//      -> "_k" (regular, addr 9)
+		const trie = [
+			0x00, 0x03, 0x5f, 0x72, 0x00, 14, 0x5f, 0x61, 0x00, 19, 0x5f, 0x6b, 0x00, 23,
+			// node "_r" @14: terminal_size 3, flags 0x08, ordinal 1, "" , children 0
+			0x03, 0x08, 0x01, 0x00, 0x00,
+			// node "_a" @19: terminal_size 2, flags 0x02, value 7, children 0
+			0x02, 0x02, 0x07, 0x00,
+			// node "_k" @23: terminal_size 2, flags 0, addr 9, children 0
+			0x02, 0x00, 0x09, 0x00
+		];
+		const buf = new ArrayBuffer(trie.length);
+		new Uint8Array(buf).set(trie);
+
+		expect(parseExportTrie(buf, 0, trie.length)).toEqual([
+			{ name: "_k", address: 9n, type: "exported", sectionIndex: 0 }
+		]);
+	});
+
+	it("terminates on a cyclic trie", () => {
+		// root (terminal, addr 1) has one child "_x" pointing back at the root
+		const trie = [0x02, 0x00, 0x01, 0x01, 0x5f, 0x78, 0x00, 0x00];
+		const buf = new ArrayBuffer(trie.length);
+		new Uint8Array(buf).set(trie);
+
+		expect(parseExportTrie(buf, 0, trie.length)).toHaveLength(1);
+	});
 });
 
 // ── 32-bit Symbol Table Tests ─────────────────────────────────────────

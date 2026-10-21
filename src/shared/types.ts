@@ -1,7 +1,22 @@
 // ── Shared analysis data types for AppInspect ──
 
 /** What kind of file was loaded */
-export type SourceType = "ipa" | "macho" | "deb" | "app";
+export type SourceType = "ipa" | "macho" | "deb" | "app" | "xcframework";
+
+/** One platform slice declared in an .xcframework's Info.plist (AvailableLibraries) */
+export interface XCFrameworkLibrary {
+	/** Slice directory name, e.g. "ios-arm64_x86_64-simulator" */
+	identifier: string;
+	/** e.g. "ios", "macos", "tvos" */
+	platform: string;
+	/** e.g. "simulator", "maccatalyst"; undefined for device builds */
+	platformVariant?: string;
+	architectures: string[];
+	/** Path to the slice binary relative to the slice directory */
+	binaryPath: string;
+	/** False for static libraries, which are listed but not analysed */
+	analysable: boolean;
+}
 
 /** DEB package control metadata */
 export interface DEBControlInfo {
@@ -229,6 +244,8 @@ export interface ObjCMethod {
 	signature: string;
 	/** @internal Set for metaclass (class-level) methods during parsing; used by enrichment. */
 	_isClassMethod?: boolean;
+	/** @internal Implementation address; feeds size attribution, then stripped before results leave the pipeline. */
+	_imp?: bigint;
 }
 
 export interface ObjCClass {
@@ -365,6 +382,73 @@ export interface LibraryGraphData {
 	edges: LibraryGraphEdge[];
 }
 
+// ── Size Breakdown ──
+
+export interface SizeSection {
+	name: string;
+	/** Bytes on disk (0 for zero-fill sections) */
+	size: number;
+}
+
+export interface SizeSegment {
+	name: string;
+	fileSize: number;
+	vmSize: number;
+	sections: SizeSection[];
+}
+
+export type SizeModuleKind = "swift" | "objc" | "cpp" | "c" | "kotlin" | "unattributed";
+
+export interface SizeModule {
+	/** Swift module, C++ namespace, ObjC class prefix, Kotlin package, or C library */
+	name: string;
+	kind: SizeModuleKind;
+	/** Total bytes attributed to the module (code + data) */
+	size: number;
+	/** Bytes in executable sections */
+	codeSize: number;
+	/** Bytes of unnamed (stripped) code assigned because both neighbours belong to this module */
+	inferredSize: number;
+	symbolCount: number;
+	/** Largest named functions (code only — data symbol extents are unknown), demangled */
+	topFunctions: { name: string; size: number }[];
+}
+
+/** Where the bytes of the active binary (architecture slice) go. */
+export interface SizeBreakdown {
+	/** Size of the analysed slice on disk */
+	binarySize: number;
+	segments: SizeSegment[];
+	/** Sorted by size, descending. Includes an "Unattributed" entry for section bytes no symbol covers. */
+	modules: SizeModule[];
+	/** Section bytes attributed to a named module (directly or inferred) */
+	attributedSize: number;
+	/** Total bytes across all non-zero-fill sections */
+	sectionSize: number;
+}
+
+/**
+ * - directory / file: bundle filesystem entries
+ * - mlmodel: a Core ML model (.mlmodelc / .mlpackage / .mlmodel), kept whole
+ * - binary: a Mach-O file; split into module / overhead children when it is the active binary
+ * - module: bytes the size breakdown attributes to one module
+ * - overhead: binary bytes no module owns (unattributed section data, link-edit, headers, other slices)
+ */
+export type SizeTreeKind = "directory" | "file" | "mlmodel" | "binary" | "module" | "overhead";
+
+/** Bundle contents for the treemap: files with the active binary split into its modules. */
+export interface SizeTreeNode {
+	name: string;
+	size: number;
+	kind: SizeTreeKind;
+	/** Set on module nodes */
+	moduleKind?: SizeModuleKind;
+	/** Sorted by size, descending */
+	children?: SizeTreeNode[];
+	/** Root only: entries left out because they are not embedded in an app (paths relative to the root) */
+	excluded?: { path: string; size: number }[];
+}
+
 // ── Top-level Analysis Result ──
 
 export interface AnalysisResult {
@@ -381,10 +465,12 @@ export interface AnalysisResult {
 		teamId?: string;
 		infoPlist?: { [key: string]: PlistValue };
 		debControl?: DEBControlInfo;
+		xcframeworkLibraries?: XCFrameworkLibrary[];
 		/** Detected app frameworks (React Native, Flutter, etc.) — undefined means native */
 		appFrameworks?: string[];
 	};
 	hooks: HookInfo;
+	size: SizeBreakdown;
 	strings: StringEntry[];
 	localisationStrings: LocalisationString[];
 	headers: {

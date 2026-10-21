@@ -26,7 +26,8 @@ const SECTION_NAMES: TabName[] = [
 	"infoPlist",
 	"hooks",
 	"security",
-	"files"
+	"files",
+	"size"
 ];
 
 const FAIL_ON_LEVELS = ["critical", "warning", "info", "none"] as const;
@@ -52,14 +53,14 @@ export class UsageError extends Error {}
 
 const USAGE = `Usage: appinspect <file> [options]
 
-Analyse an iOS/macOS binary (IPA, DEB, .app bundle, Mach-O, or dylib).
+Analyse an iOS/macOS binary (IPA, DEB, .app bundle, .xcframework, Mach-O, or dylib).
 
 Options:
   --json                Emit the full analysis as JSON (default)
   --sarif               Emit a SARIF 2.1.0 report of the security findings
   --section <name>      Limit --json output to a section (repeatable):
                         overview|strings|headers|libraries|symbols|classes|
-                        entitlements|infoPlist|hooks|security|files
+                        entitlements|infoPlist|hooks|security|files|size
   --binary <index>      Analyse a specific binary index instead of the main one
   --out <path>          Write output to a file (overwrites if it exists; default: stdout)
   --no-clobber          Refuse to overwrite an existing --out file

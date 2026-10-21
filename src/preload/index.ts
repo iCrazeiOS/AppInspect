@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld("api", {
 	) => ipcRenderer.invoke("analyse-binary", { sessionId, binaryIndex, cpuType, cpuSubtype }),
 	getTabData: (sessionId: string, tab: string) =>
 		ipcRenderer.invoke("get-tab-data", { sessionId, tab }),
+	savePNG: (defaultName: string, data: Uint8Array) =>
+		ipcRenderer.invoke("save-png", { defaultName, data }),
 	exportJSON: (sessionId: string, tabs?: string[]) =>
 		ipcRenderer.invoke("export-json", { sessionId, tabs }),
 	openFilePicker: () => ipcRenderer.invoke("open-file-picker"),
@@ -32,6 +34,7 @@ contextBridge.exposeInMainWorld("api", {
 		}),
 	closeSession: (sessionId: string) => ipcRenderer.invoke("close-session", { sessionId }),
 	getLibraryGraph: (sessionId: string) => ipcRenderer.invoke("get-library-graph", { sessionId }),
+	getSizeTree: (sessionId: string) => ipcRenderer.invoke("get-size-tree", { sessionId }),
 	readHex: (sessionId: string, offset: number, length: number) =>
 		ipcRenderer.invoke("read-hex", { sessionId, offset, length }),
 	searchHex: (

@@ -20,7 +20,8 @@ const TAB_KEY_MAP: Record<TabName, keyof AnalysisResult> = {
 	infoPlist: "infoPlist",
 	hooks: "hooks",
 	security: "security",
-	files: "files"
+	files: "files",
+	size: "size"
 };
 
 /**

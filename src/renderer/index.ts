@@ -36,6 +36,7 @@ import { cleanupLibrariesSession, renderLibraries } from "./tabs/libraries";
 import { renderOverview } from "./tabs/overview";
 import { renderPlist } from "./tabs/plist";
 import { renderSecurity } from "./tabs/security";
+import { renderSize } from "./tabs/size";
 import { renderStrings } from "./tabs/strings";
 import { renderSymbols } from "./tabs/symbols";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
@@ -445,6 +446,9 @@ async function loadTabData(tabId: string): Promise<void> {
 					break;
 				case "hooks":
 					renderHooks(panel, (tabData as any)?.data ?? tabData);
+					break;
+				case "size":
+					renderSize(panel, (tabData as any)?.data ?? tabData, sid);
 					break;
 				default:
 					break;
@@ -916,12 +920,17 @@ document.addEventListener("drop", (e: DragEvent) => {
 		lowerPath.endsWith(".ipa") ||
 		lowerPath.endsWith(".deb") ||
 		lowerPath.endsWith(".dylib") ||
-		lowerPath.endsWith(".app");
+		lowerPath.endsWith(".app") ||
+		lowerPath.endsWith(".xcframework") ||
+		lowerPath.endsWith(".zip");
 	if (!supported) {
 		const fileName = filePath.split(/[\\/]/).pop() ?? "";
 		const hasExtension = fileName.includes(".");
 		if (hasExtension) {
-			showToast("Unsupported file type. Supported: IPA, .app, DEB, dylib, Mach-O", "warning");
+			showToast(
+				"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O",
+				"warning"
+			);
 			return;
 		}
 	}

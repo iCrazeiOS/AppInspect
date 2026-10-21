@@ -55,6 +55,9 @@ function isKnownPath(candidate: string): boolean {
 	return false;
 }
 
+/** First eight bytes of every PNG file. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
 export function registerIPCHandlers(win: BrowserWindow): void {
 	// ── analyse-ipa ──
 	ipcMain.handle("analyse-ipa", async (_event, args: { path: string }) => {
@@ -200,6 +203,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					return sanitizeBigInts({ tab: "files", data: cached.files });
 				case "hooks":
 					return sanitizeBigInts({ tab: "hooks", data: cached.hooks });
+				case "size":
+					return sanitizeBigInts({ tab: "size", data: cached.size });
 				default:
 					throw new Error(`Unknown tab: ${tab}`);
 			}
@@ -252,6 +257,11 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	ipcMain.handle("get-library-graph", async (_event, args: { sessionId: string }) => {
 		const session = getSession(args.sessionId);
 		return sanitizeBigInts(await session.getLibraryGraph());
+	});
+
+	// ── get-size-tree ──
+	ipcMain.handle("get-size-tree", (_event, args: { sessionId: string }) => {
+		return getSession(args.sessionId).getSizeTree();
 	});
 
 	// ── read-hex ──
@@ -342,6 +352,23 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	});
 
+	// ── save-png ──
+	ipcMain.handle("save-png", async (_event, args: { defaultName: string; data: Uint8Array }) => {
+		const data = Buffer.from(args.data);
+		if (!data.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+			throw new Error("Refusing to save: data is not a PNG");
+		}
+		// The renderer only suggests a name; never let it pick the directory
+		const defaultPath = `${path.basename(args.defaultName).replace(/\.png$/i, "")}.png`;
+		const { canceled, filePath } = await dialog.showSaveDialog(win, {
+			defaultPath,
+			filters: [{ name: "PNG image", extensions: ["png"] }]
+		});
+		if (canceled || !filePath) return { success: false };
+		writeFileSync(filePath, data);
+		return { success: true, path: filePath };
+	});
+
 	// ── close-session ──
 	ipcMain.handle("close-session", (_event, args: { sessionId: string }) => {
 		sessions.delete(args.sessionId);
@@ -375,7 +402,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	// ── open-file-picker ──
 	ipcMain.handle("open-file-picker", async () => {
 		try {
-			// On macOS, .app bundles are directories that appear as files in
+			// On macOS, .app bundles and .xcframeworks are directories that appear as files in
 			// Finder, so we need both openFile and openDirectory. On Windows
 			// and Linux, combining the two flags results in a folder-only
 			// picker, so we only allow openFile (folders can still be dropped).
@@ -387,9 +414,13 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			const filters: Electron.FileFilter[] = [
 				{
 					name: "Supported Files",
-					extensions: isMac ? ["ipa", "deb", "dylib", "app"] : ["ipa", "deb", "dylib"]
+					extensions: isMac
+						? ["ipa", "deb", "dylib", "app", "xcframework", "zip"]
+						: ["ipa", "deb", "dylib", "zip"]
 				},
 				...(isMac ? [{ name: "App Bundles", extensions: ["app"] }] : []),
+				...(isMac ? [{ name: "XCFrameworks", extensions: ["xcframework"] }] : []),
+				{ name: "Zipped XCFrameworks", extensions: ["zip"] },
 				{ name: "IPA Files", extensions: ["ipa"] },
 				{ name: "DEB Packages", extensions: ["deb"] },
 				{ name: "Mach-O Binaries", extensions: ["dylib"] },

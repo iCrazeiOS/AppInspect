@@ -9,6 +9,7 @@ import type {
 	MachOHeader,
 	SecurityFinding
 } from "../../../shared/types";
+import { EMPTY_SIZE_BREAKDOWN } from "../../analysis/size-breakdown";
 import { exportSarif, findingsAtOrAbove } from "../sarif";
 
 const HEADER: MachOHeader = {
@@ -49,6 +50,7 @@ function makeResult(findings: SecurityFinding[]): AnalysisResult {
 			hardening: HARDENING
 		},
 		hooks: { frameworks: [], targetBundles: [], hookedClasses: [], hookSymbols: [] },
+		size: EMPTY_SIZE_BREAKDOWN,
 		strings: [],
 		localisationStrings: [],
 		headers: { machO: HEADER, fatArchs: [], loadCommands: [] },
