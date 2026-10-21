@@ -25,6 +25,7 @@ import type {
 	PlistValue,
 	SecurityFinding,
 	LoadCommand as SharedLoadCommand,
+	SizeBreakdown,
 	StringEntry,
 	SymbolEntry
 } from "../../shared/types";
@@ -38,7 +39,7 @@ import { enrichMethodsFromSymbols, extractObjCMetadata } from "../parser/objc";
 import { extractStrings } from "../parser/strings";
 import { demangleSwiftSymbol, initSwiftDemangler } from "../parser/swift-demangle";
 import type { SymbolEntry as ParserSymbol } from "../parser/symbols";
-import { countStabsSymbols, parseSymbolTable } from "../parser/symbols";
+import { countStabsSymbols, parseExportTrie, parseSymbolTable } from "../parser/symbols";
 import { buildStringXrefMap, formatFunctionName, parseFunctionStarts } from "../parser/xrefs";
 import {
 	convertEntitlements,
@@ -49,6 +50,7 @@ import {
 } from "./conversion";
 import { detectHooks } from "./hook-detection";
 import { getBinaryHardening, runSecurityScan } from "./security";
+import { buildSizeBreakdown, EMPTY_SIZE_BREAKDOWN } from "./size-breakdown";
 
 /** Yield to the event loop so the UI stays responsive during heavy parsing. */
 export const yieldToEventLoop = (): Promise<void> =>
@@ -71,6 +73,7 @@ export interface BinaryAnalysisResult {
 	teamId: string | null;
 	security: { findings: SecurityFinding[]; hardening: BinaryHardening };
 	hooks: HookInfo;
+	size: SizeBreakdown;
 	errors: string[];
 	fatSliceOffset: number;
 }
@@ -85,6 +88,7 @@ export interface ScanOptions {
 	skipCodesign?: boolean; // code signature + entitlements + teamId
 	skipSecurity?: boolean; // security findings + hardening
 	skipHooks?: boolean; // hook detection
+	skipSize?: boolean; // size breakdown
 }
 
 export async function analyseBinaryFile(
@@ -130,6 +134,7 @@ export async function analyseBinaryFile(
 		encrypted: false,
 		stripped: true
 	};
+	let size: SizeBreakdown = EMPTY_SIZE_BREAKDOWN;
 	let fatSliceOffset = 0;
 
 	// Step 4: Read binary
@@ -159,6 +164,7 @@ export async function analyseBinaryFile(
 			teamId,
 			security: { findings, hardening },
 			hooks,
+			size,
 			errors,
 			fatSliceOffset
 		};
@@ -240,6 +246,7 @@ export async function analyseBinaryFile(
 			teamId,
 			security: { findings, hardening },
 			hooks,
+			size,
 			errors,
 			fatSliceOffset
 		};
@@ -305,6 +312,7 @@ export async function analyseBinaryFile(
 			teamId,
 			security: { findings, hardening },
 			hooks,
+			size,
 			errors,
 			fatSliceOffset
 		};
@@ -378,6 +386,18 @@ export async function analyseBinaryFile(
 		errors.push(`Symbol table parse error: ${msg}`);
 	}
 
+	// Step 9b: Function starts (feed size attribution and string xrefs)
+	const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
+	let funcStarts: bigint[] = [];
+	if (textSeg && lcResult.functionStartsInfo) {
+		funcStarts = parseFunctionStarts(
+			buffer,
+			lcResult.functionStartsInfo.offset,
+			lcResult.functionStartsInfo.size,
+			textSeg.vmaddr
+		);
+	}
+
 	// Step 10: Extract ObjC metadata
 	progressCallback("Extracting ObjC metadata...", basePercent + 40);
 	await yieldToEventLoop();
@@ -401,6 +421,49 @@ export async function analyseBinaryFile(
 	// Step 10b: Recover method selectors from the symbol table when the method
 	// list left them empty (common with dyld_shared_cache extracted binaries).
 	enrichMethodsFromSymbols(classes, rawSymbols);
+
+	// Step 10c: Size breakdown by segment/section and module
+	if (!options.skipSize) {
+		try {
+			// Export-trie entries are offsets from the image base (the __TEXT vmaddr)
+			const imageBase = textSeg?.vmaddr ?? 0n;
+			const exports = lcResult.exportTrieInfo
+				? parseExportTrie(
+						buffer,
+						lcResult.exportTrieInfo.offset,
+						lcResult.exportTrieInfo.size
+					).map((e) => ({ ...e, address: e.address + imageBase }))
+				: [];
+			// ObjC method lists name implementations even in fully stripped binaries
+			const methodSymbols: ParserSymbol[] = classes.flatMap((cls) =>
+				cls.methods.flatMap((m) =>
+					m._imp
+						? [
+								{
+									name: `${m._isClassMethod ? "+" : "-"}[${cls.name} ${m.selector}]`,
+									address: m._imp,
+									type: "local" as const,
+									sectionIndex: 0
+								}
+							]
+						: []
+				)
+			);
+			size = buildSizeBreakdown(
+				lcResult,
+				[...rawSymbols, ...exports, ...methodSymbols],
+				funcStarts,
+				buffer.byteLength,
+				machoFile.is64Bit
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`Size breakdown error: ${msg}`);
+		}
+	}
+	for (const cls of classes) {
+		for (const m of cls.methods) delete m._imp;
+	}
 
 	// Step 11: Parse code signature + entitlements
 	progressCallback("Parsing code signature...", basePercent + 50);
@@ -477,17 +540,7 @@ export async function analyseBinaryFile(
 		progressCallback("Resolving function references...", basePercent + 57);
 		await yieldToEventLoop();
 		try {
-			const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
 			if (textSeg) {
-				let funcStarts: bigint[] = [];
-				if (lcResult.functionStartsInfo) {
-					funcStarts = parseFunctionStarts(
-						buffer,
-						lcResult.functionStartsInfo.offset,
-						lcResult.functionStartsInfo.size,
-						textSeg.vmaddr
-					);
-				}
 				const stringXrefs = buildStringXrefMap(
 					buffer,
 					lcResult.segments,
@@ -543,6 +596,7 @@ export async function analyseBinaryFile(
 		teamId,
 		security: { findings, hardening },
 		hooks,
+		size,
 		errors,
 		fatSliceOffset
 	};
@@ -597,6 +651,7 @@ export function buildAnalysisResult(
 		infoPlist: opts.infoPlist ?? {},
 		security: opts.security ?? br.security,
 		hooks: br.hooks,
+		size: br.size,
 		files: opts.files ?? []
 	};
 }

@@ -1,6 +1,6 @@
 # AppInspect
 
-A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
+A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, .xcframework, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
 Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
@@ -10,6 +10,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
+- **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
 
@@ -32,6 +33,7 @@ File type is detected automatically by magic bytes.
 | **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment (issues only), leaked debug artifacts (DWARF, debug symbols, developer source paths, shipped source maps / Swift module interfaces / symbol maps), bundle file scanning (JS bundles, configs) |
 | **Hex** | Raw hex viewer with virtual scrolling for large binaries. Segment/section region picker, go-to offset, hex/decimal offset toggle. Dual-mode search (hex bytes or text) with match highlighting and navigation |
 | **Files** | Bundle file tree with sizes, context menu (copy path, open file, show in explorer/finder), double-click to open (IPA/DEB) |
+| **Size** | Where the binary's bytes go. **Modules** ranks Swift modules, ObjC class prefixes, C++ namespaces, Kotlin packages, and well-known C libraries (OpenSSL/BoringSSL, SQLite, ...) by size, each expandable to its largest functions. **Sections** breaks each segment down by section, with `__LINKEDIT` split into symbol/string tables, code signature, fixups, and export trie. **Blocks** is a Disk Inventory X-style cushion treemap of every file in the bundle (for XCFrameworks, the active slice's `.framework` as it would be embedded in an app — `Headers`, `PrivateHeaders`, `Modules` and `.tbd` stubs are excluded, as Xcode's Embed Frameworks phase does, and listed above the map), with the active binary split into its modules and binary overhead, and Core ML models (`.mlmodelc`, `.mlpackage`, `.mlmodel`) kept as single blocks; hover for details, click to zoom, breadcrumb to zoom out. **Export PNG** saves the current view as a 6000×4000 image with every block labelled — blocks too small for their name get a number referenced in a key under the map. Attribution is heuristic: it uses the symbol table, export trie, ObjC method lists, and function starts, and assigns stripped code to a module when both neighbouring functions belong to it |
 
 ### Other capabilities
 
@@ -151,14 +153,15 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 
 | Tool | Description |
 |------|-------------|
-| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, or .app). Must be called first. |
+| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, or .xcframework). Must be called first. |
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
+| `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules. Optional `maxDepth` (default 3). |
 | `search` | Cross-binary search across all binaries in the loaded container |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
-**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`
+**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`, `size`
 
 All query tools (`get_overview`, `get_section`, `search`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
@@ -248,6 +251,7 @@ src/
     deb/             # DEB archive extraction
     ipc/             # IPC handlers
     ipa/             # IPA extraction
+    xcframework/     # XCFramework slice discovery
     parser/          # Mach-O parsing (headers, load commands, strings,
                      #   symbols, ObjC metadata, code signatures, xrefs,
                      #   chained fixups, plists)

@@ -1,4 +1,4 @@
-import type { AnalysisResult, AppSettings, LibraryGraphData } from "../shared/types";
+import type { AnalysisResult, AppSettings, LibraryGraphData, SizeTreeNode } from "../shared/types";
 import type {
 	TabData,
 	TabName,
@@ -20,6 +20,7 @@ export interface AppInspectAPI {
 	): Promise<AnalysisResult>;
 	getTabData(sessionId: string, tab: TabName): Promise<TabData>;
 	exportJSON(sessionId: string, tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
+	savePNG(defaultName: string, data: Uint8Array): Promise<{ success: boolean; path?: string }>;
 	openFilePicker(): Promise<string | null>;
 	getSettings(): Promise<AppSettings>;
 	setSettings(settings: AppSettings): Promise<void>;
@@ -32,6 +33,7 @@ export interface AppInspectAPI {
 	): Promise<CrossBinarySearchResult[]>;
 	closeSession(sessionId: string): Promise<void>;
 	getLibraryGraph(sessionId: string): Promise<LibraryGraphData>;
+	getSizeTree(sessionId: string): Promise<SizeTreeNode>;
 	readHex(
 		sessionId: string,
 		offset: number,

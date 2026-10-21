@@ -16,6 +16,8 @@ import type {
 	ObjCProtocol,
 	PlistValue,
 	SecurityFinding,
+	SizeBreakdown,
+	SizeTreeNode,
 	StringEntry,
 	SymbolEntry
 } from "./types";
@@ -82,6 +84,11 @@ export interface FilesTabData {
 	data: FileEntry[];
 }
 
+export interface SizeTabData {
+	tab: "size";
+	data: SizeBreakdown;
+}
+
 export interface HooksTabData {
 	tab: "hooks";
 	data: HookInfo;
@@ -98,7 +105,8 @@ export type TabData =
 	| InfoPlistTabData
 	| SecurityTabData
 	| FilesTabData
-	| HooksTabData;
+	| HooksTabData
+	| SizeTabData;
 
 export interface CrossBinarySearchResult {
 	binaryIndex: number;
@@ -127,6 +135,10 @@ export type InvokeChannelMap = {
 	"get-tab-data": {
 		params: { sessionId: string; tab: TabName };
 		result: TabData;
+	};
+	"save-png": {
+		params: { defaultName: string; data: Uint8Array };
+		result: { success: boolean; path?: string };
 	};
 	"export-json": {
 		params: { sessionId: string; tabs?: TabName[] };
@@ -157,6 +169,10 @@ export type InvokeChannelMap = {
 	"get-library-graph": {
 		params: { sessionId: string };
 		result: LibraryGraphData;
+	};
+	"get-size-tree": {
+		params: { sessionId: string };
+		result: SizeTreeNode;
 	};
 	"get-settings": {
 		params: void;

@@ -24,6 +24,8 @@ export interface ObjCMethod {
 	signature: string;
 	/** @internal Set for metaclass (class-level) methods during parsing; used by enrichment. */
 	_isClassMethod?: boolean;
+	/** @internal Implementation address; feeds size attribution, then stripped before results leave the pipeline. */
+	_imp?: bigint;
 }
 
 export interface ObjCClass {
@@ -658,6 +660,13 @@ function parseMethodList(
 					? readString(view, typesFileOffset)
 					: "";
 
+			// imp_offset is relative to its own position (zero for protocol methods)
+			const impRelOffset = view.getInt32(entryOffset + 8, le);
+			const imp =
+				impRelOffset !== 0 && methodListVmaddr !== null
+					? methodListVmaddr + BigInt(8 + i * entrySize + 8 + impRelOffset)
+					: 0n;
+
 			// Keep entry even with empty name — the orchestrator can fill it
 			// from symbol table data for shared cache binaries.
 			methods.push({
@@ -666,7 +675,8 @@ function parseMethodList(
 					name.length > 0
 						? buildMethodSignature(name, typeEncoding, isInstance)
 						: typeEncoding,
-				...(!isInstance && { _isClassMethod: true })
+				...(!isInstance && { _isClassMethod: true }),
+				...(imp !== 0n && { _imp: imp })
 			});
 		}
 	} else {
@@ -705,10 +715,23 @@ function parseMethodList(
 				}
 			}
 
+			const imp =
+				entryOffset + ptrSize * 3 <= view.byteLength
+					? resolvePointer(
+							view,
+							entryOffset + ptrSize * 2,
+							rebaseMap,
+							le,
+							segments,
+							is64Bit
+						)
+					: 0n;
+
 			methods.push({
 				selector: name,
 				signature: buildMethodSignature(name, typeEncoding, isInstance),
-				...(!isInstance && { _isClassMethod: true })
+				...(!isInstance && { _isClassMethod: true }),
+				...(imp !== 0n && { _imp: imp })
 			});
 		}
 	}

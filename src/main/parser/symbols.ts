@@ -32,6 +32,9 @@ const NLIST_64_SIZE = 16; // n_strx(4) + n_type(1) + n_sect(1) + n_desc(2) + n_v
 const N_EXT = 0x01;
 const N_TYPE_MASK = 0x0e;
 const N_STAB_MASK = 0xe0;
+const EXPORT_SYMBOL_FLAGS_KIND_MASK = 0x03;
+const EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE = 0x02;
+const EXPORT_SYMBOL_FLAGS_REEXPORT = 0x08;
 
 // ── ULEB128 ───────────────────────────────────────────────────────────
 
@@ -184,7 +187,10 @@ export function countStabsSymbols(
  * @param buffer       The full Mach-O file buffer
  * @param exportOffset Byte offset of the trie within the buffer
  * @param exportSize   Size of the trie in bytes
- * @returns            Array of exported Symbol entries
+ * @returns            Array of exported Symbol entries. Addresses are offsets
+ *                     from the image base (the __TEXT vmaddr). Re-exports
+ *                     and absolute symbols have no address in this image
+ *                     and are skipped.
  */
 export function parseExportTrie(
 	buffer: ArrayBuffer,
@@ -196,10 +202,13 @@ export function parseExportTrie(
 
 	const view = new DataView(buffer);
 	const symbols: SymbolEntry[] = [];
+	// A malformed trie can point a child back at an ancestor; visit each node once
+	const visited = new Set<number>();
 
 	function walkNode(nodeOffset: number, prefix: string): void {
 		const absOffset = exportOffset + nodeOffset;
-		if (absOffset >= exportOffset + exportSize) return;
+		if (absOffset >= exportOffset + exportSize || visited.has(nodeOffset)) return;
+		visited.add(nodeOffset);
 
 		// Read terminal size
 		const term = readULEB128(view, absOffset);
@@ -212,12 +221,17 @@ export function parseExportTrie(
 			const addr = readULEB128(view, cursor);
 			cursor += addr.bytesRead;
 
-			symbols.push({
-				name: prefix,
-				address: BigInt(addr.value),
-				type: "exported",
-				sectionIndex: 0
-			});
+			const isReexport = (flags.value & EXPORT_SYMBOL_FLAGS_REEXPORT) !== 0;
+			const isAbsolute =
+				(flags.value & EXPORT_SYMBOL_FLAGS_KIND_MASK) === EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE;
+			if (!isReexport && !isAbsolute) {
+				symbols.push({
+					name: prefix,
+					address: BigInt(addr.value),
+					type: "exported",
+					sectionIndex: 0
+				});
+			}
 		}
 
 		// Read children
