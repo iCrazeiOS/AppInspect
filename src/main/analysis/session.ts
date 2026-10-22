@@ -10,7 +10,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { imageMimeType } from "../../shared/asar-preview";
+import {
+	ASAR_FULL_BYTES,
+	ASAR_IMAGE_BYTES,
+	ASAR_PREVIEW_BYTES,
+	imageMimeType
+} from "../../shared/asar-preview";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
@@ -61,10 +66,6 @@ import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "
 import { scanBundleFileContents } from "./security";
 import { buildSizeTree } from "./size-tree";
 
-/** Preview reads from `app.asar` are clamped to this many bytes. */
-const MAX_ASAR_PREVIEW_BYTES = 512 * 1024;
-/** Image previews are read up to this many bytes, ignoring the text cap. */
-const MAX_ASAR_IMAGE_BYTES = 4 * 1024 * 1024;
 /** Bytes of a file inspected for a NUL byte to tell text from binary. */
 const BINARY_SNIFF_BYTES = 8 * 1024;
 
@@ -227,7 +228,7 @@ export class AnalysisSession {
 
 	/**
 	 * Read one archive entry for preview. Text and other non-image entries are
-	 * clamped to `maxBytes` (1..512 KB) and return text unless a NUL byte in the
+	 * clamped to `maxBytes` (1..32 MB) and return text unless a NUL byte in the
 	 * first 8 KB marks them binary. Images ignore `maxBytes`, read up to 4 MB,
 	 * and embed a data URL only when `includeImage` is true and not truncated.
 	 */
@@ -239,12 +240,12 @@ export class AnalysisSession {
 		if (!this.asarArchive) return null;
 		const mime = imageMimeType(entryPath);
 		const limit = mime
-			? MAX_ASAR_IMAGE_BYTES
+			? ASAR_IMAGE_BYTES
 			: Math.min(
-					MAX_ASAR_PREVIEW_BYTES,
+					ASAR_FULL_BYTES,
 					Math.max(
 						1,
-						Number.isFinite(maxBytes) ? Math.floor(maxBytes) : MAX_ASAR_PREVIEW_BYTES
+						Number.isFinite(maxBytes) ? Math.floor(maxBytes) : ASAR_PREVIEW_BYTES
 					)
 				);
 

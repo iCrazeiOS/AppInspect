@@ -394,6 +394,35 @@
   color: #f85149;
 }
 
+.el-notice--truncated {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.el-notice-action {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.el-notice-action:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.el-notice-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+  text-decoration: none;
+}
+
 .el-preview-body {
   flex: 1;
   overflow: auto;

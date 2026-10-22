@@ -3,7 +3,12 @@
  * package metadata, fuses and ASAR integrity recorded for the bundle.
  */
 
-import { imageMimeType } from "../../shared/asar-preview";
+import {
+	ASAR_FULL_BYTES,
+	ASAR_IMAGE_BYTES,
+	ASAR_PREVIEW_BYTES,
+	imageMimeType
+} from "../../shared/asar-preview";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AsarEntry,
@@ -36,9 +41,6 @@ import {
 	stepImageZoom
 } from "../utils/image-zoom";
 import { initPanelResize } from "../utils/panel-resize";
-
-/** Archive preview cap, matching the main-process handler's clamp. */
-const PREVIEW_MAX_BYTES = 512 * 1024;
 
 type ElectronView = "files" | "package";
 
@@ -741,7 +743,66 @@ export function renderElectron(
 			}
 		}
 
-		function renderPreviewContent(result: AsarFileContent, path: string): void {
+		async function loadFullContent(path: string, button: HTMLButtonElement): Promise<void> {
+			const requestId = previewRequest;
+			button.disabled = true;
+			button.textContent = "Loading full content\u2026";
+			try {
+				const result = await window.api.readAsarFile(
+					sessionId,
+					path,
+					ASAR_FULL_BYTES,
+					true
+				);
+				if (requestId !== previewRequest || previewPath !== path || !body.isConnected)
+					return;
+				if (!result) {
+					showToast("Could not load the full file");
+					button.disabled = false;
+					button.textContent = "Load full content";
+					return;
+				}
+				renderPreviewContent(result, path, ASAR_FULL_BYTES);
+			} catch (err) {
+				if (requestId !== previewRequest || previewPath !== path || !body.isConnected)
+					return;
+				showToast(
+					`Could not load the full file: ${err instanceof Error ? err.message : String(err)}`
+				);
+				button.disabled = false;
+				button.textContent = "Load full content";
+			}
+		}
+
+		function buildTruncatedNotice(
+			result: AsarFileContent,
+			path: string,
+			limit: number
+		): HTMLElement {
+			const notice = el("div", "el-notice el-notice--warn el-notice--truncated");
+			notice.appendChild(
+				el(
+					"span",
+					"el-notice-text",
+					`Showing the first ${formatSize(limit)} of ${formatSize(result.size)}.`
+				)
+			);
+			if (limit < ASAR_FULL_BYTES) {
+				const button = el("button", "el-notice-action", "Load full content");
+				button.title = `Load the full ${formatSize(result.size)} file`;
+				button.addEventListener("click", () => {
+					void loadFullContent(path, button);
+				});
+				notice.appendChild(button);
+			}
+			return notice;
+		}
+
+		function renderPreviewContent(
+			result: AsarFileContent,
+			path: string,
+			limit = ASAR_PREVIEW_BYTES
+		): void {
 			notices.innerHTML = "";
 			body.innerHTML = "";
 			body.classList.remove("el-preview-body--image");
@@ -786,7 +847,7 @@ export function renderElectron(
 						"div",
 						"el-notice el-notice--warn",
 						result.truncated
-							? "Image is too large to preview (limit 4 MB)."
+							? `Image is too large to preview (limit ${formatSize(ASAR_IMAGE_BYTES)}).`
 							: "Image preview unavailable."
 					)
 				);
@@ -805,19 +866,13 @@ export function renderElectron(
 			}
 
 			if (result.truncated) {
-				notices.appendChild(
-					el(
-						"div",
-						"el-notice el-notice--warn",
-						`Showing the first ${formatSize(PREVIEW_MAX_BYTES)} of ${formatSize(result.size)}.`
-					)
-				);
+				notices.appendChild(buildTruncatedNotice(result, path, limit));
 			}
 
 			const text = result.text ?? "";
-			const pretty = prettyPrintJson(text);
+			const pretty = result.truncated ? null : prettyPrintJson(text);
 			rawText = text;
-			textParser = beautifyParser(path);
+			textParser = result.truncated ? null : beautifyParser(path);
 			beautified = pretty !== null;
 			codeEl = el("pre", "el-code", pretty ?? text);
 			body.appendChild(codeEl);
@@ -841,7 +896,7 @@ export function renderElectron(
 				const result = await window.api.readAsarFile(
 					sessionId,
 					entry.path,
-					PREVIEW_MAX_BYTES,
+					ASAR_PREVIEW_BYTES,
 					true
 				);
 				if (requestId !== previewRequest || !body.isConnected) return;

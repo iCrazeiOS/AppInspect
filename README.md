@@ -162,7 +162,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules and an Electron `app.asar` split into its packed contents. Optional `maxDepth` (default 3). |
 | `list_asar` | List files inside an Electron `app.asar` (flat, sorted by path). Optional `filter`, `offset`, `limit` |
-| `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to 512 KB; images and other binary content return metadata only). Optional `maxBytes` |
+| `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to `maxBytes`, 512 KB default and 32 MB max; images and other binary content return metadata only). Optional `maxBytes` |
 | `search` | Cross-binary search across all binaries in the loaded container. `tab`: `classes`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |

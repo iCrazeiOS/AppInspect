@@ -254,9 +254,9 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
   unchanged when there are no packed files.
 - `getSizeTree` passes the archive path + tree.
 - `getTabData("electron")` returns `{ info, files }`.
-- `read-asar-file` handler: clamp text reads to 1..512 KB; image reads cap at
-  4 MB and embed a data URL only when `includeImage` is true. Return
-  `AsarFileContent` or `null`.
+- `read-asar-file` handler: text reads default to 512 KB and are hard-capped at
+  32 MB for explicit full-content loads; image reads cap at 4 MB and embed a
+  data URL only when `includeImage` is true. Return `AsarFileContent` or `null`.
 - Export map adds `electron: "electron"`.
 - No cache changes: the header read is cheap and reads are by offset.
 
@@ -292,11 +292,11 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
     - Preview: `readAsarFile(..., 512 KB, true)`; stale responses ignored with a
       request counter; monospace `<pre>` with a Beautify/Raw toggle
       (Prettier standalone); pretty-print JSON when it parses; truncated text
-      and binary notices. Raster images render from a data URL and fall back to
-      a notice when larger than 4 MB or undecodable. Images open fitted to the
-      viewport with zoom out / reset / zoom in header buttons, trackpad pinch
-      (ctrl+wheel) anchored under the cursor, and normal two-finger scrolling to
-      pan once zoomed.
+      disables Beautify and offers **Load full content** (32 MB cap). Raster
+      images render from a data URL and fall back to a notice when larger than
+      4 MB or undecodable. Images open fitted to the viewport with zoom out /
+      reset / zoom in header buttons, trackpad pinch (ctrl+wheel) anchored under
+      the cursor, and normal two-finger scrolling to pan once zoomed.
     - Tree icons classify directories, images, code, data, fonts, archives,
       media, binaries and docs.
   - Package view: package.json facts, dependencies, fuses with state badges,
