@@ -371,15 +371,116 @@ function windowOpenHits(content: string): RuntimeHit[] {
 	return hits;
 }
 
+interface ElectronShellAliases {
+	/** Aliases of the whole `electron` module, for `X.shell.openExternal`. */
+	namespaces: Set<string>;
+	/** Aliases of `electron.shell`, for `Y.openExternal`. */
+	shells: Set<string>;
+}
+
+/** Local names bound to the Electron shell by requires and ES imports. */
+function electronShellAliases(content: string): ElectronShellAliases {
+	const namespaces = new Set<string>();
+	const shells = new Set<string>();
+
+	const addSpecifiers = (specifiers: string): void => {
+		for (const raw of splitArguments(specifiers.replace(/\s+as\s+/g, ":"))) {
+			const [imported = "", local = ""] = raw.split(":");
+			if (imported.trim() !== "shell") continue;
+			shells.add(local.trim() || "shell");
+		}
+	};
+
+	for (const match of content.matchAll(
+		/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*["']electron["']\s*\)/g
+	)) {
+		addSpecifiers(match[1] ?? "");
+	}
+	for (const match of content.matchAll(
+		/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["']electron["']\s*\)(?!\s*\.)/g
+	)) {
+		namespaces.add(match[1]!);
+	}
+	for (const match of content.matchAll(
+		/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["']electron["']\s*\)\s*\.\s*shell\b/g
+	)) {
+		shells.add(match[1]!);
+	}
+	for (const match of content.matchAll(/\bimport\s+([^;]*?)\s+from\s*["']electron["']/g)) {
+		const clause = (match[1] ?? "").trim();
+		const named = clause.match(/\{([^}]*)\}/);
+		if (named) addSpecifiers(named[1] ?? "");
+		if (clause.startsWith("*")) {
+			const alias = clause.match(/^\*\s*as\s+([A-Za-z_$][\w$]*)/);
+			if (alias) namespaces.add(alias[1]!);
+		} else if (!clause.startsWith("{")) {
+			const alias = clause.match(/^([A-Za-z_$][\w$]*)/);
+			if (alias) namespaces.add(alias[1]!);
+		}
+	}
+
+	return { namespaces, shells };
+}
+
+/** Identifier ending at `end`, or null when the text there is not a name. */
+function identifierBefore(content: string, end: number): { name: string; start: number } | null {
+	let start = end;
+	while (start > 0 && /[\w$]/.test(content[start - 1]!)) start--;
+	if (start === end) return null;
+	return { name: content.slice(start, end), start };
+}
+
+/**
+ * Start of the callee chain when the `openExternal` call at `index` roots at
+ * the Electron shell, or null otherwise. Bare `shell`, a known shell alias,
+ * and `namespace.shell` for a known Electron module alias all qualify.
+ * Wrappers such as `this.shell`/`SafeShell` are local APIs that may validate
+ * the URL first, so they are left alone.
+ */
+function electronShellCallStart(
+	content: string,
+	index: number,
+	aliases: ElectronShellAliases
+): number | null {
+	let cursor = index;
+	while (cursor > 0 && /\s/.test(content[cursor - 1]!)) cursor--;
+	if (cursor === 0 || content[cursor - 1] !== ".") return null;
+	cursor--;
+	while (cursor > 0 && /\s/.test(content[cursor - 1]!)) cursor--;
+
+	const identifier = identifierBefore(content, cursor);
+	if (!identifier) return null;
+
+	const { name, start } = identifier;
+	let objectEnd = start;
+	while (objectEnd > 0 && /\s/.test(content[objectEnd - 1]!)) objectEnd--;
+	const qualified = objectEnd > 0 && content[objectEnd - 1] === ".";
+
+	if (!qualified) return name === "shell" || aliases.shells.has(name) ? start : null;
+
+	const object = identifierBefore(content, objectEnd - 1);
+	return object !== null && aliases.namespaces.has(object.name) ? object.start : null;
+}
+
+/** Electron's second argument is an options object or undefined. */
+function isOptionsArgument(argument: string | undefined): boolean {
+	const value = (argument ?? "").trim();
+	return value === "" || value === "undefined" || value === "void 0" || value.startsWith("{");
+}
+
 function openExternalHits(content: string): RuntimeHit[] {
 	const hits: RuntimeHit[] = [];
-	for (const site of callSites(content, "shell.openExternal")) {
-		const argument = splitArguments(site.args)[0] ?? "";
-		if (STATIC_STRING_RE.test(argument)) continue;
+	const aliases = electronShellAliases(content);
+	for (const site of callSites(content, "openExternal")) {
+		const start = electronShellCallStart(content, site.index, aliases);
+		if (start === null) continue;
+		const args = splitArguments(site.args);
+		if (STATIC_STRING_RE.test(args[0] ?? "")) continue;
+		if (!isOptionsArgument(args[1])) continue;
 		hits.push({
 			severity: "info",
 			message: "shell.openExternal receives a non-literal URL — verify it is validated",
-			evidence: evidence(site.text)
+			evidence: evidence(content.slice(start, site.index + site.text.length))
 		});
 	}
 	return hits;

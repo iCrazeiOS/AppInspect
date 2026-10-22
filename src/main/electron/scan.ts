@@ -7,6 +7,7 @@
  * so every read is bounded by the bundle size settings.
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { formatCount } from "../../shared/format";
@@ -327,14 +328,16 @@ const VENDOR_SEGMENT = /(^|\/)(node_modules|vendor|third_party|3rdparty)(\/|$)/i
 
 /** True when the file is the app's own code rather than a bundled dependency. */
 function isFirstParty(relativePath: string, info: ElectronInfo): boolean {
+	// Unpacked `Resources/app` trees use `app/…` where archives use `app.asar/…`.
+	const prefix = relativePath.startsWith("app/") ? "app" : "app.asar";
 	const name = info.packageJson?.name;
-	if (typeof name === "string" && relativePath.startsWith(`app.asar/node_modules/${name}/`)) {
+	if (typeof name === "string" && relativePath.startsWith(`${prefix}/node_modules/${name}/`)) {
 		// electron-builder's two-package layout ships the app itself under node_modules
 		return true;
 	}
 	const main = info.packageJson?.main;
 	if (typeof main === "string") {
-		const mainPath = `app.asar/${main.replace(/^[./]+/, "")}`;
+		const mainPath = `${prefix}/${main.replace(/^[./]+/, "")}`;
 		if (relativePath === mainPath) return true;
 	}
 	return !VENDOR_SEGMENT.test(relativePath);
@@ -853,6 +856,69 @@ export function readAsarUnpackedHtmlFiles(
 		totalSize += record.size;
 	}
 
+	return files;
+}
+
+/**
+ * Read scannable text files from an unpacked `Resources/app` directory.
+ *
+ * Mirrors `readAsarTextFiles`: only scannable extensions, bounded per file and
+ * in total, no source maps, no binary content. `node_modules` is skipped because
+ * the app's own runtime code lives under `out/` and dependencies would flood the
+ * budget. Directory symlinks and symlinked files are not followed.
+ */
+export function readAppDirectoryTextFiles(
+	appDir: string,
+	limits?: AsarScanLimits
+): BundleFileEntry[] {
+	const settings = loadSettings();
+	const maxFileSize = limits?.maxFileSize ?? settings.maxFileSizeMB * 1024 * 1024;
+	const maxBundleSize = limits?.maxBundleSize ?? settings.maxBundleSizeMB * 1024 * 1024;
+
+	const files: BundleFileEntry[] = [];
+	let totalSize = 0;
+
+	const walk = (dir: string): void => {
+		if (totalSize >= maxBundleSize) return;
+
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		// Directory order is filesystem-dependent; sort so findings are stable
+		entries.sort((a, b) => a.name.localeCompare(b.name));
+
+		for (const entry of entries) {
+			if (totalSize >= maxBundleSize) break;
+			const fullPath = path.join(dir, entry.name);
+
+			if (entry.isDirectory()) {
+				if (entry.name !== "node_modules") walk(fullPath);
+				continue;
+			}
+			// Symlinks are skipped: their targets may live outside the bundle
+			if (!entry.isFile()) continue;
+			if (entry.name.toLowerCase().endsWith(".map")) continue;
+			if (!isScannableExtension(path.extname(entry.name))) continue;
+
+			try {
+				const stat = fs.statSync(fullPath);
+				if (stat.size === 0 || stat.size > maxFileSize) continue;
+				const data = fs.readFileSync(fullPath);
+				if (data.includes(0)) continue;
+
+				const relativePath = path.relative(appDir, fullPath).replace(/\\/g, "/");
+				files.push({ relativePath: `app/${relativePath}`, content: data.toString("utf8") });
+				totalSize += stat.size;
+			} catch {
+				// Skip unreadable files
+			}
+		}
+	};
+
+	walk(appDir);
 	return files;
 }
 

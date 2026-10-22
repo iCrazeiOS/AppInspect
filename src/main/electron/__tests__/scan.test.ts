@@ -588,6 +588,49 @@ describe("scanElectron runtime API checks", () => {
 		expect(findings[0]?.severity).toBe("info");
 	});
 
+	it("flags shell.openExternal with an options object", () => {
+		const findings = scanText("shell.openExternal(target, { activate: true })");
+		expect(findings[0]?.severity).toBe("info");
+		expect(findings[0]?.category).toBe("electron-runtime");
+	});
+
+	it("does not flag a local SafeShell wrapper that reuses the shell name", () => {
+		const content =
+			"class SafeShell { openExternal(url, type) { " +
+			"if (!SafeUrls.canLaunch(url, type)) return; " +
+			"return this.shell.openExternal(url, UrlType.WebUrl); } }";
+		expect(scanText(content)).toEqual([]);
+	});
+
+	it("does not flag an unknown shell chain", () => {
+		expect(scanText("foo.shell.openExternal(url)")).toEqual([]);
+	});
+
+	it("skips a non-options second argument", () => {
+		expect(scanText("shell.openExternal(url, UrlType.WebUrl)")).toEqual([]);
+	});
+
+	it("follows a require namespace alias", () => {
+		const findings = scanText(
+			'const electron_1 = require("electron");electron_1.shell.openExternal(target);'
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("info");
+		expect(findings[0]?.evidence).toContain("electron_1.shell.openExternal");
+	});
+
+	it("follows ES import aliases and destructured requires", () => {
+		const esm = scanText(
+			'import * as electron from "electron";\nelectron.shell.openExternal(target);'
+		);
+		expect(esm).toHaveLength(1);
+
+		const destructured = scanText(
+			'const { shell: electronShell } = require("electron");\nelectronShell.openExternal(target);'
+		);
+		expect(destructured).toHaveLength(1);
+	});
+
 	it("flags raw ipcRenderer exposed through contextBridge", () => {
 		const findings = scanText(
 			'contextBridge.exposeInMainWorld("api", ipcRenderer)',

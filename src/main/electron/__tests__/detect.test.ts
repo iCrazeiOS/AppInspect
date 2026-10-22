@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import plist from "plist";
@@ -145,6 +145,18 @@ function makeApp(name: string, options: AppOptions = {}): string {
 		writeFileSync(path.join(contents, "Info.plist"), plist.build(plistData));
 	}
 
+	return root;
+}
+
+/** Unpacked `Resources/app` layout: a framework plus a plain app directory. */
+function makeUnpackedApp(name: string, packageJson: object | null): string {
+	const root = makeApp(name, { asar: null, integrityHash: null });
+	const appDir = path.join(root, "Contents", "Resources", "app");
+	mkdirSync(path.join(appDir, "out"), { recursive: true });
+	writeFileSync(path.join(appDir, "out", "main.js"), "console.log(1)");
+	if (packageJson) {
+		writeFileSync(path.join(appDir, "package.json"), JSON.stringify(packageJson));
+	}
 	return root;
 }
 
@@ -321,8 +333,69 @@ describe("detectElectron", () => {
 		if (!info) throw new Error("expected Electron info");
 
 		expect(info.asarPath).toBeUndefined();
+		expect(info.appPath).toBeUndefined();
 		expect(info.fileCount).toBe(0);
 		expect(info.electronVersion).toBe("40.4.0");
+	});
+
+	it("reads an unpacked app directory and its package.json", () => {
+		const root = makeUnpackedApp("Unpacked.app", {
+			name: "vscodium",
+			main: "out/main.js"
+		});
+		const info = detectElectron(root, true);
+		if (!info) throw new Error("expected Electron info");
+
+		expect(info.asarPath).toBeUndefined();
+		expect(info.appPath).toBe(path.join(root, "Contents", "Resources", "app"));
+		expect(info.packageJson).toEqual({ name: "vscodium", main: "out/main.js" });
+		expect(info.fileCount).toBe(0);
+		expect(info.electronVersion).toBe("40.4.0");
+	});
+
+	it("prefers an app directory that has a package.json", () => {
+		const root = makeUnpackedApp("PreferManifest.app", null);
+		const fallbackDir = path.join(root, "Contents", "Resources", "app");
+		expect(existsSync(path.join(fallbackDir, "package.json"))).toBe(false);
+
+		const preferredDir = path.join(root, "Resources", "app");
+		mkdirSync(preferredDir, { recursive: true });
+		writeFileSync(
+			path.join(preferredDir, "package.json"),
+			JSON.stringify({ name: "preferred" })
+		);
+
+		const info = detectElectron(root, true);
+		expect(info?.appPath).toBe(preferredDir);
+		expect(info?.packageJson).toEqual({ name: "preferred" });
+	});
+
+	it("keeps the app path when the manifest is malformed", () => {
+		const root = makeUnpackedApp("MalformedManifest.app", { name: "demo" });
+		writeFileSync(path.join(root, "Contents", "Resources", "app", "package.json"), "not json");
+
+		const info = detectElectron(root, true);
+		expect(info?.appPath).toBe(path.join(root, "Contents", "Resources", "app"));
+		expect(info?.packageJson).toBeUndefined();
+	});
+
+	it("detects an unpacked app directory without a framework", () => {
+		const root = path.join(TMP_DIR, "AppOnly");
+		const appDir = path.join(root, "resources", "app");
+		mkdirSync(appDir, { recursive: true });
+		writeFileSync(path.join(appDir, "package.json"), JSON.stringify({ name: "demo" }));
+
+		const info = detectElectron(root, false);
+		expect(info?.asarPath).toBeUndefined();
+		expect(info?.appPath).toBe(appDir);
+		expect(info?.packageJson).toEqual({ name: "demo" });
+		expect(info?.fuses).toEqual([]);
+	});
+
+	it("ignores a bare app directory without a manifest or framework", () => {
+		const root = path.join(TMP_DIR, "BareAppDir");
+		mkdirSync(path.join(root, "resources", "app"), { recursive: true });
+		expect(detectElectron(root, false)).toBeNull();
 	});
 
 	it("returns null for a non-Electron bundle", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { SecurityFinding, StringEntry, SymbolEntry } from "../../../shared/types";
 import {
+	adjustElectronHardeningFindings,
 	dedupeAndCapFindings,
 	getBinaryHardening,
 	isScannableExtension,
@@ -80,15 +81,13 @@ describe("Security Scan Engine", () => {
 		expect(dbFindings.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it("detects private keys", () => {
+	it("does not report a lone private key header", () => {
 		const findings = runSecurityScan(
 			baseParams({
 				strings: [makeStr("-----BEGIN RSA PRIVATE KEY-----")]
 			})
 		);
-		expect(
-			findings.some((f) => f.severity === "critical" && f.evidence.includes("PRIVATE KEY"))
-		).toBe(true);
+		expect(findings.filter((f) => f.evidence.includes("PRIVATE KEY"))).toEqual([]);
 	});
 
 	it("detects Slack tokens", () => {
@@ -464,6 +463,68 @@ describe("expanded credential patterns", () => {
 	});
 });
 
+describe("password assignment precision", () => {
+	function passwordFindings(text: string): SecurityFinding[] {
+		return credentialFindings([text]).filter((f) => f.message.includes("password"));
+	}
+
+	it("ignores property names, enums, selectors, docs and fixtures", () => {
+		// Real false positives from the Bitwarden, Signal and VSCodium audits.
+		const falsePositives = [
+			'SetInitialPassword:"set-initial-password"',
+			'UnlockMethod = { MasterPassword: "masterPassword" }',
+			'password="myp@ssword123"',
+			'password:"password"',
+			'removePassword: "removePassword"',
+			'Password: "masterPassword"',
+			'password: "[type=password]"',
+			'password: "myPassword"',
+			'password = "test1234"',
+			'password = "qwerty123"'
+		];
+		for (const text of falsePositives) {
+			expect(passwordFindings(text), text).toEqual([]);
+		}
+	});
+
+	it("keeps real-looking hardcoded passwords", () => {
+		for (const text of ['password = "Tr0ub4dor&3"', "password='S3cr3t!Value'"]) {
+			const [finding] = passwordFindings(text);
+			expect(finding?.severity, text).toBe("critical");
+			expect(finding?.evidence, text).toContain("password");
+		}
+	});
+
+	it("ignores password assignments inside comments", () => {
+		for (const text of [
+			'// password = "Tr0ub4dor&3"',
+			'/* password = "Tr0ub4dor&3" */',
+			' * password = "Tr0ub4dor&3"'
+		]) {
+			expect(passwordFindings(text), text).toEqual([]);
+		}
+	});
+});
+
+describe("AWS key precision", () => {
+	function awsFindings(text: string): SecurityFinding[] {
+		return credentialFindings([text]).filter((f) => f.message.includes("AWS"));
+	}
+
+	it("ignores AKIA substrings inside base64 data", () => {
+		// Coincidental base64 substrings from Signal and VSCodium bundles.
+		for (const text of ["AKIAAADCAAAA6AAAABYB", "AKIAAAB0AAAAAAAAAKMA"]) {
+			expect(awsFindings(text), text).toEqual([]);
+		}
+	});
+
+	it("keeps real-looking AWS access keys", () => {
+		for (const text of ["key=AKIAZ7Q2M4X8P1L5K9R3", "key=AKIA1234567890ABCDEF"]) {
+			expect(awsFindings(text).length, text).toBeGreaterThanOrEqual(1);
+		}
+	});
+});
+
 describe("PEM variants", () => {
 	function pemStrings(begin: string, lines: string[], end: string): string[] {
 		return [begin, ...lines, end];
@@ -482,15 +543,36 @@ describe("PEM variants", () => {
 		}
 	});
 
-	it("reports lone encrypted and PGP headers", () => {
+	it("does not report lone encrypted and PGP headers", () => {
 		for (const header of [
 			"-----BEGIN ENCRYPTED PRIVATE KEY-----",
 			"-----BEGIN PGP PRIVATE KEY BLOCK-----"
 		]) {
-			const [finding] = credentialFindings([header]);
-			expect(finding?.severity).toBe("critical");
-			expect(finding?.message).toContain("header");
+			expect(credentialFindings([header]), header).toEqual([]);
 		}
+	});
+
+	it("ignores a private key header used as a regex literal", () => {
+		const findings = credentialFindings([
+			"const re = /-----BEGIN ENCRYPTED PRIVATE KEY-----/;"
+		]);
+		expect(findings).toEqual([]);
+	});
+
+	it("reassembles a full PEM block in bundle content and evidences only the header", () => {
+		const prefix = 'const key = "not-evidence";';
+		const content = [
+			`${prefix}-----BEGIN RSA PRIVATE KEY-----`,
+			fill(64),
+			fill(64),
+			"-----END RSA PRIVATE KEY-----"
+		].join("\n");
+		const findings = scanBundleFileContents([{ relativePath: "app/key.js", content }]).filter(
+			(f) => f.message.includes("full PEM block")
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]!.evidence.startsWith("-----BEGIN RSA PRIVATE KEY-----")).toBe(true);
+		expect(findings[0]!.evidence).not.toContain(prefix);
 	});
 
 	it("ignores public keys and certificates", () => {
@@ -614,5 +696,43 @@ describe("dedupeAndCapFindings", () => {
 		const normalized = dedupeAndCapFindings(runSecurityScan(baseParams({ strings })));
 		const credentials = normalized.filter((f) => f.category === "credential-leak");
 		expect(credentials.length).toBeLessThanOrEqual(MAX_FINDINGS_PER_CATEGORY + 1);
+	});
+});
+
+describe("adjustElectronHardeningFindings", () => {
+	function hardening(message: string, severity: SecurityFinding["severity"] = "warning") {
+		return { severity, category: "binary-hardening", message, evidence: "evidence" };
+	}
+
+	it("drops ARC and stack-canary findings", () => {
+		const result = adjustElectronHardeningFindings([
+			hardening("ARC (Automatic Reference Counting) not detected"),
+			hardening("Stack canaries not detected"),
+			hardening("PIE (Position Independent Executable) is not enabled")
+		]);
+		expect(result.map((f) => f.message)).toEqual([
+			"PIE (Position Independent Executable) is not enabled"
+		]);
+	});
+
+	it("downgrades the macOS rpath warning to info", () => {
+		const [finding] = adjustElectronHardeningFindings([
+			hardening("Rpath present — potential hijack vector on macOS")
+		]);
+		expect(finding?.severity).toBe("info");
+		expect(finding?.message).toBe("Rpath present — potential hijack vector on macOS");
+	});
+
+	it("leaves non-hardening findings and PIE untouched", () => {
+		const findings: SecurityFinding[] = [
+			hardening("PIE (Position Independent Executable) is not enabled"),
+			{
+				severity: "critical",
+				category: "credential-leak",
+				message: "Stack canaries not detected",
+				evidence: "unrelated"
+			}
+		];
+		expect(adjustElectronHardeningFindings(findings)).toEqual(findings);
 	});
 });
