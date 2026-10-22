@@ -10,9 +10,10 @@ export interface BinarySearchIndex {
 	symbols: string[];
 	symbolTypes: string[];
 	libraries: string[];
+	swift: string[];
 }
 
-export type SearchableTab = "classes" | "strings" | "symbols" | "libraries";
+export type SearchableTab = "classes" | "strings" | "symbols" | "libraries" | "swift";
 
 export interface CrossBinarySearchResult {
 	binaryIndex: number;

@@ -214,3 +214,28 @@ describe("formatHexdump", () => {
 		expect(formatHexdump([], 0)).toBe("");
 	});
 });
+
+describe("AnalysisSession.searchHexForBinary", () => {
+	const pattern = Array.from(new TextEncoder().encode("HELLO_HEX"));
+
+	it("finds a pattern and reports the effective region", async () => {
+		const r = await session.searchHexForBinary(0, 0, undefined, pattern);
+		expect(r?.matches).toEqual([256]);
+		expect(r?.regionSize).toBe(512);
+	});
+
+	it("clamps an oversized region and handles an offset past the end", async () => {
+		expect((await session.searchHexForBinary(0, 0, 1e9, pattern))?.regionSize).toBe(512);
+		const past = await session.searchHexForBinary(0, 10_000, 100, pattern);
+		expect(past?.matches).toEqual([]);
+		expect(past?.regionSize).toBe(0);
+	});
+
+	it("supports case-insensitive matching", async () => {
+		const lower = Array.from(new TextEncoder().encode("hello_hex"));
+		expect((await session.searchHexForBinary(0, 0, undefined, lower))?.matches).toEqual([]);
+		expect((await session.searchHexForBinary(0, 0, undefined, lower, true))?.matches).toEqual([
+			256
+		]);
+	});
+});

@@ -50,6 +50,8 @@ export function readHexAt(
 	}
 }
 
+export const MAX_HEX_MATCHES = 10000;
+
 /** Search for a byte pattern within a region of a binary slice. */
 export function searchHexInFile(
 	binaryPath: string | null,
@@ -61,7 +63,7 @@ export function searchHexInFile(
 ): { matches: number[] } | null {
 	if (!binaryPath || pattern.length === 0) return null;
 
-	const MAX_MATCHES = 10000;
+	const MAX_MATCHES = MAX_HEX_MATCHES;
 	const CHUNK_SIZE = 65536;
 	const matches: number[] = [];
 

@@ -18,19 +18,34 @@
  *   analyse_file   — Load and analyse a file or folder (IPA, Mach-O, DEB, .app, .xcframework)
  *   get_overview    — Analysis summary (header, hardening, hooks, etc.)
  *   get_section     — Detailed data for a specific section with filtering
- *   search          — Cross-binary search
+ *   search          — Cross-binary search (classes, strings, symbols, libraries, swift)
  *   get_size_tree   — Bundle files as a size tree, active binary split into modules
  *   switch_binary   — Switch to a different binary in the container
  *   read_hex        — Read raw bytes from the active binary
+ *   get_library_graph — Dependency graph across all binaries in the container
+ *   search_hex      — Search a binary for a byte pattern
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { MAX_HEX_MATCHES } from "../main/analysis/hex";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
-import type { AnalysisResult, SizeTreeNode, SwiftMetadata } from "../shared/types";
+import type { AnalysisResult, SizeTreeNode } from "../shared/types";
+import {
+	buildHexSearchResult,
+	buildLibraryGraphResult,
+	buildPaginatedResult,
+	DEFAULT_LIMIT,
+	getSectionData,
+	ok,
+	PAGINATED_SECTIONS,
+	parseHexPattern,
+	SECTION_NAMES,
+	sanitize
+} from "./format";
 
 // Keep stdout clean for MCP protocol — redirect console to stderr
 console.log = console.error;
@@ -49,22 +64,6 @@ function assertAllowed(filePath: string): void {
 	if (!isInside(allowRoot, filePath)) {
 		throw new Error(`Path outside APPINSPECT_ALLOW_ROOT: ${filePath}`);
 	}
-}
-
-// ── BigInt serialisation ─────────────────────────────────────────────
-
-function bigintReplacer(_key: string, value: unknown): unknown {
-	if (typeof value === "bigint") {
-		if (value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)) {
-			return Number(value);
-		}
-		return value.toString();
-	}
-	return value;
-}
-
-function sanitize<T>(obj: T): T {
-	return JSON.parse(JSON.stringify(obj, bigintReplacer)) as T;
 }
 
 // ── Session management ──────────────────────────────────────────────
@@ -92,36 +91,6 @@ async function resolveResult(filePath?: string, binary?: number): Promise<Analys
 	return cached;
 }
 
-// ── Constants ────────────────────────────────────────────────────────
-
-const DEFAULT_LIMIT = 200;
-
-const SECTION_NAMES = [
-	"strings",
-	"headers",
-	"libraries",
-	"symbols",
-	"classes",
-	"swift",
-	"entitlements",
-	"infoPlist",
-	"security",
-	"files",
-	"hooks",
-	"size"
-] as const;
-
-type SectionName = (typeof SECTION_NAMES)[number];
-
-/** Sections that return filterable/paginatable arrays */
-const PAGINATED_SECTIONS = new Set<SectionName>([
-	"strings",
-	"symbols",
-	"classes",
-	"swift",
-	"libraries"
-]);
-
 const pathParam = z
 	.string()
 	.optional()
@@ -137,126 +106,6 @@ const binaryParam = z
 		"Index of the binary to target (from overview.ipa.binaries; defaults to the active binary). " +
 			"Query any binary directly without switch_binary."
 	);
-
-// ── Section data helpers ─────────────────────────────────────────────
-
-function getSectionData(cached: AnalysisResult, section: SectionName): unknown {
-	switch (section) {
-		case "strings":
-			return { binary: cached.strings, localisation: cached.localisationStrings ?? [] };
-		case "headers":
-			return cached.headers;
-		case "libraries":
-			return cached.libraries;
-		case "symbols":
-			return cached.symbols;
-		case "classes":
-			return { classes: cached.classes, protocols: cached.protocols ?? [] };
-		case "swift":
-			return cached.swift;
-		case "entitlements": {
-			// Null prototype: keys come from an untrusted plist inside the
-			// analysed binary, so "__proto__" must not be the setter.
-			const obj: Record<string, unknown> = Object.create(null);
-			if (Array.isArray(cached.entitlements)) {
-				for (const e of cached.entitlements) obj[e.key] = e.value;
-			}
-			return obj;
-		}
-		case "infoPlist":
-			return cached.infoPlist;
-		case "security":
-			return cached.security;
-		case "files":
-			return cached.files;
-		case "hooks":
-			return cached.hooks;
-		case "size":
-			return cached.size;
-	}
-}
-
-/** Extract the filterable array from a section's data */
-function getArray(data: unknown, section: SectionName): unknown[] {
-	if (section === "strings") return (data as { binary: unknown[] }).binary;
-	if (section === "classes") return (data as { classes: unknown[] }).classes;
-	return data as unknown[];
-}
-
-/** Primary field to filter on per section */
-function filterField(section: SectionName): string {
-	return section === "strings" ? "value" : "name";
-}
-
-function buildPaginatedResult(
-	data: unknown,
-	section: SectionName,
-	filter?: string,
-	offset = 0,
-	limit = DEFAULT_LIMIT
-): unknown {
-	if (section === "swift") {
-		const swift = data as SwiftMetadata;
-		const lower = filter?.toLowerCase();
-		const types = lower
-			? swift.types.filter((t) => t.fullName.toLowerCase().includes(lower))
-			: swift.types;
-		const total = types.length;
-		const sliced = sanitize(types.slice(offset, offset + limit));
-		const returnedNames = new Set(sliced.map((t) => t.fullName));
-		const conformances = sanitize(
-			swift.conformances.filter((c) => returnedNames.has(c.typeName)).slice(0, 5000)
-		);
-		return {
-			total,
-			offset,
-			limit,
-			returned: sliced.length,
-			types: sliced,
-			protocols: sanitize(swift.protocols.slice(0, 2000)),
-			protocolTotal: swift.protocols.length,
-			conformances,
-			conformanceTotal: swift.conformances.length,
-			unresolvedConformances: swift.unresolvedConformances,
-			present: swift.present
-		};
-	}
-
-	const array = getArray(data, section);
-
-	let filtered = array;
-	if (filter) {
-		const lower = filter.toLowerCase();
-		const field = filterField(section);
-		filtered = array.filter((item) => {
-			const val = (item as Record<string, string>)[field];
-			return val?.toLowerCase().includes(lower);
-		});
-	}
-
-	const total = filtered.length;
-	const sliced = sanitize(filtered.slice(offset, offset + limit));
-
-	const result: Record<string, unknown> = { total, offset, limit, returned: sliced.length };
-
-	if (section === "strings") {
-		result.binary = sliced;
-		result.localisation = sanitize((data as { localisation: unknown[] }).localisation);
-	} else if (section === "classes") {
-		result.classes = sliced;
-		result.protocols = sanitize((data as { protocols: unknown[] }).protocols);
-	} else {
-		result.data = sliced;
-	}
-
-	return result;
-}
-
-// ── Response helpers ─────────────────────────────────────────────────
-
-function ok(data: unknown) {
-	return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
-}
 
 const noop = () => {};
 
@@ -368,8 +217,8 @@ server.registerTool(
 		inputSchema: {
 			query: z.string().describe("Search query"),
 			tab: z
-				.enum(["classes", "strings", "symbols", "libraries"])
-				.describe("Data type to search"),
+				.enum(["classes", "strings", "symbols", "libraries", "swift"])
+				.describe("Data type to search (swift matches Swift type full names)"),
 			isRegex: z.boolean().optional().describe("Treat query as regex (default: false)"),
 			caseSensitive: z.boolean().optional().describe("Case-sensitive match (default: false)"),
 			path: pathParam
@@ -487,6 +336,82 @@ server.registerTool(
 		}
 
 		return ok(result);
+	}
+);
+
+server.registerTool(
+	"get_library_graph",
+	{
+		description:
+			"Dependency graph across all binaries in the loaded container: nodes (binaries " +
+			"and the libraries they link) and edges (which binary links which library, " +
+			"weak or strong). Optionally narrow to one library category.",
+		inputSchema: {
+			category: z
+				.enum(["system", "framework", "swift", "embedded"])
+				.optional()
+				.describe(
+					"Only keep library nodes in this category, plus the edges that touch them " +
+						"and those edges' other endpoints"
+				),
+			path: pathParam
+		}
+	},
+	async ({ category, path }) => {
+		const graph = await getSession(path).getLibraryGraph();
+		return ok(sanitize(buildLibraryGraphResult(graph, category)));
+	}
+);
+
+server.registerTool(
+	"search_hex",
+	{
+		description:
+			"Search a binary for a byte pattern and return the file offsets of matches " +
+			"(use read_hex to inspect them). Pattern is hex or an ASCII/UTF-8 string " +
+			'with a "text:" prefix. Max 10000 matches.',
+		inputSchema: {
+			pattern: z
+				.string()
+				.describe(
+					'Byte pattern as hex (e.g. "de ad be ef" or "deadbeef"; spaces allowed), max 256 ' +
+						'bytes. Use "text:" prefix for an ASCII/UTF-8 string, e.g. "text:Bearer ".'
+				),
+			regionOffset: z.number().optional().describe("Start offset of the region (default 0)"),
+			regionSize: z
+				.number()
+				.optional()
+				.describe("Region size in bytes (default: whole file)"),
+			caseInsensitive: z
+				.boolean()
+				.optional()
+				.describe("Match ASCII letters case-insensitively (default false)"),
+			binary: binaryParam,
+			path: pathParam
+		}
+	},
+	async ({ pattern, regionOffset = 0, regionSize, caseInsensitive, binary, path }) => {
+		const bytes = parseHexPattern(pattern);
+		const session = getSession(path);
+		const index = binary ?? session.getActiveBinaryIndex();
+		const result = await session.searchHexForBinary(
+			index,
+			Math.max(0, Math.floor(regionOffset)),
+			regionSize === undefined ? undefined : Math.max(0, Math.floor(regionSize)),
+			bytes,
+			caseInsensitive
+		);
+		if (!result) throw new Error("No binary loaded.");
+		return ok(
+			buildHexSearchResult(
+				{ index, name: result.binaryName },
+				result.regionOffset,
+				result.regionSize,
+				bytes,
+				result.matches,
+				MAX_HEX_MATCHES
+			)
+		);
 	}
 );
 
