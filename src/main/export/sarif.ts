@@ -29,7 +29,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 	"debug-artifacts": "Leaked debug artifact",
 	"leaked-source-path": "Leaked developer source path",
 	"source-map": "Shipped source map",
-	"electron-csp": "Electron Content-Security-Policy weakness"
+	"electron-fuses": "Electron fuse weakens the runtime",
+	"electron-renderer": "Unsafe Electron renderer preference",
+	"electron-csp": "Electron Content-Security-Policy weakness",
+	"electron-integrity": "Electron bundle integrity issue",
+	"electron-runtime": "Deprecated Electron runtime API"
 };
 
 const LEVELS: Record<SecurityFinding["severity"], "error" | "warning" | "note"> = {

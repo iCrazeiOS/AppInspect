@@ -284,6 +284,8 @@ export interface SecurityFinding {
 	functionName?: string;
 	/** Source binary or file name (for multi-binary / bundle file scanning) */
 	source?: string;
+	/** True when the match was found in vendored code (node_modules, vendor bundles) */
+	vendor?: boolean;
 }
 
 // ── App Settings ──

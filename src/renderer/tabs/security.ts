@@ -17,6 +17,7 @@ interface SecurityFinding {
 	location?: string;
 	functionName?: string;
 	source?: string;
+	vendor?: boolean;
 }
 
 interface BinaryHardening {
@@ -260,6 +261,13 @@ export function renderSecurity(
 			cat.className = "sec-finding-category";
 			cat.textContent = finding.category;
 			topRow.appendChild(cat);
+
+			if (finding.vendor) {
+				const vendor = document.createElement("span");
+				vendor.className = "sec-finding-vendor";
+				vendor.textContent = "VENDOR";
+				topRow.appendChild(vendor);
+			}
 
 			card.appendChild(topRow);
 
