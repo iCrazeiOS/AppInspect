@@ -6,6 +6,7 @@ import type {
 	AnalysisCompletePayload,
 	AnalysisErrorPayload,
 	CrossBinarySearchResult,
+	InvokeChannelMap,
 	SearchableTab
 } from "../shared/ipc-types";
 
@@ -26,6 +27,8 @@ export interface AppInspectAPI {
 	isDirectory(filePath: string): Promise<boolean>;
 	getSettings(): Promise<AppSettings>;
 	setSettings(settings: AppSettings): Promise<void>;
+	getCacheInfo(): Promise<InvokeChannelMap["get-cache-info"]["result"]>;
+	clearCache(): Promise<InvokeChannelMap["clear-cache"]["result"]>;
 	searchAllBinaries(
 		sessionId: string,
 		query: string,

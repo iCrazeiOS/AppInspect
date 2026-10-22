@@ -41,6 +41,7 @@ import { renderSize } from "./tabs/size";
 import { renderStrings } from "./tabs/strings";
 import { renderSwift } from "./tabs/swift";
 import { renderSymbols } from "./tabs/symbols";
+import { formatSize } from "./utils/format";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 
 // ── Types ──
@@ -71,6 +72,8 @@ const settingsPanel = $<HTMLDivElement>("#settings-panel");
 const optScanAllBinaries = $<HTMLInputElement>("#opt-scan-all-binaries");
 const optMaxBundleSize = $<HTMLInputElement>("#opt-max-bundle-size");
 const optMaxFileSize = $<HTMLInputElement>("#opt-max-file-size");
+const cacheSize = $<HTMLSpanElement>("#cache-size");
+const btnClearCache = $<HTMLButtonElement>("#btn-clear-cache");
 
 // ── Keyboard shortcuts ──
 document.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -970,6 +973,7 @@ window.api.onProgress((data) => {
 });
 
 window.api.onComplete((data) => {
+	refreshCacheSizeIfOpen();
 	setTabLoading(data.sessionId, false);
 	if (data.sessionId === activeFileTabId) {
 		titlebarStatus.classList.add("hidden");
@@ -977,6 +981,7 @@ window.api.onComplete((data) => {
 });
 
 window.api.onError((data) => {
+	refreshCacheSizeIfOpen();
 	setTabLoading(data.sessionId, false);
 	if (data.sessionId === activeFileTabId) {
 		showToast(data.message, "error");
@@ -1046,6 +1051,51 @@ btnSettings.addEventListener("click", () => {
 	const isHidden = settingsPanel.classList.contains("hidden");
 	settingsPanel.classList.toggle("hidden", !isHidden);
 	btnSettings.classList.toggle("btn-settings--active", isHidden);
+	if (isHidden) refreshCacheSize();
+});
+
+async function refreshCacheSize(): Promise<void> {
+	try {
+		const { totalBytes, entryCount, clearableEntries, keptInUse } =
+			await window.api.getCacheInfo();
+		cacheSize.textContent = `${formatSize(totalBytes)} · ${entryCount} ${entryCount === 1 ? "entry" : "entries"}`;
+		btnClearCache.disabled = clearableEntries === 0;
+		btnClearCache.title =
+			clearableEntries > 0
+				? ""
+				: entryCount === 0
+					? "Cache is empty"
+					: `Nothing to clear: ${keptInUse} ${keptInUse === 1 ? "entry is" : "entries are"} used by open files`;
+	} catch {
+		cacheSize.textContent = "Unavailable";
+		btnClearCache.disabled = true;
+	}
+}
+
+function refreshCacheSizeIfOpen(): void {
+	if (!settingsPanel.classList.contains("hidden")) refreshCacheSize();
+}
+
+btnClearCache.addEventListener("click", async () => {
+	btnClearCache.disabled = true;
+	try {
+		const result = await window.api.clearCache();
+		if (result.cleared) {
+			const kept = result.keptInUse > 0 ? ` (${result.keptInUse} in use kept)` : "";
+			showToast(
+				`Cleared ${formatSize(result.removedBytes)} from ${result.removedEntries} entries${kept}`,
+				"success"
+			);
+		} else if (result.entryCount === 0 && result.failed === 0) {
+			showToast("Cache is already empty", "info");
+		}
+		if (result.failed > 0)
+			showToast(`Failed to remove ${result.failed} cache entries`, "warning");
+	} catch (err) {
+		showToast(err instanceof Error ? err.message : "Failed to clear cache", "error");
+	} finally {
+		await refreshCacheSize();
+	}
 });
 
 optScanAllBinaries.addEventListener("change", async () => {

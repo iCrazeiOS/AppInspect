@@ -8,8 +8,10 @@
 import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { formatSize } from "../../shared/format";
 import type { TabName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
+import { clearCache, getCacheInfo } from "../analysis/cache";
 import type { SearchableTab } from "../analysis/orchestrator";
 import { AnalysisSession } from "../analysis/orchestrator";
 import { exportAnalysis } from "../export/json";
@@ -53,6 +55,15 @@ function isKnownPath(candidate: string): boolean {
 		if (isInsideAny(session.getAllowedOpenRoots(), candidate)) return true;
 	}
 	return false;
+}
+
+/** Cache directories read by any open session. Never clear these. */
+function inUseCacheDirs(): Set<string> {
+	const dirs = new Set<string>();
+	for (const session of sessions.values()) {
+		for (const dir of session.getCacheDirs()) dirs.add(path.resolve(dir));
+	}
+	return dirs;
 }
 
 /** First eight bytes of every PNG file. */
@@ -383,6 +394,61 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	// ── set-settings ──
 	ipcMain.handle("set-settings", (_event, settings: AppSettings) => {
 		saveSettings(settings);
+	});
+
+	// ── get-cache-info ──
+	ipcMain.handle("get-cache-info", async () => {
+		const info = await getCacheInfo();
+		const { removedEntries, keptInUse } = await clearCache({
+			inUse: inUseCacheDirs,
+			dryRun: true
+		});
+		return { ...info, clearableEntries: removedEntries, keptInUse };
+	});
+
+	// ── clear-cache ──
+	ipcMain.handle("clear-cache", async () => {
+		const none = {
+			cleared: false,
+			entryCount: 0,
+			removedEntries: 0,
+			removedBytes: 0,
+			keptInUse: 0,
+			keptRecentTemp: 0,
+			failed: 0
+		};
+		try {
+			const { entryCount } = await getCacheInfo();
+			if (entryCount === 0) return none;
+
+			// Re-read the in-use set on every removal: a file may be opened while the dialog is up.
+			const options = { inUse: inUseCacheDirs };
+			const preview = await clearCache({ ...options, dryRun: true });
+			if (preview.removedEntries === 0)
+				return { ...none, entryCount, keptInUse: preview.keptInUse };
+
+			const { response } = await dialog.showMessageBox(win, {
+				type: "warning",
+				title: "Clear cache",
+				message: `Clear ${formatSize(preview.removedBytes)} of cached extractions?`,
+				detail:
+					`${preview.removedEntries} entries will be removed.` +
+					(preview.keptInUse
+						? ` ${preview.keptInUse} entries used by open files will be kept.`
+						: "") +
+					"\n\nFiles are extracted again the next time you open them.",
+				buttons: ["Cancel", "Clear cache"],
+				defaultId: 1,
+				cancelId: 0,
+				noLink: true
+			});
+			if (response !== 1) return { ...none, entryCount };
+
+			return { cleared: true, entryCount, ...(await clearCache(options)) };
+		} catch (err) {
+			console.error("[AppInspect] Failed to clear cache:", err);
+			return { ...none, failed: 1 };
+		}
 	});
 
 	// ── show-item-in-folder ──

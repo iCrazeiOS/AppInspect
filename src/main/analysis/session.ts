@@ -39,7 +39,7 @@ import {
 	yieldToEventLoop
 } from "./binary-pipeline";
 import { extractLocalisationStrings, readBundleFiles } from "./bundle-files";
-import { extractToCache, getCacheDir } from "./cache";
+import { extractToCache, getCacheBase, getCacheDir } from "./cache";
 import { assembleBinaryList, scanAdditionalBinaries } from "./containers/shared";
 import { convertEntitlements } from "./conversion";
 import { findBundleDebugArtifacts } from "./debug-artifacts";
@@ -95,6 +95,25 @@ export class AnalysisSession {
 		return [this.filePath, this.extractedDir, this.appBundlePath].filter(
 			(p): p is string => typeof p === "string" && p.length > 0
 		);
+	}
+
+	/** Cache entries this session reads from: its extraction and any extracted DEBs in a folder. */
+	getCacheDirs(): string[] {
+		const base = getCacheBase();
+		const dirs = new Set<string>();
+		if (this.extractedDir) dirs.add(this.extractedDir);
+		for (const binary of this.binaries) {
+			const rel = path.relative(base, binary.path);
+			if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+			const entry = rel.split(path.sep)[0];
+			if (entry) dirs.add(path.join(base, entry));
+		}
+		return [...dirs];
+	}
+
+	/** False when a cache entry this session reads from was deleted (e.g. cache cleared). */
+	isExtractionPresent(): boolean {
+		return this.getCacheDirs().every((dir) => fs.existsSync(dir));
 	}
 
 	// ── Hex read ──────────────────────────────────────────────────────
