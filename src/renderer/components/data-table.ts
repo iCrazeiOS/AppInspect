@@ -4,6 +4,7 @@
  */
 
 import { copyText } from "../utils/clipboard";
+import { formatCount } from "../utils/format";
 import { loadWidths, saveWidths } from "../utils/layout-store";
 
 export interface Column {
@@ -357,7 +358,7 @@ export class DataTable {
 					this.root.appendChild(btn);
 				}
 			}
-			this.showMoreEl.textContent = `Showing first ${this.initialCap!.toLocaleString()} rows — click to show all ${this.allData.length.toLocaleString()}`;
+			this.showMoreEl.textContent = `Showing first ${formatCount(this.initialCap!, "row")} — click to show all ${this.allData.length.toLocaleString()}`;
 			this.showMoreEl.style.display = "";
 		} else if (this.showMoreEl) {
 			this.showMoreEl.style.display = "none";

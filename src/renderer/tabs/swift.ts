@@ -519,7 +519,7 @@ export function renderSwift(
 			const meta = document.createElement("span");
 			meta.className = "swift-row-meta";
 			meta.textContent = type.fieldCount > 0 ? String(type.fieldCount) : "";
-			meta.title = type.fieldCount > 0 ? `${type.fieldCount} fields` : "";
+			meta.title = type.fieldCount > 0 ? formatCount(type.fieldCount, "field") : "";
 			row.appendChild(meta);
 
 			row.addEventListener("click", () => {
@@ -722,7 +722,7 @@ export function renderSwift(
 		meta.className = "cls-detail-count";
 		meta.textContent =
 			`protocol \u00B7 ${protocol.module || "(no module)"} \u00B7 ` +
-			`${protocol.requirementCount.toLocaleString()} requirement${protocol.requirementCount === 1 ? "" : "s"}`;
+			`${protocol.requirementCount.toLocaleString()} ${plural(protocol.requirementCount, "requirement")}`;
 		detailHeader.appendChild(meta);
 
 		const title = document.createElement("div");

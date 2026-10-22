@@ -6,7 +6,7 @@ import { decodeLCName } from "../../shared/macho";
 import type { AnalysisResult, LoadCommand } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
-import { formatCount, plural } from "../utils/format";
+import { formatCount, formatSize, plural } from "../utils/format";
 import { cpuSubtypeName, decodeCpuType, decodeFileType, hexStr } from "../utils/macho";
 
 type HeadersData = AnalysisResult["headers"];
@@ -54,13 +54,6 @@ function decodeFlags(flags: number): string[] {
 		if (flags & Number(bit)) result.push(name);
 	}
 	return result.length > 0 ? result : [`0x${flags.toString(16)}`];
-}
-
-function humanSize(bytes: number | bigint | string): string {
-	const n = typeof bytes === "string" ? Number(bytes) : Number(bytes);
-	if (n < 1024) return `${n} B`;
-	if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-	return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function permStr(prot: number): string {
@@ -144,7 +137,7 @@ function buildSegmentTree(loadCommands: LoadCommand[]): HTMLElement {
 			el(
 				"span",
 				"hdr-seg-meta",
-				`${humanSize(s.filesize)} | offset ${hexStr(s.fileoff)} | ${permStr(s.initprot)}`
+				`${formatSize(s.filesize)} | offset ${hexStr(s.fileoff)} | ${permStr(s.initprot)}`
 			)
 		);
 		segNode.appendChild(segHeader);
@@ -159,7 +152,7 @@ function buildSegmentTree(loadCommands: LoadCommand[]): HTMLElement {
 					el(
 						"span",
 						"hdr-sec-detail",
-						`${humanSize(sizeVal)} | offset ${hexStr(sec.offset)}`
+						`${formatSize(sizeVal)} | offset ${hexStr(sec.offset)}`
 					)
 				);
 				sectionsWrap.appendChild(secRow);
@@ -212,7 +205,9 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
 	);
 	summaryBody.appendChild(buildSummaryRow("File Type", decodeFileType(hdr.filetype)));
 	summaryBody.appendChild(buildSummaryRow("Load Commands", String(hdr.ncmds)));
-	summaryBody.appendChild(buildSummaryRow("Size of Commands", `${hdr.sizeofcmds} bytes`));
+	summaryBody.appendChild(
+		buildSummaryRow("Size of Commands", formatCount(hdr.sizeofcmds, "byte"))
+	);
 
 	// Flags
 	const flagsRow = el("div", "hdr-kv");
@@ -246,7 +241,7 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
 	for (const lc of data.loadCommands) {
 		const tr = el("tr", "hdr-lc-row");
 		tr.appendChild(el("td", "hdr-lc-td", decodeLCName(lc.cmd)));
-		tr.appendChild(el("td", "hdr-lc-td", `${lc.cmdsize} B`));
+		tr.appendChild(el("td", "hdr-lc-td", formatSize(lc.cmdsize)));
 		tr.appendChild(el("td", "hdr-lc-td hdr-lc-detail", lcDetail(lc)));
 		tbody.appendChild(tr);
 	}

@@ -5,6 +5,7 @@
  * starting the server.
  */
 
+import { plural } from "../shared/format";
 import type {
 	AnalysisResult,
 	LibraryGraphData,
@@ -221,7 +222,7 @@ export function parseHexPattern(pattern: string): number[] {
 	if (bytes.length === 0) throw new Error("Pattern is empty.");
 	if (bytes.length > MAX_HEX_PATTERN_BYTES) {
 		throw new Error(
-			`Pattern is ${bytes.length} bytes; the maximum is ${MAX_HEX_PATTERN_BYTES}.`
+			`Pattern is ${bytes.length} ${plural(bytes.length, "byte")}; the maximum is ${MAX_HEX_PATTERN_BYTES}.`
 		);
 	}
 	return bytes;

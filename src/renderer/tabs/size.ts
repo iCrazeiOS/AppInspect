@@ -55,7 +55,7 @@ function buildBarRow(
 
 	row.appendChild(el("span", "sz-value", formatSize(size)));
 	row.appendChild(el("span", "sz-percent", percent(size, binarySize)));
-	row.title = `${size.toLocaleString()} bytes`;
+	row.title = formatCount(size, "byte");
 	return row;
 }
 
@@ -80,11 +80,7 @@ function buildModuleDetails(mod: SizeModule): HTMLElement {
 		facts.appendChild(el("span", "", `Inferred ${formatSize(mod.inferredSize)}`));
 	}
 	facts.appendChild(
-		el(
-			"span",
-			"",
-			`${mod.symbolCount.toLocaleString()} symbol${mod.symbolCount === 1 ? "" : "s"}`
-		)
+		el("span", "", `${mod.symbolCount.toLocaleString()} ${plural(mod.symbolCount, "symbol")}`)
 	);
 	details.appendChild(facts);
 

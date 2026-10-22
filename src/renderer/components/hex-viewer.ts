@@ -4,6 +4,7 @@
  */
 
 import { el } from "../utils/dom";
+import { formatSize } from "../utils/format";
 
 export interface HexRegion {
 	label: string;
@@ -40,12 +41,6 @@ const MAX_SPACER_PX = 30_000_000; // browsers cap scrollHeight around 33M
 function rowWidthCh(n: number): number {
 	const gaps = Math.floor((n - 1) / 8) * 1.5;
 	return 9 + n * 3 + gaps + 2 + n + 4;
-}
-
-function humanSize(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function hexOffset(n: number): string {
@@ -764,7 +759,7 @@ export class HexViewer {
 			const meta = el(
 				"span",
 				"hv-region-item-meta",
-				`${humanSize(r.size)} @ 0x${r.offset.toString(16).toUpperCase()}`
+				`${formatSize(r.size)} @ 0x${r.offset.toString(16).toUpperCase()}`
 			);
 			item.appendChild(name);
 			item.appendChild(meta);
@@ -803,7 +798,7 @@ export class HexViewer {
 
 	private updateLabel(): void {
 		if (!this.labelEl) return;
-		const base = `${this.opts.label} (${humanSize(this.opts.regionSize)})`;
+		const base = `${this.opts.label} (${formatSize(this.opts.regionSize)})`;
 		const regions = this.opts.regions;
 		const sc = this.scrollContainer;
 		if (!regions || regions.length === 0 || !sc || sc.clientHeight === 0) {
