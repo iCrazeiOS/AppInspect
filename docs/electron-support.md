@@ -211,6 +211,9 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 - Integrity: look in the app's `Contents/Info.plist` for
   `ElectronAsarIntegrity`; accept a key ending in `app.asar`; compare
   `algorithm` `SHA256` case-insensitively against `archive.headerHash`.
+  A completely absent table is only reported as missing on Electron 30+
+  (when ASAR integrity was introduced) and never when the version is unknown;
+  a table that exists without an `app.asar` entry is always reported.
 - `sourceMaps` = `.map`; `nativeAddons` = `.node` (archive-relative).
 - `unpackedCount` from the archive header.
 
@@ -249,8 +252,14 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
     (`session.webRequest`) is not visible to static analysis.
 - `webPreferences` values accept `true`/`false` and the minified `!0`/`!1`
   forms. Checks run only on `.js .mjs .cjs .jsbundle .json .html .htm`, skip
-  matches inside line/block/HTML comments, and report the first match per
-  check per file.
+  matches inside line/block/HTML comments, and report the first non-commented
+  match per check per file.
+- Command-line switch and cleartext `loadURL` scanning runs on first-party code
+  only: dependency paths (`node_modules`, `vendor`, `third_party`, `3rdparty`)
+  are skipped, as are docs/tests/lockfiles. Remote-debugging ports are
+  correlated with the nearest non-commented `remote-debugging-address` within
+  2000 characters, so an unrelated address elsewhere in the file cannot change
+  the severity.
 - Same-file `nodeIntegration: true` + `contextIsolation: false` emits one
   **critical** full-RCE finding and suppresses the individual
   `nodeIntegration`/`contextIsolation`/`sandbox` findings for that file. When

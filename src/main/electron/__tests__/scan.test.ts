@@ -628,6 +628,39 @@ describe("scanElectron runtime API checks", () => {
 		).toEqual([]);
 	});
 
+	it("ignores a forwarded channel validated by an allowlist guard", () => {
+		const findings = scanText(
+			"const validChannels = ['app:get-state', 'app:set-state'];\n" +
+				"contextBridge.exposeInMainWorld('api', {\n" +
+				"\tinvoke: (channel, data) => {\n" +
+				"\t\tif (validChannels.includes(channel)) return ipcRenderer.invoke(channel, data);\n" +
+				"\t}\n" +
+				"});",
+			"app.asar/preload.js"
+		);
+		expect(findings).toEqual([]);
+	});
+
+	it("still flags a channel guarded only through another variable", () => {
+		const findings = scanText("ipcRenderer.invoke(channel, payload)", "app.asar/preload.js");
+		expect(findings).toHaveLength(1);
+
+		expect(
+			scanText(
+				"if (validChannels.includes(otherChannel)) ipcRenderer.invoke(channel, payload)",
+				"app.asar/preload.js"
+			)
+		).toHaveLength(1);
+
+		// A similarly named variable must not satisfy the guard for `channel`.
+		expect(
+			scanText(
+				"if (mychannel !== null) ipcRenderer.invoke(channel, payload)",
+				"app.asar/preload.js"
+			)
+		).toHaveLength(1);
+	});
+
 	it("ignores IPC forwarding outside a preload", () => {
 		expect(scanText("ipcRenderer.invoke(channel, payload)", "app.asar/main.js")).toEqual([]);
 	});
@@ -660,6 +693,28 @@ describe("scanElectron runtime API checks", () => {
 			(finding) => finding.category === "electron-runtime"
 		);
 		expect(findings).toHaveLength(3);
+	});
+
+	it("keeps critical runtime findings when enableRemoteModule fills the category", () => {
+		const files = Array.from({ length: 25 }, (_, index) => ({
+			relativePath: `app.asar/config-${index}.js`,
+			content: "enableRemoteModule: true"
+		}));
+		files.push({
+			relativePath: "app.asar/session.js",
+			content: "session.setCertificateVerifyProc((request, callback) => callback(0))"
+		});
+
+		const findings = scanElectron(makeInfo(), files);
+		const critical = findings.find(
+			(finding) =>
+				finding.severity === "critical" &&
+				finding.message.includes("setCertificateVerifyProc")
+		);
+		expect(critical?.source).toBe("app.asar/session.js");
+		expect(findings.filter((finding) => finding.category === "electron-runtime")).toHaveLength(
+			20
+		);
 	});
 });
 
@@ -738,6 +793,17 @@ describe("scanElectron command-line switches", () => {
 		expect(finding?.evidence).toContain("remote-debugging-address");
 	});
 
+	it("ignores a non-loopback address far from the port", () => {
+		const [finding] = scanText(
+			'app.commandLine.appendSwitch("remote-debugging-port", "9222");' +
+				"x".repeat(5000) +
+				'app.commandLine.appendSwitch("remote-debugging-address", "0.0.0.0")'
+		);
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.message).toContain("local processes");
+		expect(finding?.evidence).not.toContain("remote-debugging-address");
+	});
+
 	it("reports process.argv debug-flag handling as info", () => {
 		const [finding] = scanText('if (process.argv.includes("--inspect")) { }');
 		expect(finding?.severity).toBe("info");
@@ -765,6 +831,29 @@ describe("scanElectron command-line switches", () => {
 
 	it("ignores bare switch constants", () => {
 		expect(scanText('const BLOCKED = ["disable-web-security", "--inspect"];')).toEqual([]);
+	});
+
+	it("skips a commented switch and reports a later real one", () => {
+		const [finding] = scanText(
+			'// app.commandLine.appendSwitch("disable-web-security")\n' +
+				'app.commandLine.appendSwitch("disable-web-security")'
+		);
+		expect(finding?.category).toBe("electron-switches");
+		expect(finding?.severity).toBe("warning");
+	});
+
+	it("ignores switches and cleartext loads in vendor code", () => {
+		const content =
+			'app.commandLine.appendSwitch("disable-web-security");' +
+			'win.loadURL("http://example.com")';
+		const findings = scanElectron(makeInfo(), [
+			{ relativePath: "app.asar/node_modules/vendor/index.js", content },
+			{ relativePath: "app.asar/main.js", content }
+		]);
+		expect(findings.map((finding) => [finding.category, finding.source])).toEqual([
+			["electron-switches", "app.asar/main.js"],
+			["electron-cleartext", "app.asar/main.js"]
+		]);
 	});
 
 	it("caps findings in the new category", () => {
@@ -902,6 +991,17 @@ describe("scanElectron webPreferences", () => {
 			}
 		];
 		expect(scanElectron(makeInfo(), files)).toHaveLength(1);
+	});
+
+	it("skips a commented first match and reports a later real one", () => {
+		const [finding] = scanElectron(makeInfo(), [
+			{
+				relativePath: "app.asar/main.js",
+				content: "// nodeIntegration: true\nconst prefs = { nodeIntegration: true }"
+			}
+		]);
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.evidence).toBe("nodeIntegration: true");
 	});
 });
 
