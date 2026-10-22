@@ -290,13 +290,16 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
       badges for `unpacked`/`link`/`executable`.
     - Selection + expansions persist in `tab-state` under `electron`.
     - Preview: `readAsarFile(..., 512 KB, true)`; stale responses ignored with a
-      request counter; monospace `<pre>` with a Beautify/Raw toggle
-      (Prettier standalone); pretty-print JSON when it parses; truncated text
-      disables Beautify and offers **Load full content** (32 MB cap). Raster
-      images render from a data URL and fall back to a notice when larger than
-      4 MB or undecodable. Images open fitted to the viewport with zoom out /
-      reset / zoom in header buttons, trackpad pinch (ctrl+wheel) anchored under
-      the cursor, and normal two-finger scrolling to pan once zoomed.
+      request counter; monospace `<pre>` with syntax highlighting for source
+      files and a Beautify/Raw toggle (Prettier standalone); pretty-print JSON
+      when it parses. Source previews up to the 512 KB preview cap are
+      highlighted automatically; larger loaded files show a **Highlight
+      anyway** action. Truncated text disables Beautify and offers **Load full
+      content** (32 MB cap). Raster images render from a data URL and fall back
+      to a notice when larger than 4 MB or undecodable. Images open fitted to
+      the viewport with zoom out / reset / zoom in header buttons, trackpad
+      pinch (ctrl+wheel) anchored under the cursor, and normal two-finger
+      scrolling to pan once zoomed.
     - Tree icons classify directories, images, code, data, fonts, archives,
       media, binaries and docs.
   - Package view: package.json facts, dependencies, fuses with state badges,
