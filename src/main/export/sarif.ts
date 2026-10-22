@@ -28,7 +28,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 	"jailbreak-detection": "Jailbreak detection string",
 	"debug-artifacts": "Leaked debug artifact",
 	"leaked-source-path": "Leaked developer source path",
-	"source-map": "Shipped source map"
+	"source-map": "Shipped source map",
+	"electron-csp": "Electron Content-Security-Policy weakness"
 };
 
 const LEVELS: Record<SecurityFinding["severity"], "error" | "warning" | "note"> = {
