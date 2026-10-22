@@ -6,11 +6,15 @@
 
 import type { FileEntry } from "../../shared/types";
 import { FileBrowser } from "../components";
+import { announce, takePendingTarget } from "../navigation";
+import { saveSearchState } from "../search-state";
+import { getTabState, setTabState } from "../tab-state";
 import { copyText } from "../utils/clipboard";
 import { el } from "../utils/dom";
 import type { FileBadge } from "../utils/file-browser";
 import { treeTotals } from "../utils/file-browser";
 import { formatCount, formatSize } from "../utils/format";
+import { collectTreePaths, matchTreePath } from "../utils/security-references";
 
 function classifyFile(entry: FileEntry): FileBadge[] {
 	const name = entry.name;
@@ -39,6 +43,18 @@ function folderLabel(platform: string): string {
 	if (platform === "darwin") return "Show in Finder";
 	if (platform === "linux") return "Show in File Manager";
 	return "Show in Explorer";
+}
+
+/** Ancestor paths of a tree path, preserving its native separator. */
+function treeAncestors(path: string): string[] {
+	const separator = path.includes("\\") ? "\\" : "/";
+	const segments = path.split(separator);
+	const ancestors: string[] = [];
+	for (let i = 1; i < segments.length; i++) {
+		const ancestor = segments.slice(0, i).join(separator);
+		if (ancestor) ancestors.push(ancestor);
+	}
+	return ancestors;
 }
 
 export function renderFiles(container: HTMLElement, data: unknown, sessionId: string = ""): void {
@@ -73,6 +89,26 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 	// platform-specific folder label.
 	const platform = window.api.getPlatform();
 
+	// ── Cross-tab jump from a Security finding ──
+	// FileBrowser reads `selected`/`expanded` at mount, so seed tab state first.
+	const target = takePendingTarget(sessionId, "files");
+	if (target?.kind === "file") {
+		const resolved = matchTreePath(collectTreePaths(entries), target.path);
+		if (resolved) {
+			const expanded = new Set<string>(
+				getTabState<string[]>(sessionId, "files", "expanded") ?? []
+			);
+			for (const ancestor of treeAncestors(resolved)) expanded.add(ancestor);
+			setTabState(sessionId, "files", "expanded", [...expanded]);
+			setTabState(sessionId, "files", "selected", resolved);
+			saveSearchState(sessionId, "files", "", false);
+		} else {
+			// Fall back to filtering the tree by the file's base name.
+			saveSearchState(sessionId, "files", target.path.split("/").pop() ?? target.path, false);
+			announce("File not found; filtered the tree instead");
+		}
+	}
+
 	new FileBrowser<FileEntry>({
 		entries,
 		sessionId,
@@ -104,4 +140,12 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 	}).mount(wrapper);
 
 	container.appendChild(wrapper);
+
+	if (target?.kind === "file" && target.path) {
+		requestAnimationFrame(() => {
+			container
+				.querySelector<HTMLElement>(".fb-tree-row--selected")
+				?.scrollIntoView({ block: "center" });
+		});
+	}
 }

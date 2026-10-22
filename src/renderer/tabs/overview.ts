@@ -4,6 +4,7 @@
 
 import type { AnalysisResult, HookInfo } from "../../shared/types";
 import { EmptyState } from "../components";
+import { announce, takePendingTarget } from "../navigation";
 import { makeCopyable } from "../utils/clipboard";
 import { el } from "../utils/dom";
 import { formatCount, formatSize, plural } from "../utils/format";
@@ -51,8 +52,13 @@ function buildBadge(text: string, variant: "green" | "red" | "yellow"): HTMLElem
 	return el("span", `ov-badge ov-badge--${variant}`, text);
 }
 
-function buildHardeningRow(label: string, enabled: boolean): HTMLElement {
+function buildHardeningRow(
+	label: string,
+	enabled: boolean,
+	key?: "pie" | "arc" | "stackCanaries" | "rpath"
+): HTMLElement {
 	const row = el("div", "ov-hardening-row");
+	if (key) row.dataset.hardening = key;
 	const indicator = el("span", enabled ? "ov-check ov-check--pass" : "ov-check ov-check--fail");
 	indicator.textContent = enabled ? "\u2713" : "\u2717";
 	row.appendChild(indicator);
@@ -71,7 +77,11 @@ function buildCard(title: string, ...children: HTMLElement[]): HTMLElement {
 
 // ── Main render ──
 
-export function renderOverview(container: HTMLElement, data: OverviewData | null): void {
+export function renderOverview(
+	container: HTMLElement,
+	data: OverviewData | null,
+	sessionId: string = ""
+): void {
 	container.innerHTML = "";
 
 	if (!data) {
@@ -372,12 +382,14 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 
 	// ── Binary Hardening card ──
 	const hardeningItems = [
-		buildHardeningRow("PIE (Position Independent)", hardening.pie),
-		buildHardeningRow("ARC (Automatic Reference Counting)", hardening.arc),
-		buildHardeningRow("Stack Canaries", hardening.stackCanaries),
+		buildHardeningRow("PIE (Position Independent)", hardening.pie, "pie"),
+		buildHardeningRow("ARC (Automatic Reference Counting)", hardening.arc, "arc"),
+		buildHardeningRow("Stack Canaries", hardening.stackCanaries, "stackCanaries"),
 		buildHardeningRow("Stripped", hardening.stripped)
 	];
-	wrapper.appendChild(buildCard("Binary Hardening", ...hardeningItems));
+	const hardeningCard = buildCard("Binary Hardening", ...hardeningItems);
+	hardeningCard.id = "ov-card-hardening";
+	wrapper.appendChild(hardeningCard);
 
 	// ── Hooks summary (compact — full detail in Hooks tab) ──
 	const hooks = data.hooks;
@@ -420,4 +432,21 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 	}
 
 	container.appendChild(wrapper);
+
+	// ── Cross-tab jump from a Security hardening finding ──
+	const target = takePendingTarget(sessionId, "overview");
+	if (target?.kind === "hardening") {
+		requestAnimationFrame(() => {
+			const card = wrapper.querySelector<HTMLElement>("#ov-card-hardening");
+			if (!card) return;
+			card.scrollIntoView({ block: "center" });
+			const row = target.key
+				? card.querySelector<HTMLElement>(`[data-hardening="${target.key}"]`)
+				: null;
+			const highlight = row ?? card;
+			highlight.classList.add("ov-jump");
+			setTimeout(() => highlight.classList.remove("ov-jump"), 1600);
+			announce("Opened Binary Hardening in Overview");
+		});
+	}
 }

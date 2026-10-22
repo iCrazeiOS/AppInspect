@@ -24,6 +24,13 @@ import {
 	removeFileTab,
 	setActiveFileTabId
 } from "./file-tabs";
+import {
+	announce,
+	clearPendingTargets,
+	type NavigationTarget,
+	registerNavigationHost,
+	takePendingTarget
+} from "./navigation";
 // ── Search state ──
 import { clearSearchStatesForSession, getSearchBar } from "./search-state";
 import { clearTabStatesForSession } from "./tab-state";
@@ -399,6 +406,37 @@ function switchSectionTab(tabId: string): void {
 	}
 }
 
+/**
+ * Cross-tab navigation host for Security finding references. Validates the
+ * target tab against the current result, then forces a fresh render so the
+ * destination renderer can consume its pending target.
+ */
+function handleNavigation(sessionId: string, target: NavigationTarget): void {
+	// The click may come from a hidden/other file tab; make it active first.
+	if (activeFileTabId !== sessionId) switchFileTab(sessionId);
+
+	const tab = getFileTab(sessionId);
+	if (!tab?.analysisResult) {
+		takePendingTarget(sessionId, target.sectionTab);
+		return;
+	}
+
+	// Respect tab visibility rules (Electron is hidden without result.electron).
+	const btn = Array.from(tabButtons).find((b) => b.dataset.tab === target.sectionTab);
+	if (!btn || btn.classList.contains("hidden")) {
+		takePendingTarget(sessionId, target.sectionTab);
+		announce("That view is not available for this file");
+		return;
+	}
+
+	// switchSectionTab only restores scroll when the tab is already loaded, so
+	// drop the loaded marker to guarantee a render that consumes the target.
+	tab.loadedSectionTabs.delete(target.sectionTab);
+	switchSectionTab(target.sectionTab);
+}
+
+registerNavigationHost(handleNavigation);
+
 async function loadTabData(tabId: string): Promise<void> {
 	const tab = getActiveFileTab();
 	if (!tab) return;
@@ -415,6 +453,8 @@ async function loadTabData(tabId: string): Promise<void> {
 			);
 			restoreScroll(tab, tabId);
 		}
+		// Discard a target that could not be consumed (no data/panel).
+		takePendingTarget(tab.sessionId, tabId);
 		return;
 	}
 
@@ -432,7 +472,7 @@ async function loadTabData(tabId: string): Promise<void> {
 				tab.analysisResult?.overview?.ipa?.binaries?.[tab.currentBinaryIndex];
 			switch (tabData.tab) {
 				case "overview":
-					renderOverview(panel, tabData.data);
+					renderOverview(panel, tabData.data, sid);
 					break;
 				case "libraries":
 					renderLibraries(panel, tabData.data, binCount, sid);
@@ -447,7 +487,13 @@ async function loadTabData(tabId: string): Promise<void> {
 					renderSymbols(panel, tabData.data, binCount, sid);
 					break;
 				case "security":
-					renderSecurity(panel, tabData.data, sid);
+					renderSecurity(
+						panel,
+						tabData.data,
+						sid,
+						tab.analysisResult,
+						tab.currentBinaryIndex
+					);
 					break;
 				case "files":
 					renderFiles(panel, tabData.data, sid);
@@ -492,6 +538,10 @@ async function loadTabData(tabId: string): Promise<void> {
 		showToast(`Failed to load ${tabId} tab: ${message}`, "error");
 		console.error(`[AppInspect] Failed to load tab data for ${tabId}:`, err);
 	}
+
+	// A render that did not consume its pending target (missing data, failed
+	// IPC, hidden panel) must not fire on the next incidental visit.
+	takePendingTarget(tab.sessionId, tabId);
 }
 
 tabButtons.forEach((btn) => {
@@ -774,6 +824,7 @@ function closeFileTab(sessionId: string): void {
 	removeFileTabFromBar(sessionId);
 	clearSearchStatesForSession(sessionId);
 	clearTabStatesForSession(sessionId);
+	clearPendingTargets(sessionId);
 	cleanupLibrariesSession(sessionId);
 
 	if (activeFileTabId === null || activeFileTabId === sessionId) {
@@ -856,11 +907,15 @@ async function startAnalysis(filePath: string): Promise<void> {
 
 			const overviewPanel = document.getElementById("tab-overview");
 			if (overviewPanel) {
-				renderOverview(overviewPanel, {
-					...result.overview,
-					hooks: result.hooks,
-					electron: result.electron
-				});
+				renderOverview(
+					overviewPanel,
+					{
+						...result.overview,
+						hooks: result.hooks,
+						electron: result.electron
+					},
+					tab.sessionId
+				);
 				restoreScroll(tab, "overview");
 			}
 

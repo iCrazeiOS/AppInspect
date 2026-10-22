@@ -713,6 +713,11 @@ export class HexViewer {
 
 	// ── Navigation ──
 
+	/** Scroll the region so the given region-relative byte is centred. */
+	goToOffset(regionRelativeOffset: number): void {
+		this.scrollToOffset(regionRelativeOffset);
+	}
+
 	private scrollToOffset(offset: number): void {
 		const clamped = Math.max(0, Math.min(offset, this.opts.regionSize - 1));
 		const row = Math.floor(clamped / this.bytesPerRow);
