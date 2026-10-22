@@ -6,7 +6,7 @@ import type { AnalysisResult, HookInfo } from "../../shared/types";
 import { EmptyState } from "../components";
 import { makeCopyable } from "../utils/clipboard";
 import { el } from "../utils/dom";
-import { plural } from "../utils/format";
+import { formatCount, formatSize, plural } from "../utils/format";
 import { decodeCpuType, decodeFileType, decodePlatform, isMacOSPlatform } from "../utils/macho";
 
 interface ProvisioningProfileSummary {
@@ -19,6 +19,7 @@ interface ProvisioningProfileSummary {
 type OverviewData = AnalysisResult["overview"] & {
 	hooks?: HookInfo;
 	provisioningProfile?: ProvisioningProfileSummary;
+	electron?: AnalysisResult["electron"];
 };
 
 /** Display names for XCFramework Info.plist SupportedPlatform / SupportedPlatformVariant */
@@ -197,6 +198,52 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 		summaryItems.push(buildKV("Team ID", String(teamId)));
 
 		wrapper.appendChild(buildCard("App Summary", ...summaryItems));
+
+		// ── Electron bundle card ──
+		if (data.electron) {
+			const info = data.electron;
+			const electronItems: HTMLElement[] = [
+				buildKV("Version", String(info.electronVersion ?? "N/A")),
+				buildKV("ASAR Size", info.asarSize != null ? formatSize(info.asarSize) : "N/A"),
+				buildKV("Files", formatCount(info.fileCount, "file"))
+			];
+
+			if (info.integrity) {
+				const enforced = (info.fuses ?? []).some(
+					(fuse) =>
+						fuse.name === "EnableEmbeddedAsarIntegrityValidation" &&
+						fuse.state === "enabled"
+				);
+				const integrityRow = el("div", "ov-kv");
+				integrityRow.appendChild(el("span", "ov-kv-label", "Integrity"));
+				integrityRow.appendChild(
+					!info.integrity.valid
+						? buildBadge("Mismatch", "red")
+						: enforced
+							? buildBadge("Verified", "green")
+							: buildBadge("Match (fuse off)", "yellow")
+				);
+				electronItems.push(integrityRow);
+			}
+
+			const fuses = info.fuses ?? [];
+			const enabled = fuses.filter((fuse) => fuse.state === "enabled").length;
+			electronItems.push(
+				buildKV("Fuses Enabled", fuses.length > 0 ? `${enabled} of ${fuses.length}` : "N/A")
+			);
+			electronItems.push(buildKV("Source Maps", String(info.sourceMaps?.length ?? 0)));
+
+			const addons = info.nativeAddons ?? [];
+			const addonValue =
+				addons.length === 0
+					? "None"
+					: addons.length <= 3
+						? addons.join(", ")
+						: formatCount(addons.length, "addon");
+			electronItems.push(buildKV("Native Addons", addonValue));
+
+			wrapper.appendChild(buildCard("Electron", ...electronItems));
+		}
 	} else if (sourceType === "xcframework") {
 		// ── XCFramework Summary + Slices cards ──
 		const summaryItems: HTMLElement[] = [

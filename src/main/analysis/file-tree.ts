@@ -9,8 +9,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import type { FileEntry } from "../../shared/types";
+import { withoutAsar } from "../util/no-asar";
 
 export function buildFileTree(dirPath: string): FileEntry[] {
+	return withoutAsar(() => buildTree(dirPath));
+}
+
+function buildTree(dirPath: string): FileEntry[] {
 	try {
 		const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 		const result: FileEntry[] = [];

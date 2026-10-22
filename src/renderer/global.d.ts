@@ -1,4 +1,10 @@
-import type { AnalysisResult, AppSettings, LibraryGraphData, SizeTreeNode } from "../shared/types";
+import type {
+	AnalysisResult,
+	AppSettings,
+	AsarFileContent,
+	LibraryGraphData,
+	SizeTreeNode
+} from "../shared/types";
 import type {
 	TabData,
 	TabName,
@@ -51,6 +57,11 @@ export interface AppInspectAPI {
 		pattern: number[],
 		caseInsensitive?: boolean
 	): Promise<{ matches: number[] } | null>;
+	readAsarFile(
+		sessionId: string,
+		path: string,
+		maxBytes?: number
+	): Promise<AsarFileContent | null>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;

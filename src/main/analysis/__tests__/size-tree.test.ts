@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SizeBreakdown, SizeTreeNode } from "../../../shared/types";
+import type { AsarEntry, SizeBreakdown, SizeTreeNode } from "../../../shared/types";
 import { buildSizeTree, splitBinaryNode } from "../size-tree";
 
 const tempDirs: string[] = [];
@@ -176,5 +176,83 @@ describe("buildSizeTree", () => {
 		const tree = buildSizeTree(binary, { path: binary, breakdown: BREAKDOWN });
 		expect(tree.kind).toBe("binary");
 		expect(tree.size).toBe(1000);
+	});
+});
+
+describe("buildSizeTree with an Electron archive", () => {
+	const ENTRIES: AsarEntry[] = [
+		{
+			name: "node_modules",
+			path: "node_modules",
+			size: 600,
+			isDirectory: true,
+			children: [
+				{
+					name: "dep.js",
+					path: "node_modules/dep.js",
+					size: 600,
+					isDirectory: false
+				}
+			]
+		},
+		{ name: "package.json", path: "package.json", size: 200, isDirectory: false },
+		{ name: "native.node", path: "native.node", size: 100, isDirectory: false, unpacked: true }
+	];
+
+	it("splits app.asar into packed entries plus header/padding overhead", () => {
+		const root = makeTempDir();
+		const asar = write(root, "Resources/app.asar", 1000);
+		write(root, "Resources/app.asar.unpacked/native.node", 100);
+
+		const tree = buildSizeTree(root, null, new Set(), false, { path: asar, entries: ENTRIES });
+		const resources = child(tree, "Resources");
+		const node = child(resources, "app.asar");
+
+		expect(node.kind).toBe("asar");
+		expect(node.size).toBe(1000);
+		// Unpacked entries are already counted under app.asar.unpacked
+		expect(node.children!.map((c) => c.name)).toEqual([
+			"node_modules",
+			"package.json",
+			"Archive header & padding"
+		]);
+		expect(child(node, "node_modules")).toMatchObject({
+			size: 600,
+			kind: "directory"
+		});
+		expect(child(child(node, "node_modules"), "dep.js")).toEqual({
+			name: "dep.js",
+			size: 600,
+			kind: "file"
+		});
+		expect(child(node, "Archive header & padding")).toEqual({
+			name: "Archive header & padding",
+			size: 200,
+			kind: "overhead"
+		});
+		expect(tree.size).toBe(1000 + 100);
+	});
+
+	it("keeps the file leaf when the archive has no packed entries", () => {
+		const root = makeTempDir();
+		const asar = write(root, "app.asar", 1000);
+
+		const tree = buildSizeTree(root, null, new Set(), false, {
+			path: asar,
+			entries: [ENTRIES[2]!]
+		});
+		expect(child(tree, "app.asar")).toEqual({ name: "app.asar", size: 1000, kind: "file" });
+	});
+
+	it("leaves other archives alone", () => {
+		const root = makeTempDir();
+		write(root, "app.asar", 1000);
+		write(root, "other.asar", 500);
+
+		const tree = buildSizeTree(root, null, new Set(), false, {
+			path: path.join(root, "app.asar"),
+			entries: ENTRIES
+		});
+		expect(child(tree, "other.asar").kind).toBe("file");
 	});
 });

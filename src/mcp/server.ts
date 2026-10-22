@@ -33,7 +33,7 @@ import { MAX_HEX_MATCHES } from "../main/analysis/hex";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
-import type { AnalysisResult, SizeTreeNode } from "../shared/types";
+import type { AnalysisResult, AsarEntry, SizeTreeNode } from "../shared/types";
 import {
 	buildHexSearchResult,
 	buildLibraryGraphResult,
@@ -109,6 +109,25 @@ const binaryParam = z
 
 const noop = () => {};
 
+/** Preview reads from an app.asar archive are capped at this many bytes. */
+const ASAR_PREVIEW_MAX = 512 * 1024;
+
+/** Flatten an ASAR entry tree into its files, sorted by archive path. */
+function flattenAsar(entries: AsarEntry[]): AsarEntry[] {
+	const files: AsarEntry[] = [];
+	const walk = (nodes: AsarEntry[]): void => {
+		for (const node of nodes) {
+			if (node.isDirectory) {
+				if (node.children) walk(node.children);
+			} else {
+				files.push(node);
+			}
+		}
+	};
+	walk(entries);
+	return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 // ── Server setup ─────────────────────────────────────────────────────
 
 const server = new McpServer({ name: "appinspect", version: "0.1.0" });
@@ -119,6 +138,8 @@ server.registerTool(
 		description:
 			"Analyse an iOS/macOS input: an IPA, Mach-O, DEB, .app bundle, .xcframework, " +
 			"or a folder (scanned for Mach-O binaries and .deb packages). " +
+			"A macOS Electron .app is analysed down to its app.asar archive too " +
+			"(use list_asar and read_asar_file for its files). " +
 			"Must be called before any other tool. Returns an overview summary " +
 			"including source type, Mach-O header, build version, hardening flags, " +
 			"and available binaries. The result is cached for the session — call " +
@@ -137,7 +158,7 @@ server.registerTool(
 		const result = await session.analyseFile(path, noop);
 		sessions.set(path, session);
 		lastPath = path;
-		return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+		return ok(sanitize({ ...result.overview, hooks: result.hooks, electron: result.electron }));
 	}
 );
 
@@ -153,7 +174,7 @@ server.registerTool(
 	},
 	async ({ binary, path }) => {
 		const cached = await resolveResult(path, binary);
-		return ok(sanitize({ ...cached.overview, hooks: cached.hooks }));
+		return ok(sanitize({ ...cached.overview, hooks: cached.hooks, electron: cached.electron }));
 	}
 );
 
@@ -169,7 +190,9 @@ server.registerTool(
 			"+ methods + protocols), swift (Swift nominal types with stored " +
 			"properties, superclasses, protocols, and protocol conformances), " +
 			"entitlements (code signing), infoPlist " +
-			"(Info.plist), security (findings + hardening), files (bundle file " +
+			"(Info.plist), electron (Electron version, fuses, ASAR integrity, " +
+			"package.json, source maps, native addons), security (findings + hardening), " +
+			"files (bundle file " +
 			"tree), hooks (jailbreak hook detection), size (bytes per " +
 			"segment/section and per module — Swift module, C++ namespace, ObjC " +
 			"class prefix, C library — attributed from symbols and function starts).",
@@ -271,6 +294,71 @@ server.registerTool(
 );
 
 server.registerTool(
+	"list_asar",
+	{
+		description:
+			"List the files inside an Electron app.asar archive (see the electron " +
+			"section for fuses, integrity and package.json). Returns a flat list of " +
+			"files sorted by archive path, with optional path filtering and pagination. " +
+			"Empty when the analysed input is not an Electron bundle with a readable archive.",
+		inputSchema: {
+			filter: z
+				.string()
+				.optional()
+				.describe("Case-insensitive substring filter on the archive path"),
+			offset: z.number().optional().describe("Files to skip (default: 0)"),
+			limit: z
+				.number()
+				.optional()
+				.describe(`Max files to return (default: ${DEFAULT_LIMIT})`),
+			path: pathParam
+		}
+	},
+	async ({ filter, offset = 0, limit = DEFAULT_LIMIT, path }) => {
+		const all = flattenAsar(getSession(path).getAsarTree()).map((entry) => ({
+			path: entry.path,
+			size: entry.size,
+			unpacked: entry.unpacked === true
+		}));
+		const lower = filter?.toLowerCase();
+		const filtered = lower
+			? all.filter((file) => file.path.toLowerCase().includes(lower))
+			: all;
+		const start = Math.max(0, Math.floor(offset));
+		const count = Math.min(1000, Math.max(0, Math.floor(limit)));
+		return ok({
+			total: filtered.length,
+			offset: start,
+			limit: count,
+			files: filtered.slice(start, start + count)
+		});
+	}
+);
+
+server.registerTool(
+	"read_asar_file",
+	{
+		description:
+			"Read a file from an Electron app.asar archive by archive-relative path " +
+			"(from list_asar). Returns its text (up to 512 KB) or, for binary content, " +
+			"metadata with binary: true. Archive contents are never extracted.",
+		inputSchema: {
+			file: z.string().describe("Archive-relative path, e.g. from list_asar"),
+			maxBytes: z
+				.number()
+				.optional()
+				.describe(`Max bytes to read (default and max: ${ASAR_PREVIEW_MAX})`),
+			path: pathParam
+		}
+	},
+	async ({ file, maxBytes = ASAR_PREVIEW_MAX, path }) => {
+		const content = getSession(path).readAsarFile(file, maxBytes);
+		if (!content) throw new Error(`Could not read ${file} from app.asar.`);
+		return ok(content);
+	}
+);
+
+server.registerTool(
 	"switch_binary",
 	{
 		description:
@@ -287,7 +375,7 @@ server.registerTool(
 	async ({ binaryIndex, path }) => {
 		const session = getSession(path);
 		const result = await session.analyseBinary(binaryIndex, noop);
-		return ok(sanitize({ ...result.overview, hooks: result.hooks }));
+		return ok(sanitize({ ...result.overview, hooks: result.hooks, electron: result.electron }));
 	}
 );
 

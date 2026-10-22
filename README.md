@@ -10,6 +10,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
+- **Electron .app** — parses the bundled `Resources/app.asar` as a read-only virtual filesystem: browse and preview archive files, read `package.json`, fuses, ASAR integrity and shipped source maps, split the archive in the Size treemap, and scan archive text files for secrets. Full analysis currently needs a macOS `.app` bundle; the ASAR, fuse and metadata layers are platform-independent, but PE/ELF executables are not parsed. Runtime-fetched JavaScript is not covered
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
 - **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
@@ -31,8 +32,9 @@ File type is detected automatically by magic bytes.
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
 | **Info.plist** | Key-facts summary at the top (bundle metadata, device family, supported platforms, privacy strings, ATS exceptions) above the full searchable key/value tree |
+| **Electron** | Electron-only, shown when the bundle ships an `app.asar`: archive file tree with path filter and text preview, plus package facts — Electron version, fuses, ASAR integrity, `package.json`, shipped source maps and native addons |
 | **Hooks** | Jailbreak hook framework detection — Substrate, Libhooker, fishhook, Substitute, ObjC swizzling (Mach-O/DEB only) |
-| **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment (issues only), leaked debug artifacts (DWARF, debug symbols, developer source paths, shipped source maps / Swift module interfaces / symbol maps), bundle file scanning (JS bundles, configs) |
+| **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment (issues only), leaked debug artifacts (DWARF, debug symbols, developer source paths, shipped source maps / Swift module interfaces / symbol maps), bundle file scanning (JS bundles, configs), and Electron findings (fuses, ASAR integrity, shipped source maps, unsafe `webPreferences`) |
 | **Hex** | Raw hex viewer with virtual scrolling for large binaries. Segment/section region picker, go-to offset, hex/decimal offset toggle. Dual-mode search (hex bytes or text) with match highlighting and navigation |
 | **Files** | Bundle file tree with sizes, context menu (copy path, open file, show in explorer/finder), double-click to open (IPA/DEB) |
 | **Size** | Where the binary's bytes go, as **Modules** (Swift modules, ObjC prefixes, C++ namespaces, Kotlin packages, well-known C libs, expandable to largest functions), **Sections** (per-segment, `__LINKEDIT` split into tables/signature/fixups/export trie), and **Blocks**, a treemap of every bundle file with the active binary broken into modules and overhead. Export PNG saves the view at 6000×4000 with every block labelled. Attribution is heuristic, based on symbol table, export trie, ObjC methods, and function starts |
@@ -158,14 +160,16 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework) or folder. Must be called first. |
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
-| `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules. Optional `maxDepth` (default 3). |
+| `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules and an Electron `app.asar` split into its packed contents. Optional `maxDepth` (default 3). |
+| `list_asar` | List files inside an Electron `app.asar` (flat, sorted by path). Optional `filter`, `offset`, `limit` |
+| `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to 512 KB; binary content returns metadata only). Optional `maxBytes` |
 | `search` | Cross-binary search across all binaries in the loaded container. `tab`: `classes`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
-**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`, `size`
+**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `electron`, `security`, `files`, `hooks`, `size`
 
 All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `search_hex`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
@@ -226,7 +230,7 @@ bun run cli -- /path/App.ipa --binary 1 --json        # analyse a specific binar
 |------|-------------|
 | `--json` | Emit the full analysis as JSON (default) |
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
-| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `hooks`, `security`, `files`, `size` |
+| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |
 | `--no-clobber` | Refuse to overwrite an existing `--out` file (exits 1) |
@@ -253,6 +257,7 @@ src/
   main/              # Electron main process
     analysis/        # Orchestrator, security scan engine
     deb/             # DEB archive extraction
+    electron/        # Electron detection, ASAR parsing, fuse + archive scanning
     ipc/             # IPC handlers
     ipa/             # IPA extraction
     xcframework/     # XCFramework slice discovery

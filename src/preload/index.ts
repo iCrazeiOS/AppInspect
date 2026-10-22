@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld("api", {
 	getSizeTree: (sessionId: string) => ipcRenderer.invoke("get-size-tree", { sessionId }),
 	readHex: (sessionId: string, offset: number, length: number) =>
 		ipcRenderer.invoke("read-hex", { sessionId, offset, length }),
+	readAsarFile: (sessionId: string, path: string, maxBytes?: number) =>
+		ipcRenderer.invoke("read-asar-file", { sessionId, path, maxBytes }),
 	searchHex: (
 		sessionId: string,
 		regionOffset: number,
