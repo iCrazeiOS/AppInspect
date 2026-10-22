@@ -28,6 +28,7 @@ import {
 import { clearSearchStatesForSession, getSearchBar } from "./search-state";
 import { clearTabStatesForSession } from "./tab-state";
 import { renderClasses } from "./tabs/classes";
+import { renderElectron } from "./tabs/electron";
 import { renderEntitlements } from "./tabs/entitlements";
 import { renderFiles } from "./tabs/files";
 import { renderHeaders } from "./tabs/headers";
@@ -61,6 +62,7 @@ const archSelector = $<HTMLDivElement>("#arch-selector");
 const archDropdown = $<HTMLSelectElement>("#arch-dropdown");
 const sidebarFooter = $<HTMLDivElement>("#sidebar-footer");
 const tabBtnInfoPlist = $<HTMLButtonElement>("#tab-btn-infoplist");
+const tabBtnElectron = $<HTMLButtonElement>("#tab-btn-electron");
 const tabBtnHooks = $<HTMLButtonElement>("#tab-btn-hooks");
 const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-btn");
 
@@ -259,11 +261,13 @@ function showError(message: string): void {
 	showToast(message, "error");
 }
 
-// ── Tab visibility based on source type ──
-function updateTabsForSourceType(sourceType: string): void {
+// ── Tab visibility based on the analysis result ──
+function updateTabsForResult(result: AnalysisResult): void {
+	const sourceType = result.overview?.sourceType ?? "ipa";
 	const isTweak = sourceType === "deb" || sourceType === "macho" || sourceType === "folder";
 	tabBtnInfoPlist.classList.toggle("hidden", isTweak);
 	tabBtnHooks.classList.toggle("hidden", !isTweak);
+	tabBtnElectron.classList.toggle("hidden", result.electron == null);
 }
 
 // ── Encryption warning banner ──
@@ -357,6 +361,11 @@ function restoreScroll(tab: FileTabState, tabId: string): void {
 
 // ── Section tab switching ──
 function switchSectionTab(tabId: string): void {
+	// A tab hidden by the current result (e.g. Electron for a native app)
+	// would leave an empty panel, so fall back to the always-visible Overview.
+	const requested = Array.from(tabButtons).find((btn) => btn.dataset.tab === tabId);
+	if (requested?.classList.contains("hidden")) tabId = "overview";
+
 	const tab = getActiveFileTab();
 	const changed = !!tab && tab.currentSectionTab !== tabId;
 
@@ -455,6 +464,9 @@ async function loadTabData(tabId: string): Promise<void> {
 					break;
 				case "hooks":
 					renderHooks(panel, tabData.data);
+					break;
+				case "electron":
+					renderElectron(panel, tabData.data, sid);
 					break;
 				case "size":
 					renderSize(panel, tabData.data, sid);
@@ -736,7 +748,7 @@ function switchFileTab(sessionId: string): void {
 		}
 
 		// Restore tab visibility
-		updateTabsForSourceType(tab.analysisResult.overview?.sourceType ?? "ipa");
+		updateTabsForResult(tab.analysisResult);
 		updateExportVisibility(true);
 		updateEncryptionBanner();
 
@@ -842,15 +854,16 @@ async function startAnalysis(filePath: string): Promise<void> {
 
 			const overviewPanel = document.getElementById("tab-overview");
 			if (overviewPanel) {
-				renderOverview(
-					overviewPanel,
-					Object.assign({}, result.overview, { hooks: result.hooks })
-				);
+				renderOverview(overviewPanel, {
+					...result.overview,
+					hooks: result.hooks,
+					electron: result.electron
+				});
 				restoreScroll(tab, "overview");
 			}
 
 			checkEncryptionBanner(tab, result);
-			updateTabsForSourceType(result.overview?.sourceType ?? "ipa");
+			updateTabsForResult(result);
 			updateExportVisibility(true);
 			switchSectionTab("overview");
 		}

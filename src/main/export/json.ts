@@ -22,7 +22,8 @@ const TAB_KEY_MAP: Record<TabName, keyof AnalysisResult> = {
 	hooks: "hooks",
 	security: "security",
 	files: "files",
-	size: "size"
+	size: "size",
+	electron: "electron"
 };
 
 /**

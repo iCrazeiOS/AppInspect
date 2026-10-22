@@ -3,7 +3,10 @@
 import type {
 	AnalysisResult,
 	AppSettings,
+	AsarEntry,
+	AsarFileContent,
 	BinaryHardening,
+	ElectronInfo,
 	FatArch,
 	FileEntry,
 	HookInfo,
@@ -27,7 +30,7 @@ import type {
 
 export interface OverviewTabData {
 	tab: "overview";
-	data: AnalysisResult["overview"] & { hooks: HookInfo };
+	data: AnalysisResult["overview"] & { hooks: HookInfo; electron: ElectronInfo | null };
 }
 
 export interface StringsTabData {
@@ -77,6 +80,11 @@ export interface InfoPlistTabData {
 	data: { [key: string]: PlistValue };
 }
 
+export interface ElectronTabData {
+	tab: "electron";
+	data: { info: ElectronInfo; files: AsarEntry[] };
+}
+
 export interface SecurityTabData {
 	tab: "security";
 	data: {
@@ -110,6 +118,7 @@ export type TabData =
 	| SwiftTabData
 	| EntitlementsTabData
 	| InfoPlistTabData
+	| ElectronTabData
 	| SecurityTabData
 	| FilesTabData
 	| HooksTabData
@@ -219,6 +228,10 @@ export type InvokeChannelMap = {
 	"read-hex": {
 		params: { sessionId: string; offset: number; length: number };
 		result: { offset: number; length: number; data: number[]; fileSize: number } | null;
+	};
+	"read-asar-file": {
+		params: { sessionId: string; path: string; maxBytes?: number };
+		result: AsarFileContent | null;
 	};
 	"search-hex": {
 		params: {

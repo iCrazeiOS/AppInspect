@@ -12,6 +12,7 @@ import type {
 	AnalysisResult,
 	BinaryHardening,
 	BuildVersion,
+	ElectronInfo,
 	EncryptionInfo,
 	Entitlement,
 	FatArch,
@@ -664,6 +665,7 @@ export function buildAnalysisResult(
 		infoPlist?: Record<string, PlistValue>;
 		security?: AnalysisResult["security"];
 		files?: FileEntry[];
+		electron?: ElectronInfo | null;
 	} = {}
 ): AnalysisResult {
 	return {
@@ -686,6 +688,7 @@ export function buildAnalysisResult(
 		security: opts.security ?? br.security,
 		hooks: br.hooks,
 		size: br.size,
-		files: opts.files ?? []
+		files: opts.files ?? [],
+		electron: opts.electron ?? null
 	};
 }

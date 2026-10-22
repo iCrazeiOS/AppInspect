@@ -23,6 +23,7 @@ export const SECTION_NAMES = [
 	"swift",
 	"entitlements",
 	"infoPlist",
+	"electron",
 	"security",
 	"files",
 	"hooks",
@@ -83,6 +84,8 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 		}
 		case "infoPlist":
 			return cached.infoPlist;
+		case "electron":
+			return cached.electron;
 		case "security":
 			return cached.security;
 		case "files":

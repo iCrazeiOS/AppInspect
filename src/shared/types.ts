@@ -433,8 +433,16 @@ export interface SizeBreakdown {
  * - binary: a Mach-O file; split into module / overhead children when it is the active binary
  * - module: bytes the size breakdown attributes to one module
  * - overhead: binary bytes no module owns (unattributed section data, link-edit, headers, other slices)
+ * - asar: an Electron app.asar archive, split into its packed contents
  */
-export type SizeTreeKind = "directory" | "file" | "mlmodel" | "binary" | "module" | "overhead";
+export type SizeTreeKind =
+	| "directory"
+	| "file"
+	| "mlmodel"
+	| "binary"
+	| "module"
+	| "overhead"
+	| "asar";
 
 /** Bundle contents for the treemap: files with the active binary split into its modules. */
 export interface SizeTreeNode {
@@ -502,6 +510,59 @@ export interface SwiftMetadata {
 	unresolvedConformances: number;
 }
 
+// ── Electron ──
+
+export type ElectronFuseState = "enabled" | "disabled" | "removed";
+
+export interface ElectronFuse {
+	name: string;
+	state: ElectronFuseState;
+}
+
+export interface ElectronAsarIntegrity {
+	algorithm: string;
+	expected: string;
+	actual: string;
+	valid: boolean;
+}
+
+export interface AsarEntry {
+	name: string;
+	/** POSIX path relative to the archive root. */
+	path: string;
+	size: number;
+	isDirectory: boolean;
+	unpacked?: boolean;
+	executable?: boolean;
+	/** Symlink target, relative to the entry's directory. */
+	link?: string;
+	children?: AsarEntry[];
+}
+
+export interface ElectronInfo {
+	electronVersion?: string;
+	asarPath?: string;
+	asarSize?: number;
+	fileCount: number;
+	unpackedCount: number;
+	packageJson?: { [key: string]: PlistValue };
+	integrity?: ElectronAsarIntegrity;
+	fuses: ElectronFuse[];
+	/** Archive-relative paths of shipped .map files. */
+	sourceMaps: string[];
+	/** Archive-relative paths of .node addons. */
+	nativeAddons: string[];
+}
+
+export interface AsarFileContent {
+	path: string;
+	size: number;
+	truncated: boolean;
+	binary: boolean;
+	/** Present only when `binary` is false. */
+	text?: string;
+}
+
 // ── Top-level Analysis Result ──
 
 export interface AnalysisResult {
@@ -539,6 +600,7 @@ export interface AnalysisResult {
 	protocolDetails: ObjCProtocol[];
 	entitlements: Entitlement[];
 	infoPlist: { [key: string]: PlistValue };
+	electron: ElectronInfo | null;
 	security: {
 		findings: SecurityFinding[];
 		hardening: BinaryHardening;

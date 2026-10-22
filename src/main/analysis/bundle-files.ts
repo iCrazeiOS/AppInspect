@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { LocalisationString } from "../../shared/types";
 import { parsePlistBuffer } from "../parser/plist";
 import { loadSettings } from "../settings";
+import { withoutAsar } from "../util/no-asar";
 import type { BundleFileEntry } from "./security";
 import { isScannableExtension } from "./security";
 
@@ -48,6 +49,10 @@ function hasBinaryContent(buf: Buffer): boolean {
 }
 
 export function readBundleFiles(appBundlePath: string): BundleFileEntry[] {
+	return withoutAsar(() => readFiles(appBundlePath));
+}
+
+function readFiles(appBundlePath: string): BundleFileEntry[] {
 	const files: BundleFileEntry[] = [];
 	let totalSize = 0;
 	const { maxTotal, maxSingle } = getBundleSizeLimits();

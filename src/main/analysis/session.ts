@@ -13,6 +13,9 @@ import * as path from "node:path";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
+	AsarEntry,
+	AsarFileContent,
+	ElectronInfo,
 	LibraryGraphData,
 	LocalisationString,
 	PlistValue,
@@ -21,6 +24,10 @@ import type {
 } from "../../shared/types";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import { extractDEB } from "../deb/extractor";
+import type { AsarArchive } from "../electron/asar";
+import { readAsarFile as readAsarArchiveFile, readAsarHeader } from "../electron/asar";
+import { detectElectron } from "../electron/detect";
+import { readAsarTextFiles, scanElectron } from "../electron/scan";
 import type { BinaryInfo } from "../ipa/extractor";
 import {
 	discoverAppBundle,
@@ -53,6 +60,11 @@ import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "
 import { scanBundleFileContents } from "./security";
 import { buildSizeTree } from "./size-tree";
 
+/** Preview reads from `app.asar` are clamped to this many bytes. */
+const MAX_ASAR_PREVIEW_BYTES = 512 * 1024;
+/** Bytes of a file inspected for a NUL byte to tell text from binary. */
+const BINARY_SNIFF_BYTES = 8 * 1024;
+
 export class AnalysisSession {
 	// ── State ──────────────────────────────────────────────────────────
 	private result: AnalysisResult | null = null;
@@ -63,6 +75,8 @@ export class AnalysisSession {
 	private activeBinaryName: string = "";
 	private fatSliceOffset: number = 0;
 	private searchIndex: Map<number, BinarySearchIndex> | null = null;
+	private asarArchive: AsarArchive | null = null;
+	private electronFindings: SecurityFinding[] = [];
 	/** Lazily-computed results for non-active binaries, keyed by binary index. */
 	private binaryCache = new Map<number, { result: AnalysisResult; fatSliceOffset: number }>();
 
@@ -201,13 +215,48 @@ export class AnalysisSession {
 		return buildLibraryGraph(this.binaries, this.result, this.activeBinaryName);
 	}
 
+	// ── Electron bundle ────────────────────────────────────────────────
+
+	/** Archive entries as a tree; empty when the bundle ships no readable app.asar. */
+	getAsarTree(): AsarEntry[] {
+		return this.asarArchive?.entries ?? [];
+	}
+
+	/**
+	 * Read one archive entry for preview. `maxBytes` is clamped to 1..512 KB;
+	 * binary content (a NUL byte in the first 8 KB) returns metadata only.
+	 */
+	readAsarFile(entryPath: string, maxBytes: number): AsarFileContent | null {
+		if (!this.asarArchive) return null;
+		const limit = Math.min(
+			MAX_ASAR_PREVIEW_BYTES,
+			Math.max(1, Number.isFinite(maxBytes) ? Math.floor(maxBytes) : MAX_ASAR_PREVIEW_BYTES)
+		);
+
+		const result = readAsarArchiveFile(this.asarArchive, entryPath, limit);
+		if (!result.ok) return null;
+
+		const data = result.data.data;
+		const binary = data.subarray(0, BINARY_SNIFF_BYTES).includes(0);
+		const record = this.asarArchive.files.get(entryPath);
+		const content: AsarFileContent = {
+			path: entryPath,
+			size: result.data.truncated ? (record?.size ?? data.length) : data.length,
+			truncated: result.data.truncated,
+			binary
+		};
+		if (!binary) content.text = data.toString("utf8");
+		return content;
+	}
+
 	// ── Size treemap ────────────────────────────────────────────────────
 
 	/**
 	 * Bundle contents for the treemap, with the active binary split into its
 	 * modules. XCFrameworks show the active slice's .framework as it would be
 	 * embedded in an app (headers, modules and .tbd stubs excluded); bare
-	 * Mach-O files show just the binary.
+	 * Mach-O files show just the binary. An Electron app.asar is split into its
+	 * packed contents.
 	 */
 	getSizeTree(): SizeTreeNode {
 		if (!this.result) throw new Error("No previous analysis. Run analyseFile first.");
@@ -232,7 +281,10 @@ export class AnalysisSession {
 			root,
 			{ path: activePath, breakdown: this.result.size },
 			new Set(this.binaries.map((b) => path.resolve(b.path))),
-			sourceType === "xcframework"
+			sourceType === "xcframework",
+			this.asarArchive
+				? { path: this.asarArchive.path, entries: this.asarArchive.entries }
+				: undefined
 		);
 	}
 
@@ -590,7 +642,12 @@ export class AnalysisSession {
 						? binaryResult.entitlements
 						: base.entitlements,
 				infoPlist: base.infoPlist,
-				files: base.files
+				files: base.files,
+				electron: base.electron,
+				security: {
+					findings: [...binaryResult.security.findings, ...this.electronFindings],
+					hardening: binaryResult.security.hardening
+				}
 			}
 		);
 	}
@@ -768,7 +825,46 @@ export class AnalysisSession {
 		return result;
 	}
 
-	// ── Analyse macOS .app bundle ───────────────────────────────────
+	// ── Electron bundle ──────────────────────────────────────────────
+
+	/**
+	 * Detect an Electron bundle and scan its `app.asar`. Best-effort: a
+	 * malformed archive never fails the container analysis.
+	 */
+	private async loadElectron(
+		appRoot: string,
+		isMacOS: boolean,
+		progressCallback: (phase: string, percent: number) => void,
+		percent: number
+	): Promise<ElectronInfo | null> {
+		this.asarArchive = null;
+		this.electronFindings = [];
+		let info: ElectronInfo | null = null;
+		try {
+			info = detectElectron(appRoot, isMacOS);
+			if (!info?.asarPath) return info;
+
+			progressCallback("Scanning Electron bundle...", percent);
+			await yieldToEventLoop();
+			const parsed = readAsarHeader(info.asarPath);
+			if (!parsed.ok) {
+				console.warn(`[electron] ${parsed.error} (at ${info.asarPath})`);
+				return info;
+			}
+			this.asarArchive = parsed.data;
+			const files = readAsarTextFiles(parsed.data);
+			this.electronFindings = [
+				...scanBundleFileContents(files),
+				...scanElectron(info, files)
+			];
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			console.warn(`[electron] Electron scan failed: ${msg}`);
+		}
+		return info;
+	}
+
+	// ── Analyse macOS .app bundle ────────────────────────────────────
 
 	/** Analyse a macOS .app bundle — discover binaries and parse the main executable. */
 	async analyseApp(
@@ -776,6 +872,7 @@ export class AnalysisSession {
 		progressCallback: (phase: string, percent: number) => void
 	): Promise<AnalysisResult> {
 		this.filePath = appPath;
+		this.asarArchive = null;
 
 		// macOS .app bundles use Contents/ structure
 		const isMacOS = isMacOSAppBundle(appPath);
@@ -848,6 +945,9 @@ export class AnalysisSession {
 			// Non-critical
 		}
 
+		// Detect an Electron bundle and scan app.asar.
+		const electronInfo = await this.loadElectron(appPath, isMacOS, progressCallback, 82);
+
 		// Flag leaked development artifacts shipped in the bundle
 		let bundleArtifactFindings: SecurityFinding[] = [];
 		try {
@@ -871,6 +971,7 @@ export class AnalysisSession {
 			findings: [
 				...binaryResult.security.findings,
 				...bundleFindings,
+				...this.electronFindings,
 				...bundleArtifactFindings,
 				...extraBinaryFindings
 			],
@@ -912,7 +1013,8 @@ export class AnalysisSession {
 				entitlements: finalEntitlements,
 				infoPlist: infoPlistData,
 				security: mergedSecurity,
-				files
+				files,
+				electron: electronInfo
 			}
 		);
 
@@ -1083,9 +1185,14 @@ export class AnalysisSession {
 		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
+		const electronInfo = await this.loadElectron(folderPath, false, progressCallback, 80);
 		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
 		const security = {
-			findings: [...binaryResult.security.findings, ...extraBinaryFindings],
+			findings: [
+				...binaryResult.security.findings,
+				...this.electronFindings,
+				...extraBinaryFindings
+			],
 			hardening: binaryResult.security.hardening
 		};
 
@@ -1112,7 +1219,7 @@ export class AnalysisSession {
 				},
 				...binaryOverviewFields(binaryResult)
 			},
-			{ localisationStrings, security, files }
+			{ localisationStrings, security, files, electron: electronInfo }
 		);
 
 		this.result = result;

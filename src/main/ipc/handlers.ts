@@ -171,7 +171,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				case "overview":
 					return sanitizeBigInts({
 						tab: "overview",
-						data: { ...cached.overview, hooks: cached.hooks }
+						data: { ...cached.overview, hooks: cached.hooks, electron: cached.electron }
 					});
 				case "strings":
 					return sanitizeBigInts({
@@ -209,6 +209,12 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				}
 				case "infoPlist":
 					return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
+				case "electron":
+					if (!cached.electron) throw new Error("No Electron bundle in this analysis");
+					return sanitizeBigInts({
+						tab: "electron",
+						data: { info: cached.electron, files: session.getAsarTree() }
+					});
 				case "security":
 					return sanitizeBigInts({ tab: "security", data: cached.security });
 				case "files":
@@ -286,6 +292,21 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			try {
 				const session = getSession(args.sessionId);
 				return session.readHex(args.offset, args.length);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+				return null;
+			}
+		}
+	);
+
+	// ── read-asar-file ──
+	ipcMain.handle(
+		"read-asar-file",
+		(_event, args: { sessionId: string; path: string; maxBytes?: number }) => {
+			try {
+				const session = getSession(args.sessionId);
+				return session.readAsarFile(args.path, args.maxBytes ?? 512 * 1024);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });

@@ -10,7 +10,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { SizeBreakdown, SizeTreeNode } from "../../shared/types";
+import type { AsarEntry, SizeBreakdown, SizeTreeNode } from "../../shared/types";
+import { withoutAsar } from "../util/no-asar";
 
 const ML_MODEL_EXTENSIONS = new Set([".mlmodelc", ".mlpackage", ".mlmodel"]);
 /**
@@ -110,21 +111,80 @@ function directorySize(dir: string, budget: { left: number }): number {
  * `split` names the binary to break into modules; `binaryPaths` marks the
  * other Mach-O files so they render as code rather than resources. With
  * `asEmbedded`, entries Xcode strips when embedding the framework in an app
- * are left out and listed in the root's `excluded`.
+ * are left out and listed in the root's `excluded`. With `asar`, the Electron
+ * archive at that path is split into its packed contents.
  */
 export function buildSizeTree(
 	rootPath: string,
 	split: SplitBinary | null,
 	binaryPaths: ReadonlySet<string> = new Set(),
-	asEmbedded = false
+	asEmbedded = false,
+	asar?: { path: string; entries: AsarEntry[] }
+): SizeTreeNode {
+	return withoutAsar(() => buildTree(rootPath, split, binaryPaths, asEmbedded, asar));
+}
+
+function buildTree(
+	rootPath: string,
+	split: SplitBinary | null,
+	binaryPaths: ReadonlySet<string>,
+	asEmbedded: boolean,
+	asar: { path: string; entries: AsarEntry[] } | undefined
 ): SizeTreeNode {
 	const budget = { left: MAX_ENTRIES };
 	const excluded: { path: string; size: number }[] = [];
 	const splitPath = split ? path.resolve(split.path) : null;
+	const asarPath = asar ? path.resolve(asar.path) : null;
+
+	/** Packed archive entries as directory/file nodes; unpacked ones are counted elsewhere. */
+	const asarChildren = (entries: AsarEntry[]): SizeTreeNode[] => {
+		const children: SizeTreeNode[] = [];
+		for (const entry of entries) {
+			if (entry.unpacked) continue;
+			if (entry.isDirectory) {
+				const dirChildren = asarChildren(entry.children ?? []);
+				if (dirChildren.length === 0) continue;
+				children.push({
+					name: entry.name,
+					size: dirChildren.reduce((sum, c) => sum + c.size, 0),
+					kind: "directory",
+					children: dirChildren
+				});
+			} else {
+				if (entry.size === 0) continue;
+				children.push({ name: entry.name, size: entry.size, kind: "file" });
+			}
+		}
+		children.sort(bySizeDesc);
+		return children;
+	};
+
+	const asarNode = (name: string, size: number): SizeTreeNode | null => {
+		if (!asar) return null;
+		const children = asarChildren(asar.entries);
+		if (children.length === 0) return null;
+
+		const packedSize = children.reduce((sum, c) => sum + c.size, 0);
+		const overhead = size - packedSize;
+		if (overhead > 0)
+			children.push({ name: "Archive header & padding", size: overhead, kind: "overhead" });
+		children.sort(bySizeDesc);
+
+		return {
+			name,
+			size: children.reduce((sum, c) => sum + c.size, 0),
+			kind: "asar",
+			children
+		};
+	};
 
 	const fileNode = (full: string, name: string, size: number): SizeTreeNode => {
 		const resolved = path.resolve(full);
 		if (split && resolved === splitPath) return splitBinaryNode(name, size, split.breakdown);
+		if (asarPath && resolved === asarPath) {
+			const node = asarNode(name, size);
+			if (node) return node;
+		}
 		if (binaryPaths.has(resolved)) return { name, size, kind: "binary" };
 		if (ML_MODEL_EXTENSIONS.has(path.extname(name).toLowerCase())) {
 			return { name, size, kind: "mlmodel" };

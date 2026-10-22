@@ -51,6 +51,7 @@ function makeResult(findings: SecurityFinding[]): AnalysisResult {
 		},
 		hooks: { frameworks: [], targetBundles: [], hookedClasses: [], hookSymbols: [] },
 		size: EMPTY_SIZE_BREAKDOWN,
+		electron: null,
 		strings: [],
 		localisationStrings: [],
 		headers: { machO: HEADER, fatArchs: [], loadCommands: [] },

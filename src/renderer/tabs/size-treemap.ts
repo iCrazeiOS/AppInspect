@@ -87,6 +87,8 @@ export function describe(node: SizeTreeNode): string {
 			return "Core ML model";
 		case "overhead":
 			return "Binary overhead";
+		case "asar":
+			return "app.asar archive";
 		case "directory":
 			return "Folder";
 		default:
