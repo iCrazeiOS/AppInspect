@@ -15,6 +15,7 @@ import {
 	doCrossBinarySearch,
 	updateCrossBinaryHint
 } from "../utils/cross-binary-search";
+import { plural } from "../utils/format";
 
 interface SymbolEntry {
 	name: string;
@@ -192,7 +193,7 @@ export function renderSymbols(
 	function updateCount(): void {
 		const shown = table.filteredCount;
 		const total = table.totalCount;
-		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} symbols`;
+		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "symbol")}`;
 		searchBar.updateCount(shown, total);
 		updateCrossBinaryHint(
 			sessionId,

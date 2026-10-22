@@ -8,7 +8,7 @@
 import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { formatSize } from "../../shared/format";
+import { formatCount, formatSize } from "../../shared/format";
 import type { TabName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
 import { clearCache, getCacheInfo } from "../analysis/cache";
@@ -432,9 +432,9 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				title: "Clear cache",
 				message: `Clear ${formatSize(preview.removedBytes)} of cached extractions?`,
 				detail:
-					`${preview.removedEntries} entries will be removed.` +
+					`${formatCount(preview.removedEntries, "entry", "entries")} will be removed.` +
 					(preview.keptInUse
-						? ` ${preview.keptInUse} entries used by open files will be kept.`
+						? ` ${formatCount(preview.keptInUse, "entry", "entries")} used by open files will be kept.`
 						: "") +
 					"\n\nFiles are extracted again the next time you open them.",
 				buttons: ["Cancel", "Clear cache"],

@@ -6,6 +6,7 @@ import type { AnalysisResult, HookInfo } from "../../shared/types";
 import { EmptyState } from "../components";
 import { makeCopyable } from "../utils/clipboard";
 import { el } from "../utils/dom";
+import { plural } from "../utils/format";
 import { decodeCpuType, decodeFileType, decodePlatform, isMacOSPlatform } from "../utils/macho";
 
 interface ProvisioningProfileSummary {
@@ -234,13 +235,18 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			row.appendChild(value);
 			return row;
 		});
-		wrapper.appendChild(buildCard(`Slices (${libraries.length})`, ...sliceItems));
+		wrapper.appendChild(
+			buildCard(`${plural(libraries.length, "Slice")} (${libraries.length})`, ...sliceItems)
+		);
 	} else if (sourceType === "folder") {
 		// ── Folder Summary card ──
 		const folderName = (data.filePath ?? "").split(/[\\/]/).pop() ?? "N/A";
 		const folderItems: HTMLElement[] = [
 			buildKV("Folder", folderName),
-			buildKV("Binaries", String(ipa?.binaries?.length ?? 0)),
+			buildKV(
+				plural(ipa?.binaries?.length ?? 0, "Binary", "Binaries"),
+				String(ipa?.binaries?.length ?? 0)
+			),
 			buildKV("Architecture", arch),
 			buildKV("File Type", fileType),
 			buildKV("UUID", String(uuid))

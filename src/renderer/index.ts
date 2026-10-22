@@ -41,7 +41,7 @@ import { renderSize } from "./tabs/size";
 import { renderStrings } from "./tabs/strings";
 import { renderSwift } from "./tabs/swift";
 import { renderSymbols } from "./tabs/symbols";
-import { formatSize } from "./utils/format";
+import { formatCount, formatSize } from "./utils/format";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 
 // ── Types ──
@@ -1059,7 +1059,7 @@ async function refreshCacheSize(): Promise<void> {
 	try {
 		const { totalBytes, entryCount, clearableEntries, keptInUse } =
 			await window.api.getCacheInfo();
-		cacheSize.textContent = `${formatSize(totalBytes)} · ${entryCount} ${entryCount === 1 ? "entry" : "entries"}`;
+		cacheSize.textContent = `${formatSize(totalBytes)} · ${formatCount(entryCount, "entry", "entries")}`;
 		btnClearCache.disabled = clearableEntries === 0;
 		btnClearCache.title =
 			clearableEntries > 0
@@ -1084,14 +1084,17 @@ btnClearCache.addEventListener("click", async () => {
 		if (result.cleared) {
 			const kept = result.keptInUse > 0 ? ` (${result.keptInUse} in use kept)` : "";
 			showToast(
-				`Cleared ${formatSize(result.removedBytes)} from ${result.removedEntries} entries${kept}`,
+				`Cleared ${formatSize(result.removedBytes)} from ${formatCount(result.removedEntries, "entry", "entries")}${kept}`,
 				"success"
 			);
 		} else if (result.entryCount === 0 && result.failed === 0) {
 			showToast("Cache is already empty", "info");
 		}
 		if (result.failed > 0)
-			showToast(`Failed to remove ${result.failed} cache entries`, "warning");
+			showToast(
+				`Failed to remove ${formatCount(result.failed, "cache entry", "cache entries")}`,
+				"warning"
+			);
 	} catch (err) {
 		showToast(err instanceof Error ? err.message : "Failed to clear cache", "error");
 	} finally {

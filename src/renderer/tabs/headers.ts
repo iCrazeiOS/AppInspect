@@ -6,6 +6,7 @@ import { decodeLCName } from "../../shared/macho";
 import type { AnalysisResult, LoadCommand } from "../../shared/types";
 import { EmptyState } from "../components";
 import { el } from "../utils/dom";
+import { formatCount, plural } from "../utils/format";
 import { cpuSubtypeName, decodeCpuType, decodeFileType, hexStr } from "../utils/macho";
 
 type HeadersData = AnalysisResult["headers"];
@@ -95,7 +96,7 @@ function lcDetail(lc: LoadCommand): string {
 		case "dylib":
 			return lc.library.name;
 		case "symtab":
-			return `${lc.symtab.nsyms} symbols`;
+			return formatCount(lc.symtab.nsyms, "symbol");
 		case "encryption_info":
 			return `cryptid=${lc.encryption.cryptid}`;
 		case "build_version":
@@ -224,7 +225,13 @@ export function renderHeaders(container: HTMLElement, data: HeadersData | null):
 
 	// ── Load Commands table ──
 	const lcCard = el("div", "hdr-card");
-	lcCard.appendChild(el("h3", "hdr-card-title", `Load Commands (${data.loadCommands.length})`));
+	lcCard.appendChild(
+		el(
+			"h3",
+			"hdr-card-title",
+			`${plural(data.loadCommands.length, "Load Command")} (${data.loadCommands.length})`
+		)
+	);
 
 	const lcTable = el("table", "hdr-lc-table");
 	const thead = el("thead");

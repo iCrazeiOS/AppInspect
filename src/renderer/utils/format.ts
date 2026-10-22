@@ -1,1 +1,1 @@
-export { formatSize } from "../../shared/format";
+export { formatCount, formatSize, plural } from "../../shared/format";
