@@ -16,6 +16,7 @@ import {
 	updateCrossBinaryHint
 } from "../utils/cross-binary-search";
 import { el } from "../utils/dom";
+import { plural } from "../utils/format";
 import { mountGraphView } from "./graph";
 
 // ── View preference & cached graph (persists across re-renders within a session) ──
@@ -143,7 +144,7 @@ export function renderLibraries(
 		}
 
 		const summary = el("div", "lib-summary");
-		summary.appendChild(buildCountBadge("System Frameworks", systemCount));
+		summary.appendChild(buildCountBadge(plural(systemCount, "System Framework"), systemCount));
 		summary.appendChild(buildCountBadge("Swift Runtime", swiftCount));
 		summary.appendChild(buildCountBadge("Embedded", embeddedCount));
 		wrapper.appendChild(summary);
@@ -250,7 +251,7 @@ export function renderLibraries(
 		function updateCount(): void {
 			const shown = table.filteredCount;
 			const total = table.totalCount;
-			rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} libraries`;
+			rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "library", "libraries")}`;
 			searchBar.updateCount(shown, total);
 			updateCrossBinaryHint(
 				sessionId,

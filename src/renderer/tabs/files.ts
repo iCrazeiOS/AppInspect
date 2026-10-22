@@ -8,7 +8,7 @@ import { SearchBar } from "../components";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import { copyText } from "../utils/clipboard";
-import { formatSize } from "../utils/format";
+import { formatCount, formatSize } from "../utils/format";
 
 // ── Helpers ──
 
@@ -170,7 +170,7 @@ export function renderFiles(container: HTMLElement, data: unknown, sessionId: st
 	// -- Summary bar --
 	const summaryEl = document.createElement("div");
 	summaryEl.className = "ft-summary";
-	summaryEl.textContent = `${count.toLocaleString()} files \u00B7 ${formatSize(totalSize)}`;
+	summaryEl.textContent = `${formatCount(count, "file")} \u00B7 ${formatSize(totalSize)}`;
 	container.appendChild(summaryEl);
 
 	// -- Search bar --

@@ -11,7 +11,7 @@
 
 import type { SizeModuleKind, SizeTreeNode } from "../../shared/types";
 import { el } from "../utils/dom";
-import { formatSize } from "../utils/format";
+import { formatCount, formatSize } from "../utils/format";
 
 export interface Rect {
 	x: number;
@@ -442,7 +442,7 @@ export function mountTreemap(
 		drawLabels(ctx);
 		canvas.setAttribute(
 			"aria-label",
-			`Treemap of ${viewRoot.name}, ${formatSize(viewRoot.size)}, ${leaves.length} blocks`
+			`Treemap of ${viewRoot.name}, ${formatSize(viewRoot.size)}, ${formatCount(leaves.length, "block")}`
 		);
 		hovered = null;
 		drawHover();

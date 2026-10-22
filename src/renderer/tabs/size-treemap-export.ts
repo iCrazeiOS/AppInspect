@@ -8,7 +8,7 @@
  */
 
 import type { SizeTreeNode } from "../../shared/types";
-import { formatSize } from "../utils/format";
+import { formatCount, formatSize } from "../utils/format";
 import {
 	type Block,
 	describe,
@@ -182,7 +182,7 @@ export async function renderTreemapPng(
 	ctx.fillStyle = TEXT_MUTED;
 	ctx.font = `22px ${FONT_FAMILY}`;
 	ctx.fillText(
-		`${formatSize(root.size)} · ${leaves.length.toLocaleString()} blocks · exported from AppInspect ${new Date().toISOString().slice(0, 10)}`,
+		`${formatSize(root.size)} · ${formatCount(leaves.length, "block")} · exported from AppInspect ${new Date().toISOString().slice(0, 10)}`,
 		PADDING,
 		PADDING + 52
 	);

@@ -9,7 +9,7 @@ import { EmptyState } from "../components";
 import { showToast } from "../components/toast";
 import { getTabState, setTabState } from "../tab-state";
 import { el } from "../utils/dom";
-import { formatSize } from "../utils/format";
+import { formatCount, formatSize, plural } from "../utils/format";
 import { mountTreemap } from "./size-treemap";
 import { renderTreemapPng } from "./size-treemap-export";
 
@@ -139,7 +139,11 @@ function renderModules(container: HTMLElement, data: SizeBreakdown, sessionId: s
 		}
 
 		if (!showAll && data.modules.length > INITIAL_MODULE_ROWS) {
-			const more = el("button", "sz-show-all", `Show all ${data.modules.length} modules`);
+			const more = el(
+				"button",
+				"sz-show-all",
+				`Show all ${formatCount(data.modules.length, "module")}`
+			);
 			more.addEventListener("click", () => {
 				showAll = true;
 				setTabState(sessionId, "size", "showAll", true);
@@ -232,13 +236,12 @@ export function renderSize(
 		s.appendChild(el("span", "sz-stat-label", label));
 		return s;
 	};
+	const moduleCount = data.modules.filter((m) => m.kind !== "unattributed").length;
 	summary.appendChild(stat("Binary size", formatSize(data.binarySize)));
 	summary.appendChild(
 		stat("Attributed to modules", percent(data.attributedSize, data.sectionSize))
 	);
-	summary.appendChild(
-		stat("Modules", String(data.modules.filter((m) => m.kind !== "unattributed").length))
-	);
+	summary.appendChild(stat(plural(moduleCount, "Module"), String(moduleCount)));
 	wrapper.appendChild(summary);
 
 	wrapper.appendChild(

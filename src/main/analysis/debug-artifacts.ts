@@ -8,7 +8,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-
+import { formatCount } from "../../shared/format";
 import type { SecurityFinding, StringEntry } from "../../shared/types";
 
 export interface DebugArtifactParams {
@@ -57,7 +57,7 @@ export function checkDebugArtifacts(params: DebugArtifactParams): SecurityFindin
 		findings.push({
 			severity: "info",
 			category: "debug-artifacts",
-			message: `Symbol table retains ${params.debugSymbolCount} debug (STABS) symbol(s)`,
+			message: `Symbol table retains ${formatCount(params.debugSymbolCount, "debug (STABS) symbol")}`,
 			evidence: `stabs=${params.debugSymbolCount}`
 		});
 	}

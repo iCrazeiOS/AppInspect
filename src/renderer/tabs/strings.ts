@@ -16,6 +16,7 @@ import {
 	doCrossBinarySearch,
 	updateCrossBinaryHint
 } from "../utils/cross-binary-search";
+import { plural } from "../utils/format";
 
 interface StringEntry {
 	value: string;
@@ -228,7 +229,7 @@ export function renderStrings(
 	function updateCount(): void {
 		const shown = table.filteredCount;
 		const total = table.totalCount;
-		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} strings`;
+		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "string")}`;
 		searchBar.updateCount(shown, total);
 		updateCrossBinaryHint(
 			sessionId,

@@ -12,6 +12,7 @@ import {
 	createCrossBinaryState,
 	doCrossBinarySearch
 } from "../utils/cross-binary-search";
+import { formatCount, plural } from "../utils/format";
 import { highlightLogos, highlightObjCMethod } from "../utils/highlight";
 import { loadWidths } from "../utils/layout-store";
 import { generateLogosHook, parseMethodSignature } from "../utils/logos-hook";
@@ -120,7 +121,7 @@ export function renderClasses(
 	const stats = document.createElement("div");
 	stats.className = "cls-stats";
 	const totalMethods = allClasses.reduce((s, c) => s + c.methods.length, 0);
-	stats.textContent = `${allClasses.length.toLocaleString()} classes \u00B7 ${totalMethods.toLocaleString()} methods \u00B7 ${allProtocols.length.toLocaleString()} protocols`;
+	stats.textContent = `${formatCount(allClasses.length, "class", "classes")} \u00B7 ${formatCount(totalMethods, "method")} \u00B7 ${formatCount(allProtocols.length, "protocol")}`;
 	statsBar.appendChild(stats);
 
 	// Navigation functions
@@ -572,7 +573,7 @@ export function renderClasses(
 
 		protoHeader = document.createElement("button");
 		protoHeader.className = "cls-proto-header";
-		protoHeader.textContent = `\u25B6 Protocols (${allProtocols.length})`;
+		protoHeader.textContent = `\u25B6 ${plural(allProtocols.length, "Protocol")} (${allProtocols.length})`;
 
 		protoList = document.createElement("div");
 		protoList.className = "cls-proto-list";
@@ -589,7 +590,7 @@ export function renderClasses(
 
 		protoHeader.addEventListener("click", () => {
 			protoExpanded = !protoExpanded;
-			protoHeader!.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} Protocols (${allProtocols.length})`;
+			protoHeader!.textContent = `${protoExpanded ? "\u25BC" : "\u25B6"} ${plural(allProtocols.length, "Protocol")} (${allProtocols.length})`;
 			protoList!.style.display = protoExpanded ? "block" : "none";
 		});
 
@@ -634,7 +635,7 @@ export function renderClasses(
 		// Expand if collapsed
 		if (!protoExpanded) {
 			protoExpanded = true;
-			protoHeader.textContent = `\u25BC Protocols (${allProtocols.length})`;
+			protoHeader.textContent = `\u25BC ${plural(allProtocols.length, "Protocol")} (${allProtocols.length})`;
 			protoList.style.display = "block";
 		}
 
@@ -675,7 +676,7 @@ export function renderClasses(
 			if (methods.length === 0) return;
 			const groupHeader = document.createElement("li");
 			groupHeader.className = "cls-proto-method-group";
-			groupHeader.textContent = `${title} (${methods.length})`;
+			groupHeader.textContent = `${methods.length === 1 ? title.replace(/ Methods$/, " Method") : title} (${methods.length})`;
 			methodList.appendChild(groupHeader);
 
 			for (const m of methods) {

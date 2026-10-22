@@ -20,6 +20,7 @@ import {
 	createCrossBinaryState,
 	doCrossBinarySearch
 } from "../utils/cross-binary-search";
+import { formatCount, plural } from "../utils/format";
 import { initPanelResize } from "../utils/panel-resize";
 
 const ROW_HEIGHT = 28;
@@ -133,14 +134,16 @@ export function renderSwift(
 	stats.className = "cls-stats";
 	const external = data.unresolvedConformances;
 	stats.textContent =
-		`${allTypes.length.toLocaleString()} types \u00B7 ` +
-		`${countByKind(allTypes, "class").toLocaleString()} classes \u00B7 ` +
-		`${countByKind(allTypes, "struct").toLocaleString()} structs \u00B7 ` +
-		`${countByKind(allTypes, "enum").toLocaleString()} enums \u00B7 ` +
-		`${data.protocols.length.toLocaleString()} protocols \u00B7 ` +
-		`${allConformances.length.toLocaleString()} conformances`;
+		`${formatCount(allTypes.length, "type")} \u00B7 ` +
+		`${formatCount(countByKind(allTypes, "class"), "class", "classes")} \u00B7 ` +
+		`${formatCount(countByKind(allTypes, "struct"), "struct")} \u00B7 ` +
+		`${formatCount(countByKind(allTypes, "enum"), "enum")} \u00B7 ` +
+		`${formatCount(data.protocols.length, "protocol")} \u00B7 ` +
+		`${formatCount(allConformances.length, "conformance")}`;
 	if (external > 0) {
-		stats.title = `${external.toLocaleString()} additional conformance records reference protocols in other images and cannot be resolved offline.`;
+		stats.title = `${formatCount(external, "additional conformance record")} ${
+			external === 1 ? "references" : "reference"
+		} protocols in other images and cannot be resolved offline.`;
 	}
 	statsBar.appendChild(stats);
 	container.appendChild(statsBar);
@@ -627,8 +630,8 @@ export function renderSwift(
 		fieldsTitle.className = "swift-section-title";
 		fieldsTitle.textContent =
 			type.kind === "enum"
-				? `Cases (${type.fields.length})`
-				: `Stored Properties (${type.fields.length})`;
+				? `${plural(type.fields.length, "Case")} (${type.fields.length})`
+				: `${plural(type.fields.length, "Stored Property", "Stored Properties")} (${type.fields.length})`;
 		detailScroll.appendChild(fieldsTitle);
 
 		if (type.fields.length === 0) {
@@ -680,7 +683,7 @@ export function renderSwift(
 		if (nested.length > 0) {
 			const nestedTitle = document.createElement("div");
 			nestedTitle.className = "swift-section-title";
-			nestedTitle.textContent = `Nested Types (${nested.length})`;
+			nestedTitle.textContent = `${plural(nested.length, "Nested Type")} (${nested.length})`;
 			detailScroll.appendChild(nestedTitle);
 
 			const nestedList = document.createElement("div");
@@ -724,7 +727,7 @@ export function renderSwift(
 
 		const title = document.createElement("div");
 		title.className = "swift-section-title";
-		title.textContent = `Conforming Types (${protocol.conformingTypes.length})`;
+		title.textContent = `${plural(protocol.conformingTypes.length, "Conforming Type")} (${protocol.conformingTypes.length})`;
 		detailScroll.appendChild(title);
 
 		if (protocol.conformingTypes.length === 0) {
@@ -792,7 +795,7 @@ export function renderSwift(
 			const item = document.createElement("div");
 			item.className = "cls-proto-item";
 			item.textContent = protocol.fullName;
-			item.title = `${protocol.fullName} \u2014 ${protocol.conformingTypes.length} conforming type(s)`;
+			item.title = `${protocol.fullName} \u2014 ${formatCount(protocol.conformingTypes.length, "conforming type")}`;
 			item.addEventListener("click", () => selectProtocol(protocol));
 			protocolList.appendChild(item);
 			protocolItems.set(protocol.fullName, item);
@@ -820,7 +823,7 @@ export function renderSwift(
 
 		protocolHeader = document.createElement("button");
 		protocolHeader.className = "cls-proto-header";
-		protocolHeader.textContent = `\u25B6 Protocols (${data.protocols.length})`;
+		protocolHeader.textContent = `\u25B6 ${plural(data.protocols.length, "Protocol")} (${data.protocols.length})`;
 
 		protocolList = document.createElement("div");
 		protocolList.className = "cls-proto-list";
@@ -829,7 +832,7 @@ export function renderSwift(
 		protocolHeader.addEventListener("click", () => {
 			protocolExpanded = !protocolExpanded;
 			buildProtocolItems();
-			protocolHeader!.textContent = `${protocolExpanded ? "\u25BC" : "\u25B6"} Protocols (${data!.protocols.length})`;
+			protocolHeader!.textContent = `${protocolExpanded ? "\u25BC" : "\u25B6"} ${plural(data!.protocols.length, "Protocol")} (${data!.protocols.length})`;
 			protocolList!.style.display = protocolExpanded ? "block" : "none";
 		});
 
