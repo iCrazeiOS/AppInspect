@@ -32,7 +32,7 @@ File type is detected automatically by magic bytes.
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
 | **Info.plist** | Key-facts summary at the top (bundle metadata, device family, supported platforms, privacy strings, ATS exceptions) above the full searchable key/value tree |
-| **Electron** | Electron-only, shown when the bundle ships an `app.asar`: archive file tree with path filter and text preview, plus package facts — Electron version, fuses, ASAR integrity, `package.json`, shipped source maps and native addons |
+| **Electron** | Electron-only, shown when the bundle ships an `app.asar`: archive file tree with path filter and previews for text and images (zoomable, with a Beautify toggle for code), plus package facts — Electron version, fuses, ASAR integrity, `package.json`, shipped source maps and native addons |
 | **Hooks** | Jailbreak hook framework detection — Substrate, Libhooker, fishhook, Substitute, ObjC swizzling (Mach-O/DEB only) |
 | **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment (issues only), leaked debug artifacts (DWARF, debug symbols, developer source paths, shipped source maps / Swift module interfaces / symbol maps), bundle file scanning (JS bundles, configs), and Electron findings (fuses, ASAR integrity, shipped source maps, unsafe `webPreferences`) |
 | **Hex** | Raw hex viewer with virtual scrolling for large binaries. Segment/section region picker, go-to offset, hex/decimal offset toggle. Dual-mode search (hex bytes or text) with match highlighting and navigation |
@@ -162,7 +162,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules and an Electron `app.asar` split into its packed contents. Optional `maxDepth` (default 3). |
 | `list_asar` | List files inside an Electron `app.asar` (flat, sorted by path). Optional `filter`, `offset`, `limit` |
-| `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to 512 KB; binary content returns metadata only). Optional `maxBytes` |
+| `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to 512 KB; images and other binary content return metadata only). Optional `maxBytes` |
 | `search` | Cross-binary search across all binaries in the loaded container. `tab`: `classes`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |

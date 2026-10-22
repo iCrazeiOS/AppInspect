@@ -303,10 +303,17 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	// ── read-asar-file ──
 	ipcMain.handle(
 		"read-asar-file",
-		(_event, args: { sessionId: string; path: string; maxBytes?: number }) => {
+		(
+			_event,
+			args: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean }
+		) => {
 			try {
 				const session = getSession(args.sessionId);
-				return session.readAsarFile(args.path, args.maxBytes ?? 512 * 1024);
+				return session.readAsarFile(
+					args.path,
+					args.maxBytes ?? 512 * 1024,
+					args.includeImage === true
+				);
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });

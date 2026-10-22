@@ -10,6 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { imageMimeType } from "../../shared/asar-preview";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
@@ -62,6 +63,8 @@ import { buildSizeTree } from "./size-tree";
 
 /** Preview reads from `app.asar` are clamped to this many bytes. */
 const MAX_ASAR_PREVIEW_BYTES = 512 * 1024;
+/** Image previews are read up to this many bytes, ignoring the text cap. */
+const MAX_ASAR_IMAGE_BYTES = 4 * 1024 * 1024;
 /** Bytes of a file inspected for a NUL byte to tell text from binary. */
 const BINARY_SNIFF_BYTES = 8 * 1024;
 
@@ -223,29 +226,47 @@ export class AnalysisSession {
 	}
 
 	/**
-	 * Read one archive entry for preview. `maxBytes` is clamped to 1..512 KB;
-	 * binary content (a NUL byte in the first 8 KB) returns metadata only.
+	 * Read one archive entry for preview. Text and other non-image entries are
+	 * clamped to `maxBytes` (1..512 KB) and return text unless a NUL byte in the
+	 * first 8 KB marks them binary. Images ignore `maxBytes`, read up to 4 MB,
+	 * and embed a data URL only when `includeImage` is true and not truncated.
 	 */
-	readAsarFile(entryPath: string, maxBytes: number): AsarFileContent | null {
+	readAsarFile(
+		entryPath: string,
+		maxBytes: number,
+		includeImage = false
+	): AsarFileContent | null {
 		if (!this.asarArchive) return null;
-		const limit = Math.min(
-			MAX_ASAR_PREVIEW_BYTES,
-			Math.max(1, Number.isFinite(maxBytes) ? Math.floor(maxBytes) : MAX_ASAR_PREVIEW_BYTES)
-		);
+		const mime = imageMimeType(entryPath);
+		const limit = mime
+			? MAX_ASAR_IMAGE_BYTES
+			: Math.min(
+					MAX_ASAR_PREVIEW_BYTES,
+					Math.max(
+						1,
+						Number.isFinite(maxBytes) ? Math.floor(maxBytes) : MAX_ASAR_PREVIEW_BYTES
+					)
+				);
 
 		const result = readAsarArchiveFile(this.asarArchive, entryPath, limit);
 		if (!result.ok) return null;
 
-		const data = result.data.data;
-		const binary = data.subarray(0, BINARY_SNIFF_BYTES).includes(0);
+		const { data, truncated } = result.data;
 		const record = this.asarArchive.files.get(entryPath);
 		const content: AsarFileContent = {
 			path: entryPath,
-			size: result.data.truncated ? (record?.size ?? data.length) : data.length,
-			truncated: result.data.truncated,
-			binary
+			size: truncated ? (record?.size ?? data.length) : data.length,
+			truncated,
+			kind: mime ? "image" : "binary"
 		};
-		if (!binary) content.text = data.toString("utf8");
+		if (mime) {
+			if (includeImage && !truncated) {
+				content.image = `data:${mime};base64,${data.toString("base64")}`;
+			}
+		} else if (!data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
+			content.kind = "text";
+			content.text = data.toString("utf8");
+		}
 		return content;
 	}
 

@@ -60,7 +60,8 @@ export interface AppInspectAPI {
 	readAsarFile(
 		sessionId: string,
 		path: string,
-		maxBytes?: number
+		maxBytes?: number,
+		includeImage?: boolean
 	): Promise<AsarFileContent | null>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
