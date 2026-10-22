@@ -43,6 +43,10 @@ export class DataTable {
 	/** Currently selected row index (-1 = none). */
 	private selectedIndex = -1;
 
+	/** Row briefly highlighted after a cross-tab jump (-1 = none). */
+	private jumpIndex = -1;
+	private jumpTimer: ReturnType<typeof setTimeout> | null = null;
+
 	onRowClick?: (row: Record<string, string | number>, index: number) => void;
 
 	private static BUFFER = 20;
@@ -284,6 +288,7 @@ export class DataTable {
 	setData(data: Record<string, string | number>[]): void {
 		this.allData = data;
 		this.selectedIndex = -1;
+		this.jumpIndex = -1;
 		this.applyFilter();
 		this.applySort();
 		this.updateSpacer();
@@ -293,6 +298,7 @@ export class DataTable {
 	setFilter(filterFn: ((row: Record<string, string | number>) => boolean) | null): void {
 		this.filterFn = filterFn;
 		this.selectedIndex = -1;
+		this.jumpIndex = -1;
 		this.applyFilter();
 		this.applySort();
 		this.updateSpacer();
@@ -471,6 +477,27 @@ export class DataTable {
 		this.setSelection(Math.max(0, Math.min(index, this.filteredData.length - 1)));
 	}
 
+	/** Select and reveal the first filtered row matching `match`; returns true when found. */
+	selectRowWhere(match: (row: Record<string, string | number>) => boolean): boolean {
+		const index = this.filteredData.findIndex(match);
+		if (index < 0) return false;
+		this.selectedIndex = index;
+		this.scrollToIndex(index);
+		this.jumpIndex = index;
+		this.markJump();
+		return true;
+	}
+
+	private markJump(): void {
+		this.renderVisibleRows();
+		if (this.jumpTimer !== null) clearTimeout(this.jumpTimer);
+		this.jumpTimer = setTimeout(() => {
+			this.jumpTimer = null;
+			this.jumpIndex = -1;
+			this.renderVisibleRows();
+		}, 1600);
+	}
+
 	/** Clear the current row selection. */
 	clearSelection(): void {
 		this.selectedIndex = -1;
@@ -502,7 +529,9 @@ export class DataTable {
 			const row = this.filteredData[i];
 			if (!row) continue;
 			const rowEl = document.createElement("div");
-			rowEl.className = i === this.selectedIndex ? "dt-row dt-row-selected" : "dt-row";
+			rowEl.className = "dt-row";
+			if (i === this.selectedIndex) rowEl.classList.add("dt-row-selected");
+			if (i === this.jumpIndex) rowEl.classList.add("dt-row-jump");
 			rowEl.style.height = `${this.rowHeight}px`;
 
 			for (const col of this.columns) {
@@ -552,6 +581,10 @@ export class DataTable {
 	/** Remove the table from the DOM without fully destroying internal state. */
 	unmount(): void {
 		if (this.rafId) cancelAnimationFrame(this.rafId);
+		if (this.jumpTimer !== null) {
+			clearTimeout(this.jumpTimer);
+			this.jumpTimer = null;
+		}
 		if (this.scrollContainer) {
 			this.scrollContainer.removeEventListener("scroll", this.boundOnScroll);
 		}
@@ -569,6 +602,10 @@ export class DataTable {
 
 	destroy(): void {
 		if (this.rafId) cancelAnimationFrame(this.rafId);
+		if (this.jumpTimer !== null) {
+			clearTimeout(this.jumpTimer);
+			this.jumpTimer = null;
+		}
 		if (this.scrollContainer) {
 			this.scrollContainer.removeEventListener("scroll", this.boundOnScroll);
 		}

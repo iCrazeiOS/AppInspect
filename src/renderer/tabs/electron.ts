@@ -13,6 +13,7 @@ import type {
 	PlistValue
 } from "../../shared/types";
 import { EmptyState, FileBrowser } from "../components";
+import { announce, takePendingTarget } from "../navigation";
 import { saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import { copyText } from "../utils/clipboard";
@@ -139,7 +140,7 @@ function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean)
 		)
 	);
 
-	return buildCard(
+	const card = buildCard(
 		"ASAR Integrity",
 		buildKV("Algorithm", integrity.algorithm),
 		buildKV("Expected", integrity.expected, true),
@@ -148,6 +149,8 @@ function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean)
 		enforcedRow,
 		el("p", "el-muted", HEADER_ONLY_NOTE)
 	);
+	card.classList.add("el-card--integrity");
+	return card;
 }
 
 /** Describe why the Info.plist entry could not be compared with the header hash. */
@@ -163,11 +166,13 @@ function integrityIssueLabel(issue: ElectronIntegrityIssue): string {
 }
 
 function buildIntegrityIssueCard(issue: ElectronIntegrityIssue): HTMLElement {
-	return buildCard(
+	const card = buildCard(
 		"ASAR Integrity",
 		el("p", "el-muted", integrityIssueLabel(issue)),
 		el("p", "el-muted", HEADER_ONLY_NOTE)
 	);
+	card.classList.add("el-card--integrity");
+	return card;
 }
 
 function buildDependencyCard(
@@ -407,5 +412,55 @@ export function renderElectron(
 		}).mount(target);
 	}
 
+	const target = takePendingTarget(sessionId, "electron");
+	if (target?.kind === "electron") {
+		if (target.path) {
+			const expanded = new Set<string>(
+				getTabState<string[]>(sessionId, "electron", "expanded") ?? []
+			);
+			for (const ancestor of ancestorPaths(target.path)) expanded.add(ancestor);
+			setTabState(sessionId, "electron", "expanded", [...expanded]);
+			setTabState(sessionId, "electron", "selected", target.path);
+			saveSearchState(sessionId, "electron", "", false);
+			view = "files";
+		} else {
+			view = "package";
+		}
+		setTabState(sessionId, "electron", "view", view);
+	}
+
 	show(view);
+
+	if (target?.kind === "electron") {
+		requestAnimationFrame(() => {
+			const flash = (node: Element | null): void => {
+				if (!(node instanceof HTMLElement)) return;
+				node.scrollIntoView({ block: "center" });
+				node.classList.add("el-jump");
+				setTimeout(() => node.classList.remove("el-jump"), 1600);
+			};
+
+			if (target.fuse) {
+				const name = Array.from(
+					content.querySelectorAll<HTMLElement>(".el-fuse-name")
+				).find((node) => node.textContent === target.fuse);
+				flash(name?.closest(".el-fuse-row") ?? name ?? null);
+				announce(name ? `Opened fuse ${target.fuse} in Electron` : "Fuse not found");
+			} else if (target.sourceMap) {
+				const button = Array.from(
+					content.querySelectorAll<HTMLElement>(".el-path-btn")
+				).find((node) => node.textContent === target.sourceMap);
+				flash(button ?? null);
+				announce(button ? "Opened source map in Electron" : "Source map not found");
+			} else if (!target.path) {
+				flash(content.querySelector(".el-card--integrity"));
+				announce("Opened ASAR integrity in Electron");
+			} else {
+				content
+					.querySelector<HTMLElement>(".fb-tree-row--selected")
+					?.scrollIntoView({ block: "center" });
+				announce("Opened file in Electron");
+			}
+		});
+	}
 }

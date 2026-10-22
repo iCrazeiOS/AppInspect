@@ -5,6 +5,7 @@
 
 import type { Column } from "../components";
 import { DataTable, SearchBar } from "../components";
+import { announce, takePendingTarget } from "../navigation";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import {
@@ -242,4 +243,33 @@ export function renderSymbols(
 	if (activeType !== "all") applyFilters();
 
 	updateCount();
+
+	// ── Cross-tab jump from a Security finding ──
+	const target = takePendingTarget(sessionId, "symbols");
+	if (target?.kind === "symbol") {
+		const name = target.name;
+
+		// A persisted type filter would hide the target row.
+		if (activeType !== "all") {
+			activeType = "all";
+			setTabState(sessionId, "symbols", "type", activeType);
+			for (const [value, btn] of typeButtons) {
+				btn.classList.toggle("filter-chip--active", value === activeType);
+			}
+			applyFilters();
+		}
+
+		// setValue re-emits onFilter, so the term is applied and persisted.
+		searchBar.setValue(name, false);
+		requestAnimationFrame(() => {
+			const found = table.selectRowWhere((r) => r.name === name || r.nameRaw === name);
+			if (found) {
+				table.focus();
+				announce("Opened symbol in Symbols");
+			} else {
+				searchBar.focus();
+				announce("Symbol not found");
+			}
+		});
+	}
 }

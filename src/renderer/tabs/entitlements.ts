@@ -3,6 +3,7 @@
  */
 
 import { EmptyState, JsonTree } from "../components";
+import { announce, takePendingTarget } from "../navigation";
 
 /** Entitlements that are flagged as dangerous (red). */
 const RED_PATTERNS = ["com.apple.private.", "platform-application"];
@@ -86,6 +87,7 @@ export function renderEntitlements(
 	}
 
 	// Source sections
+	const target = takePendingTarget(sessionId, "entitlements");
 	const renderSource = (label: string, obj: Record<string, unknown>, field: string): void => {
 		if (hasBothSources) {
 			const sourceLabel = document.createElement("div");
@@ -101,6 +103,16 @@ export function renderEntitlements(
 		const tree = new JsonTree({ sessionId, tabId: "entitlements", field });
 		tree.mount(treeContainer);
 		tree.setData(obj);
+
+		// Reserved consumer: no producer emits entitlement findings yet.
+		if (target?.kind === "entitlement") {
+			tree.filter(target.key);
+			requestAnimationFrame(() => {
+				const highlight = treeContainer.querySelector<HTMLElement>(".jt-highlight");
+				highlight?.scrollIntoView({ block: "center" });
+				announce("Opened entitlement");
+			});
+		}
 	};
 
 	if (hasBothSources) {

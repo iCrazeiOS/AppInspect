@@ -2,23 +2,19 @@
  * Security Scan tab renderer.
  */
 
+import type { AnalysisResult, SecurityFinding } from "../../shared/types";
 import { SearchBar } from "../components";
+import { type NavigationTarget, navigateTo } from "../navigation";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
-import { makeCopyable } from "../utils/clipboard";
+import { copyText, makeCopyable } from "../utils/clipboard";
+import {
+	resolveFindingTargets,
+	resolveHardeningTarget,
+	type SecurityReferenceContext
+} from "../utils/security-references";
 
 // ── Types ──
-
-interface SecurityFinding {
-	severity: "critical" | "warning" | "info";
-	category: string;
-	message: string;
-	evidence: string;
-	location?: string;
-	functionName?: string;
-	source?: string;
-	vendor?: boolean;
-}
 
 interface BinaryHardening {
 	pie: boolean;
@@ -53,12 +49,72 @@ const HARDENING_LABELS: { key: keyof BinaryHardening; label: string }[] = [
 
 const EVIDENCE_COLLAPSED_LEN = 200;
 
+const TAB_LABELS: Record<string, string> = {
+	strings: "Strings",
+	hex: "Hex",
+	symbols: "Symbols",
+	files: "Files",
+	electron: "Electron",
+	entitlements: "Entitlements",
+	overview: "Overview"
+};
+
+/**
+ * Render one finding reference. Navigable references are real buttons so
+ * Enter/Space work; a single click navigates and ⌥-click copies. Non-navigable
+ * references keep the existing double-click copy affordance.
+ */
+function buildReference(
+	sessionId: string,
+	label: string,
+	text: string,
+	target: NavigationTarget | null,
+	getCopy: () => string
+): HTMLElement {
+	const row = document.createElement("div");
+	row.className = "sec-finding-reference";
+
+	if (label) {
+		const labelEl = document.createElement("span");
+		labelEl.className = "sec-finding-function-label";
+		labelEl.textContent = label;
+		row.appendChild(labelEl);
+	}
+
+	if (!target) {
+		const code = document.createElement("code");
+		code.className = "sec-finding-function-name";
+		code.textContent = text;
+		makeCopyable(code, getCopy);
+		row.appendChild(code);
+		return row;
+	}
+
+	const link = document.createElement("button");
+	link.type = "button";
+	link.className = "sec-finding-function-name sec-reference";
+	link.textContent = text;
+	link.title = `Open in ${TAB_LABELS[target.sectionTab] ?? target.sectionTab} \u00B7 \u2325-click to copy`;
+	// A button click fires for Enter/Space too, so keyboard users navigate.
+	link.addEventListener("click", (event) => {
+		if (event.altKey) {
+			copyText(getCopy(), "Copied to clipboard");
+			return;
+		}
+		navigateTo(sessionId, target);
+	});
+	row.appendChild(link);
+	return row;
+}
+
 // ── Render ──
 
 export function renderSecurity(
 	container: HTMLElement,
 	data: unknown,
-	sessionId: string = ""
+	sessionId: string = "",
+	result?: AnalysisResult | null,
+	currentBinaryIndex: number = 0
 ): void {
 	container.innerHTML = "";
 
@@ -68,6 +124,17 @@ export function renderSecurity(
 	) as Partial<SecurityData>;
 	const findings = sec.findings ?? [];
 	const hardening = sec.hardening ?? ({} as BinaryHardening);
+
+	const refCtx: SecurityReferenceContext = {
+		binaries:
+			result?.overview?.ipa?.binaries?.map((binary) => ({
+				name: binary.name,
+				type: binary.type
+			})) ?? [],
+		currentBinaryIndex,
+		hasElectron: result?.electron != null,
+		fuseNames: result?.electron?.fuses?.map((fuse) => fuse.name) ?? []
+	};
 
 	// State
 	const savedFilters = getTabState<string[]>(sessionId, "security", "filters");
@@ -247,6 +314,7 @@ export function renderSecurity(
 		for (const finding of filtered) {
 			const card = document.createElement("div");
 			card.className = "sec-finding-card";
+			const targets = resolveFindingTargets(finding, refCtx);
 
 			// Top row: severity badge + category
 			const topRow = document.createElement("div");
@@ -308,46 +376,80 @@ export function renderSecurity(
 				}
 
 				card.appendChild(evi);
+
+				// Weak/unsafe API symbols and Electron fuses are navigable from
+				// the evidence too, but the evidence text itself stays copyable.
+				if (targets.evidence) {
+					card.appendChild(
+						buildReference(
+							sessionId,
+							"",
+							`Open in ${TAB_LABELS[targets.evidence.sectionTab] ?? targets.evidence.sectionTab}`,
+							targets.evidence,
+							() => finding.evidence
+						)
+					);
+				}
 			}
 
-			// Function name (copyable)
+			// Function name
 			if (finding.functionName) {
-				const fn = document.createElement("div");
-				fn.className = "sec-finding-function";
-				const label = document.createElement("span");
-				label.className = "sec-finding-function-label";
-				label.textContent = "Referenced in: ";
-				const name = document.createElement("code");
-				name.className = "sec-finding-function-name";
-				name.textContent = finding.functionName;
-				makeCopyable(name, () => finding.functionName!);
-				fn.appendChild(label);
-				fn.appendChild(name);
-				card.appendChild(fn);
+				card.appendChild(
+					buildReference(
+						sessionId,
+						"Referenced in: ",
+						finding.functionName,
+						targets.functionName ?? null,
+						() => finding.functionName!
+					)
+				);
 			}
 
-			// Source (copyable)
+			// Source
 			if (finding.source) {
-				const src = document.createElement("div");
-				src.className = "sec-finding-source";
-				const srcLabel = document.createElement("span");
-				srcLabel.className = "sec-finding-function-label";
-				srcLabel.textContent = "Source: ";
-				const srcName = document.createElement("code");
-				srcName.className = "sec-finding-function-name";
-				srcName.textContent = finding.source;
-				makeCopyable(srcName, () => finding.source!);
-				src.appendChild(srcLabel);
-				src.appendChild(srcName);
-				card.appendChild(src);
+				card.appendChild(
+					buildReference(
+						sessionId,
+						"Source: ",
+						finding.source,
+						targets.source ?? null,
+						() => finding.source!
+					)
+				);
 			}
 
 			// Location
 			if (finding.location) {
-				const loc = document.createElement("div");
-				loc.className = "sec-finding-location";
-				loc.textContent = finding.location;
-				card.appendChild(loc);
+				if (targets.location) {
+					card.appendChild(
+						buildReference(
+							sessionId,
+							"Location: ",
+							finding.location.replace(/^offset=/i, ""),
+							targets.location,
+							() => finding.location!
+						)
+					);
+				} else {
+					const loc = document.createElement("div");
+					loc.className = "sec-finding-location";
+					loc.textContent = finding.location;
+					card.appendChild(loc);
+				}
+			}
+
+			// Binary hardening findings live in the Overview card.
+			const hardeningTarget = resolveHardeningTarget(finding);
+			if (hardeningTarget) {
+				card.appendChild(
+					buildReference(
+						sessionId,
+						"",
+						"View in Overview",
+						hardeningTarget,
+						() => finding.message
+					)
+				);
 			}
 
 			findingsList.appendChild(card);

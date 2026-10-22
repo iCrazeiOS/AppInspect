@@ -5,6 +5,7 @@
 import type { LoadCommand } from "../../shared/types";
 import { EmptyState, HexViewer } from "../components";
 import type { HexRegion } from "../components/hex-viewer";
+import { announce, takePendingTarget } from "../navigation";
 import { registerSearchBar } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import { el } from "../utils/dom";
@@ -172,7 +173,36 @@ export function renderHex(
 		setTabState(sessionId, "hex", "region", index);
 	}
 
-	// Auto-open the previously selected region, or the first one
+	// Auto-open the previously selected region, or the first one — unless a
+	// Security finding asked for a specific offset.
 	const savedRegion = getTabState<number>(sessionId, "hex", "region") ?? 0;
-	openRegion(Math.min(Math.max(savedRegion, 0), regions.length - 1));
+	let openIndex = Math.min(Math.max(savedRegion, 0), regions.length - 1);
+	let seek: number | null = null;
+
+	const target = takePendingTarget(sessionId, "hex");
+	if (target?.kind === "hex") {
+		// Smallest region containing the offset, falling back to Whole Binary.
+		let best = -1;
+		for (let i = 0; i < regions.length; i++) {
+			const region = regions[i]!;
+			if (target.offset < region.offset || target.offset >= region.offset + region.size)
+				continue;
+			if (best < 0 || region.size < regions[best]!.size) best = i;
+		}
+		if (best < 0 && regions[0]?.offset === 0) best = 0;
+		if (best >= 0) {
+			openIndex = best;
+			seek = target.offset - regions[best]!.offset;
+		}
+	}
+
+	openRegion(openIndex);
+
+	if (seek !== null) {
+		const regionRelativeOffset = seek;
+		requestAnimationFrame(() => {
+			activeHexViewer?.goToOffset(regionRelativeOffset);
+			announce("Opened offset in Hex");
+		});
+	}
 }

@@ -6,6 +6,7 @@
 
 import type { Column } from "../components";
 import { DataTable, SearchBar } from "../components";
+import { announce, navigateTo, takePendingTarget } from "../navigation";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import {
@@ -364,5 +365,52 @@ export function renderStrings(
 		applyFilters();
 	} else {
 		updateCount();
+	}
+
+	// ── Cross-tab jump from a Security finding ──
+	const target = takePendingTarget(sessionId, "strings");
+	if (target?.kind === "string") {
+		const offset = target.offset;
+		const value = target.value;
+
+		// Localisation mode renders a different table; switch back to binary rows.
+		if (mode !== "binary") switchMode("binary");
+
+		// The saved term/chips may hide the row.
+		searchBar.setValue("", false);
+		saveSearchState(sessionId, "strings", "", false);
+
+		const row =
+			offset !== undefined
+				? binaryRows.find((r) => r._offset === offset)
+				: value !== undefined
+					? binaryRows.find((r) => r.value === value)
+					: undefined;
+
+		if (!row) {
+			if (offset !== undefined) {
+				navigateTo(sessionId, { sectionTab: "hex", kind: "hex", offset });
+			} else {
+				announce("String not found in this binary");
+			}
+			return;
+		}
+
+		if (row.source && !activeSections.has(row.source)) {
+			activeSections.add(row.source);
+			setTabState(sessionId, "strings", "sections", [...activeSections]);
+			buildChips();
+		}
+		applyFilters();
+		// Defer so the tab's stored scroll restore cannot clobber the jump.
+		requestAnimationFrame(() => {
+			const found = table.selectRowWhere((r) =>
+				offset !== undefined ? r._offset === offset : r.value === value
+			);
+			if (found) {
+				table.focus();
+				announce("Opened string in Strings");
+			}
+		});
 	}
 }

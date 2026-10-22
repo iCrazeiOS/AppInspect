@@ -53,6 +53,35 @@ html, body {
   display: none !important;
 }
 
+/* Screen-reader-only live region for cross-tab navigation feedback. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Brief highlight after a cross-tab jump (Security → target tab). */
+@keyframes nav-jump {
+  from {
+    background-color: rgba(77, 166, 255, 0.28);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.dt-row-jump,
+.el-jump,
+.ov-jump {
+  animation: nav-jump 1600ms ease-out;
+}
+
 /* ── Titlebar ── */
 .titlebar {
   width: 100%;
