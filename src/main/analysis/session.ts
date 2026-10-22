@@ -34,6 +34,7 @@ import type { AsarArchive } from "../electron/asar";
 import { readAsarFile as readAsarArchiveFile, readAsarHeader } from "../electron/asar";
 import { detectElectron } from "../electron/detect";
 import {
+	readAppDirectoryTextFiles,
 	readAsarTextFiles,
 	readAsarUnpackedHtmlFiles,
 	scanElectronMetadata,
@@ -69,7 +70,7 @@ import { detectAppFrameworks } from "./framework-detection";
 import { type HexReadResult, readHexAt, searchHexInFile } from "./hex";
 import { buildLibraryGraph } from "./library-graph";
 import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "./search-index";
-import { scanBundleFileContents } from "./security";
+import { adjustElectronHardeningFindings, scanBundleFileContents } from "./security";
 import { buildSizeTree } from "./size-tree";
 
 export class AnalysisSession {
@@ -671,7 +672,12 @@ export class AnalysisSession {
 				files: base.files,
 				electron: base.electron,
 				security: {
-					findings: [...binaryResult.security.findings, ...this.electronFindings],
+					findings: [
+						...(base.electron
+							? adjustElectronHardeningFindings(binaryResult.security.findings)
+							: binaryResult.security.findings),
+						...this.electronFindings
+					],
 					hardening: binaryResult.security.hardening
 				}
 			}
@@ -872,7 +878,20 @@ export class AnalysisSession {
 
 			// Fuses, ASAR integrity status and the Electron version do not require an archive.
 			this.electronFindings = scanElectronMetadata(info);
-			if (!info.asarPath) return info;
+			if (!info.asarPath) {
+				if (!info.appPath) return info;
+
+				// Unpacked `Resources/app` build. The generic bundle scan already
+				// covers secrets here, so only run the Electron-specific text checks.
+				progressCallback("Scanning Electron app directory...", percent);
+				await yieldToEventLoop();
+				const appFiles = readAppDirectoryTextFiles(info.appPath);
+				this.electronFindings = [
+					...this.electronFindings,
+					...scanElectronText(info, appFiles)
+				];
+				return info;
+			}
 
 			progressCallback("Scanning Electron bundle...", percent);
 			await yieldToEventLoop();
@@ -1000,9 +1019,12 @@ export class AnalysisSession {
 		// Scan additional binaries if enabled
 		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
 
+		const binarySecurityFindings = electronInfo
+			? adjustElectronHardeningFindings(binaryResult.security.findings)
+			: binaryResult.security.findings;
 		const mergedSecurity = {
 			findings: [
-				...binaryResult.security.findings,
+				...binarySecurityFindings,
 				...bundleFindings,
 				...this.electronFindings,
 				...bundleArtifactFindings,
@@ -1220,12 +1242,11 @@ export class AnalysisSession {
 
 		const electronInfo = await this.loadElectron(folderPath, false, progressCallback, 80);
 		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const binarySecurityFindings = electronInfo
+			? adjustElectronHardeningFindings(binaryResult.security.findings)
+			: binaryResult.security.findings;
 		const security = {
-			findings: [
-				...binaryResult.security.findings,
-				...this.electronFindings,
-				...extraBinaryFindings
-			],
+			findings: [...binarySecurityFindings, ...this.electronFindings, ...extraBinaryFindings],
 			hardening: binaryResult.security.hardening
 		};
 

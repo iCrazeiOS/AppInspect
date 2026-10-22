@@ -552,6 +552,8 @@ export interface AsarEntry {
 export interface ElectronInfo {
 	electronVersion?: string;
 	asarPath?: string;
+	/** Unpacked app directory used when the bundle ships `Resources/app` instead of `app.asar`. */
+	appPath?: string;
 	asarSize?: number;
 	fileCount: number;
 	unpackedCount: number;

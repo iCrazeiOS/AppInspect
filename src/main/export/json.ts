@@ -40,6 +40,22 @@ function bigintReplacer(_key: string, value: unknown): unknown {
 }
 
 /**
+ * App version for the export wrapper: the bundle's short version string, then
+ * its build number, then a DEB package version.
+ */
+function appVersion(result: AnalysisResult): string {
+	const candidates = [
+		result.infoPlist?.CFBundleShortVersionString,
+		result.infoPlist?.CFBundleVersion,
+		result.overview?.debControl?.version
+	];
+	for (const candidate of candidates) {
+		if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
+	}
+	return "Unknown";
+}
+
+/**
  * Serialize analysis data as JSON.
  *
  * @param result - The full analysis result
@@ -68,7 +84,7 @@ export function exportAnalysis(result: AnalysisResult, tabs?: TabName[]): string
 	const wrapper = {
 		exportedAt: new Date().toISOString(),
 		appName,
-		version: "1.0.0",
+		version: appVersion(result),
 		data
 	};
 

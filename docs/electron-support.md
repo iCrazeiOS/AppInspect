@@ -19,13 +19,17 @@ In scope:
 - Feed archive text files into the existing secret scanner.
 - Emit Electron-specific security findings (fuses, integrity, renderer
   preferences, shipped source maps, CSP meta tags).
+- Run the same Electron text checks on unpacked `Resources/app` directories
+  when a bundle ships no `app.asar` (the archive file browser is unavailable,
+  but renderer/runtime/CSP findings are still produced).
 - Expose the new data through IPC, MCP (`get_section`, `list_asar`,
   `read_asar_file`) and the CLI (`--section electron`).
 
 Out of scope (documented, not half-built):
 
 - PE/ELF parsing, so Windows/Linux bundles cannot be analysed end-to-end. The ASAR layer itself is platform-independent.
-- Unpacked `resources/app` directories (only `app.asar`).
+- Browsing unpacked `Resources/app` directories in the Electron tab (security
+  checks still run; only the archive browser is unavailable).
 - Runtime-fetched JavaScript.
 - JS beautifying, deobfuscation, V8 bytecode or source-map reconstruction.
 - Executing or extracting archive contents.
@@ -204,10 +208,14 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
   `Versions/A/...` and flat layouts both tried.
 - `electronVersion` from the framework's `Resources/Info.plist`
   (`CFBundleVersion`).
-- Detect when `app.asar` exists or the framework exists; otherwise `null`.
+- Detect when `app.asar` exists, a `Resources/app` directory with a
+  `package.json` exists, or the framework exists; otherwise `null`.
 - Parse the archive; on failure still return info with `fileCount: 0` and no
   `asarPath` (analysis must not fail because an archive is malformed).
-- `packageJson` from the archive root (`package.json`, ≤ 1 MB, JSON object).
+- `packageJson` from the archive root or unpacked app directory
+  (`package.json`, ≤ 1 MB, JSON object).
+- Unpacked builds set `appPath`; `fileCount`/`unpackedCount` remain archive
+  statistics.
 - Integrity: look in the app's `Contents/Info.plist` for
   `ElectronAsarIntegrity`; accept a key ending in `app.asar`; compare
   `algorithm` `SHA256` case-insensitively against `archive.headerHash`.
@@ -222,6 +230,7 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 ```ts
 export function readAsarTextFiles(archive: AsarArchive): BundleFileEntry[];
 export function readAsarUnpackedHtmlFiles(archive: AsarArchive): BundleFileEntry[];
+export function readAppDirectoryTextFiles(appDir: string): BundleFileEntry[];
 export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[];
 ```
 
@@ -230,6 +239,8 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
   stop at `maxBundleSizeMB`, skip NUL-containing content, prefix
   `relativePath` with `app.asar/`. Unpacked `.html`/`.htm` entries are read
   from the `.unpacked` sibling with the `app.asar.unpacked/` prefix.
+- `readAppDirectoryTextFiles` applies the same limits to an unpacked app
+  directory, skips `node_modules` and symlinks, and uses an `app/` prefix.
 - Findings are grouped into `electron-*` categories, each with an independent
   20-finding cap:
   - `electron-fuses` — `RunAsNode` enabled **warning**;
@@ -303,6 +314,8 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 - `ElectronInfo.fileCount` counts files and links, not directories.
 - Unpacked archive entries are read from `app.asar.unpacked` for preview but are
   not re-scanned: `readBundleFiles` already walks that directory on disk.
+- For `Resources/app` builds the generic bundle scan already covers secrets, so
+  `loadElectron` runs only `scanElectronText`; no duplicate credential findings.
 - `detectElectron` accepts a `.app`, its `Contents` directory, or an unpacked
   `resources` root, so folder analysis can find the archive too.
 

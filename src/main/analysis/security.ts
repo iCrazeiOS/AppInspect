@@ -32,6 +32,75 @@ interface SecretPattern {
 	message: string;
 	/** Characters of the match kept as evidence. Default 500. */
 	maxEvidence?: number;
+	/** Reject a candidate match as a false positive. Called for each match in turn. */
+	validate?: (match: RegExpExecArray, text: string) => boolean;
+}
+
+const BASE64_RUN_RE = /[A-Za-z0-9+/=]/;
+
+/** True when the match sits inside a contiguous base64-ish run of 32+ chars. */
+function inLongBase64Run(text: string, index: number, length: number): boolean {
+	let start = index;
+	while (start > 0 && BASE64_RUN_RE.test(text[start - 1]!)) start--;
+	let end = index + length;
+	while (end < text.length && BASE64_RUN_RE.test(text[end]!)) end++;
+	return end - start >= 32;
+}
+
+/** AWS keys have mixed characters; leaked base64 substrings are usually one repeated char. */
+function isPlausibleAwsKey(match: RegExpExecArray, text: string): boolean {
+	const key = match[0];
+	if (inLongBase64Run(text, match.index, key.length)) return false;
+	const counts = new Map<string, number>();
+	for (const char of key) counts.set(char, (counts.get(char) ?? 0) + 1);
+	const mostCommon = Math.max(...counts.values());
+	return mostCommon * 2 <= key.length;
+}
+
+/** Leet-normalised, lowercased alphanumerics for dictionary-ish comparisons. */
+function normalizeLeet(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[@4]/g, "a")
+		.replace(/3/g, "e")
+		.replace(/[1!|]/g, "i")
+		.replace(/0/g, "o")
+		.replace(/[5$]/g, "s")
+		.replace(/7/g, "t")
+		.replace(/8/g, "b")
+		.replace(/9/g, "g")
+		.replace(/[^a-z0-9]/g, "");
+}
+
+const PASSWORD_PLACEHOLDER_RE = /^(?:test|example|sample|changeme|secret|admin|letmein|qwerty)\d*$/;
+
+function isCommentPrefix(prefix: string): boolean {
+	const trimmed = prefix.trimStart();
+	if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*"))
+		return true;
+	// Unclosed block comment before the match.
+	if (prefix.lastIndexOf("/*") > prefix.lastIndexOf("*/")) return true;
+	// Inline line comment, ignoring URL schemes such as "https://".
+	const lineComment = prefix.lastIndexOf("//");
+	return lineComment !== -1 && !prefix.slice(0, lineComment).endsWith(":");
+}
+
+function isPlausiblePasswordAssignment(match: RegExpExecArray, text: string): boolean {
+	const value = /['"]([^'"]*)$/.exec(match[0])?.[1];
+	if (!value) return false;
+	// CSS selectors / bracket expressions, e.g. "[type=password]".
+	if (value.startsWith("[") || value.startsWith(".") || value.startsWith("#")) return false;
+	if (value.includes("[") && value.includes("]")) return false;
+
+	const normalized = normalizeLeet(value);
+	// Property names, enum members and documentation that merely mention a password.
+	if (/password|passwd|passphrase/.test(normalized)) return false;
+	const alnum = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+	if (PASSWORD_PLACEHOLDER_RE.test(normalized) || PASSWORD_PLACEHOLDER_RE.test(alnum))
+		return false;
+
+	const lineStart = text.lastIndexOf("\n", Math.max(0, match.index - 1)) + 1;
+	return !isCommentPrefix(text.slice(lineStart, match.index));
 }
 
 const SECRET_PATTERNS: SecretPattern[] = [
@@ -39,7 +108,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
 		name: "AWS Access Key",
 		pattern: /AKIA[0-9A-Z]{16}/,
 		message: "AWS access key found in binary strings",
-		maxEvidence: 32
+		maxEvidence: 32,
+		validate: isPlausibleAwsKey
 	},
 	{
 		name: "API Key assignment",
@@ -75,7 +145,8 @@ const SECRET_PATTERNS: SecretPattern[] = [
 	{
 		name: "Password assignment",
 		pattern: /[pP]assword\s*[:=]\s*['"][^'"]{4,}/,
-		message: "Possible hardcoded password found"
+		message: "Possible hardcoded password found",
+		validate: isPlausiblePasswordAssignment
 	},
 	{
 		name: "URL with credentials",
@@ -498,6 +569,31 @@ function checkBinaryHardeningFindings(params: SecurityScanParams): SecurityFindi
 	return findings;
 }
 
+/**
+ * Reduce low-signal binary-hardening noise for Electron launcher binaries:
+ * drop ARC/stack-canary checks (not meaningful for the tiny launcher) and
+ * downgrade the macOS rpath warning to info. PIE and other findings are kept.
+ */
+export function adjustElectronHardeningFindings(findings: SecurityFinding[]): SecurityFinding[] {
+	const result: SecurityFinding[] = [];
+	for (const finding of findings) {
+		if (finding.category === "binary-hardening") {
+			if (
+				finding.message === "ARC (Automatic Reference Counting) not detected" ||
+				finding.message === "Stack canaries not detected"
+			) {
+				continue;
+			}
+			if (finding.message === "Rpath present — potential hijack vector on macOS") {
+				result.push({ ...finding, severity: "info" });
+				continue;
+			}
+		}
+		result.push(finding);
+	}
+	return result;
+}
+
 // ── Shared secret matching ──
 
 const BASE64_CANDIDATE_RE = /[A-Za-z0-9+/]{40,}={0,2}/g;
@@ -533,9 +629,30 @@ function decodeBase64Text(value: string): string | null {
 }
 
 /**
+ * Find the first match that survives placeholder and validator checks. The
+ * definition regex is cloned with a global flag so every candidate is examined,
+ * not only the first one on the line.
+ */
+function findSecretMatch(def: SecretPattern, text: string): RegExpExecArray | null {
+	const flags = def.pattern.flags.includes("g") ? def.pattern.flags : `${def.pattern.flags}g`;
+	const pattern = new RegExp(def.pattern.source, flags);
+	for (;;) {
+		const match = pattern.exec(text);
+		if (!match) return null;
+		// Zero-length matches would loop forever; advance and skip them.
+		if (match[0].length === 0) {
+			pattern.lastIndex++;
+			continue;
+		}
+		if (isPlaceholderToken(match[0])) continue;
+		if (def.validate && !def.validate(match, text)) continue;
+		return match;
+	}
+}
+
+/**
  * Match the secret-pattern table against one text, then optionally against
- * bounded base64 candidates. Patterns must stay non-global; this uses exec()
- * repeatedly. `depth` bounds base64-of-base64 recursion.
+ * bounded base64 candidates. `depth` bounds base64-of-base64 recursion.
  */
 function scanTextForSecrets(
 	text: string,
@@ -545,8 +662,8 @@ function scanTextForSecrets(
 ): SecurityFinding[] {
 	const findings: SecurityFinding[] = [];
 	for (const def of SECRET_PATTERNS) {
-		const match = def.pattern.exec(text);
-		if (!match || isPlaceholderToken(match[0])) continue;
+		const match = findSecretMatch(def, text);
+		if (!match) continue;
 		const { severity, message } = classifySecret(def, match[0]);
 		findings.push({
 			severity,
@@ -604,7 +721,12 @@ function collectPemBlock(
 	lineAt: (index: number) => string | undefined,
 	start: number
 ): PemBlock | null {
-	if (!PEM_BEGIN_RE.test(headerLine)) return null;
+	const match = PEM_BEGIN_RE.exec(headerLine);
+	if (!match) return null;
+	// A header used as a regex literal (e.g. /-----BEGIN ...-----/) is code, not key material.
+	if (match.index > 0 && headerLine[match.index - 1] === "/") return null;
+	// Keep only the header itself; minified bundles put unrelated code on the line.
+	const header = match[0];
 	const body: string[] = [];
 	let end = start;
 	let foundEnd = false;
@@ -620,7 +742,7 @@ function collectPemBlock(
 		body.push(next);
 		end = i;
 	}
-	return { header: headerLine, body, end, foundEnd };
+	return { header, body, end, foundEnd };
 }
 
 function pemEvidence(pem: PemBlock): string {
@@ -633,10 +755,8 @@ function pemEvidence(pem: PemBlock): string {
 }
 
 function pemFinding(pem: PemBlock, context: SecretContext): SecurityFinding | null {
-	// Bare header+footer with nothing in between are just format strings used by
-	// RSA utility code, not actual embedded keys; a lone header is suspicious.
-	const hasKeyMaterial = pem.foundEnd ? pem.body.length > 0 : pem.body.length !== 1;
-	if (!hasKeyMaterial) return null;
+	// A lone header (format string, doc snippet or regex literal) is not key material.
+	if (pem.body.length === 0) return null;
 	const message = pem.foundEnd
 		? "Private key embedded (full PEM block)"
 		: "Private key header found";

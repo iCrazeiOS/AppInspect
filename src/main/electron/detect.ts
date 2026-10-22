@@ -61,16 +61,52 @@ function resourcesDirs(appRoot: string): string[] {
 	];
 }
 
-function readPackageJson(archive: AsarArchive): { [key: string]: PlistValue } | null {
-	const result = readAsarFile(archive, "package.json", PACKAGE_JSON_MAX);
-	if (!result.ok) return null;
+function parsePackageJson(data: Buffer): { [key: string]: PlistValue } | null {
 	try {
-		const parsed: unknown = JSON.parse(result.data.data.toString("utf8"));
+		const parsed: unknown = JSON.parse(data.toString("utf8"));
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
 		return parsed as { [key: string]: PlistValue };
 	} catch {
 		return null;
 	}
+}
+
+function readPackageJson(archive: AsarArchive): { [key: string]: PlistValue } | null {
+	const result = readAsarFile(archive, "package.json", PACKAGE_JSON_MAX);
+	if (!result.ok) return null;
+	return parsePackageJson(result.data.data);
+}
+
+function isDirectory(target: string): boolean {
+	try {
+		return fs.statSync(target).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+/** Read `package.json` from an unpacked app directory, bounded to the archive read cap. */
+function readPackageJsonFromDirectory(appDir: string): { [key: string]: PlistValue } | null {
+	const filePath = path.join(appDir, "package.json");
+	try {
+		const stat = fs.statSync(filePath);
+		if (!stat.isFile() || stat.size > PACKAGE_JSON_MAX) return null;
+		return parsePackageJson(fs.readFileSync(filePath));
+	} catch {
+		return null;
+	}
+}
+
+/** First `app` directory under the resource candidates, preferring one with a package.json. */
+function findAppDirectory(candidates: string[]): string | null {
+	let fallback: string | null = null;
+	for (const dir of candidates) {
+		const appDir = path.join(dir, "app");
+		if (!isDirectory(appDir)) continue;
+		if (fs.existsSync(path.join(appDir, "package.json"))) return appDir;
+		fallback ??= appDir;
+	}
+	return fallback;
 }
 
 interface IntegrityRead {
@@ -153,7 +189,11 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 	const hasFramework = frameworkRoots(appRoot).some((root) =>
 		fs.existsSync(path.join(root, FRAMEWORK_NAME))
 	);
-	if (!asarPath && !hasFramework) return null;
+	const appDir = findAppDirectory(candidates);
+	// An unpacked app directory only identifies Electron on its own when it has a
+	// manifest; without one the framework or archive must provide the signal.
+	const hasAppManifest = appDir !== null && fs.existsSync(path.join(appDir, "package.json"));
+	if (!asarPath && !hasAppManifest && !hasFramework) return null;
 
 	const info: ElectronInfo = {
 		fileCount: 0,
@@ -202,6 +242,14 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 				else if (lower.endsWith(".node")) info.nativeAddons.push(record.path);
 			}
 		}
+	}
+
+	// Unpacked builds (e.g. VS Code-family apps) ship `Resources/app` instead of
+	// an archive; read its manifest so text checks can attribute the app's code.
+	if (!info.asarPath && appDir) {
+		info.appPath = appDir;
+		const packageJson = readPackageJsonFromDirectory(appDir);
+		if (packageJson) info.packageJson = packageJson;
 	}
 
 	info.sourceMaps.sort((a, b) => a.localeCompare(b));

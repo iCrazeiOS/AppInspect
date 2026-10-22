@@ -209,9 +209,11 @@ function buildMissingArchive(info: ElectronInfo): HTMLElement {
 	const wrap = el("div", "el-fallback");
 	const empty = new EmptyState({
 		icon: "\u{1F4E6}",
-		message:
-			"No readable app.asar was found in this Electron bundle. The archive may be missing, " +
-			"unpacked as a plain resources/app directory, or malformed."
+		message: info.appPath
+			? "This Electron bundle ships an unpacked app directory instead of app.asar. " +
+				"Security checks ran against the directory, but the archive file browser is unavailable."
+			: "No readable app.asar was found in this Electron bundle. The archive may be missing " +
+				"or malformed."
 	});
 	empty.mount(wrap);
 
