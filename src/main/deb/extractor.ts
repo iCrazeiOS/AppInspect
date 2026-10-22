@@ -321,6 +321,8 @@ export async function extractDEB(
 							: null;
 
 					if (controlFilePath) {
+						// Some packages ship the control file with mode 000; tar preserves that
+						fs.chmodSync(controlFilePath, 0o600);
 						control = parseControlFile(fs.readFileSync(controlFilePath, "utf-8"));
 					}
 				} catch (err) {
