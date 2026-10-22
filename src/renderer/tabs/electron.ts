@@ -31,7 +31,7 @@ import {
 } from "../utils/beautify";
 import { copyText } from "../utils/clipboard";
 import { el } from "../utils/dom";
-import { formatCount, formatSize } from "../utils/format";
+import { formatCount, formatSize, plural } from "../utils/format";
 import {
 	clampImageZoom,
 	fitImageZoom,
@@ -288,7 +288,7 @@ function buildFusesCard(fuses: ElectronFuse[]): HTMLElement {
 		rows.push(row);
 	}
 	if (rows.length === 0) rows.push(el("p", "el-muted", "No fuse wire found."));
-	return buildCard(`Fuses (${fuses.length})`, ...rows);
+	return buildCard(`${plural(fuses.length, "Fuse")} (${fuses.length})`, ...rows);
 }
 
 function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean): HTMLElement {
@@ -322,12 +322,19 @@ function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean)
 	);
 }
 
-function buildDependencyCard(title: string, value: PlistValue | undefined): HTMLElement | null {
+function buildDependencyCard(
+	singular: string,
+	pluralForm: string,
+	value: PlistValue | undefined
+): HTMLElement | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const entries = Object.entries(value);
 	if (entries.length === 0) return null;
 	const rows = entries.map(([name, version]) => buildKV(name, textValue(version) ?? "—", true));
-	return buildCard(`${title} (${entries.length})`, ...rows);
+	return buildCard(
+		`${plural(entries.length, singular, pluralForm)} (${entries.length})`,
+		...rows
+	);
 }
 
 function buildPathCard(
@@ -335,14 +342,14 @@ function buildPathCard(
 	paths: string[],
 	onOpen: (path: string) => void
 ): HTMLElement {
-	if (paths.length === 0) return buildCard(title, el("p", "el-muted", "None."));
+	if (paths.length === 0) return buildCard(plural(0, title), el("p", "el-muted", "None."));
 	const rows = paths.map((path) => {
 		const button = el("button", "el-path-btn", path);
 		button.title = path;
 		button.addEventListener("click", () => onOpen(path));
 		return button;
 	});
-	return buildCard(`${title} (${paths.length})`, ...rows);
+	return buildCard(`${plural(paths.length, title)} (${paths.length})`, ...rows);
 }
 
 function buildMissingArchive(info: ElectronInfo): HTMLElement {
@@ -391,11 +398,15 @@ function renderPackageView(
 	}
 
 	if (pkg) {
-		const dependencies = buildDependencyCard("Dependencies", pkg.dependencies);
+		const dependencies = buildDependencyCard("Dependency", "Dependencies", pkg.dependencies);
 		if (dependencies) cards.appendChild(dependencies);
-		const optional = buildDependencyCard("Optional Dependencies", pkg.optionalDependencies);
+		const optional = buildDependencyCard(
+			"Optional Dependency",
+			"Optional Dependencies",
+			pkg.optionalDependencies
+		);
 		if (optional) cards.appendChild(optional);
-		const dev = buildDependencyCard("Dev Dependencies", pkg.devDependencies);
+		const dev = buildDependencyCard("Dev Dependency", "Dev Dependencies", pkg.devDependencies);
 		if (dev) cards.appendChild(dev);
 	}
 
@@ -406,10 +417,10 @@ function renderPackageView(
 		cards.appendChild(buildIntegrityCard(info.integrity, integrityEnforced(info)));
 
 	const sourceMaps = Array.isArray(info.sourceMaps) ? info.sourceMaps : [];
-	cards.appendChild(buildPathCard("Source Maps", sourceMaps, onOpenPath));
+	cards.appendChild(buildPathCard("Source Map", sourceMaps, onOpenPath));
 
 	const nativeAddons = Array.isArray(info.nativeAddons) ? info.nativeAddons : [];
-	cards.appendChild(buildPathCard("Native Addons", nativeAddons, onOpenPath));
+	cards.appendChild(buildPathCard("Native Addon", nativeAddons, onOpenPath));
 
 	container.appendChild(cards);
 }
@@ -490,8 +501,10 @@ export function renderElectron(
 			info.asarSize != null ? formatSize(info.asarSize) : "Archive size unknown"
 		)
 	);
-	summary.appendChild(stat(String(info.unpackedCount), "unpacked"));
-	summary.appendChild(stat(String(sourceMaps.length), "source maps"));
+	summary.appendChild(
+		stat(String(info.unpackedCount), plural(info.unpackedCount, "unpacked file"))
+	);
+	summary.appendChild(stat(String(sourceMaps.length), plural(sourceMaps.length, "source map")));
 
 	const badges = el("div", "el-summary-badges");
 	if (info.electronVersion) {
