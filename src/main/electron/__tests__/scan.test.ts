@@ -641,6 +641,43 @@ describe("scanElectron runtime API checks", () => {
 		expect(findings).toEqual([]);
 	});
 
+	it("ignores a named helper called only with literal channels", () => {
+		const findings = scanText(
+			"function E(_,...T){return ipcRenderer.invoke(_,...T)}" +
+				'contextBridge.exposeInMainWorld("api",{relaunch:()=>E("APP_RELAUNCH"),setBadge:_=>E("SET_BADGE",_)})',
+			"app.asar/preload.js"
+		);
+		expect(findings).toEqual([]);
+	});
+
+	it("ignores a concise arrow helper called only with literal channels", () => {
+		expect(
+			scanText(
+				'const E=(_,...T)=>ipcRenderer.invoke(_,...T);E("APP_RELAUNCH");',
+				"app.asar/preload.js"
+			)
+		).toEqual([]);
+	});
+
+	it("flags a helper that forwards a dynamic channel", () => {
+		const findings = scanText(
+			"function E(_,...T){return ipcRenderer.invoke(_,...T)}" +
+				'contextBridge.exposeInMainWorld("api",{invoke:(channel,data)=>E(channel,data)})',
+			"app.asar/preload.js"
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.message).toContain("arbitrary IPC channel");
+	});
+
+	it("flags a helper exposed as a value even when internal calls use literals", () => {
+		const findings = scanText(
+			"function E(_,...T){return ipcRenderer.invoke(_,...T)}" +
+				'E("APP_RELAUNCH");contextBridge.exposeInMainWorld("api",{invoke:E})',
+			"app.asar/preload.js"
+		);
+		expect(findings).toHaveLength(1);
+	});
+
 	it("still flags a channel guarded only through another variable", () => {
 		const findings = scanText("ipcRenderer.invoke(channel, payload)", "app.asar/preload.js");
 		expect(findings).toHaveLength(1);

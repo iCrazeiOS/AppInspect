@@ -108,6 +108,163 @@ function evidence(text: string): string {
 		: normalized;
 }
 
+interface FunctionScope {
+	name: string;
+	params: string;
+	headerStart: number;
+	bodyStart: number;
+	bodyEnd: number;
+}
+
+/** Text between the braces at `open`, ignoring braces inside strings. */
+function balancedBraces(content: string, open: number, max = 1_000_000): string | null {
+	let depth = 0;
+	let quote = "";
+	const end = Math.min(content.length, open + max);
+	for (let i = open; i < end; i++) {
+		const ch = content[i]!;
+		if (quote) {
+			if (ch === "\\") i++;
+			else if (ch === quote) quote = "";
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+		else if (ch === "{") depth++;
+		else if (ch === "}" && --depth === 0) return content.slice(open + 1, i);
+	}
+	return null;
+}
+
+/** End of a concise arrow body, stopping at a top-level semicolon or newline. */
+function expressionEnd(content: string, start: number, max = 20_000): number {
+	let depth = 0;
+	let quote = "";
+	const end = Math.min(content.length, start + max);
+	for (let i = start; i < end; i++) {
+		const ch = content[i]!;
+		if (quote) {
+			if (ch === "\\") i++;
+			else if (ch === quote) quote = "";
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+		else if (ch === "(" || ch === "[" || ch === "{") depth++;
+		else if (ch === ")" || ch === "]" || ch === "}") depth--;
+		else if ((ch === ";" || ch === "\n") && depth === 0) return i;
+	}
+	return end;
+}
+
+/**
+ * Named function declarations and arrow functions with their body ranges.
+ * Only named functions are collected: forwarding through an anonymous wrapper
+ * has no call sites to check, so those stay flagged.
+ */
+function functionScopes(content: string): FunctionScope[] {
+	const scopes: FunctionScope[] = [];
+
+	const declarations = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
+	for (const match of content.matchAll(declarations)) {
+		const headerStart = match.index ?? 0;
+		const open = headerStart + match[0].length - 1;
+		const params = balancedSlice(content, open, 2_000);
+		if (params === null) continue;
+		let brace = open + params.length + 2;
+		while (brace < content.length && /\s/.test(content[brace]!)) brace++;
+		if (content[brace] !== "{") continue;
+		const body = balancedBraces(content, brace);
+		if (body === null) continue;
+		scopes.push({
+			name: match[1]!,
+			params,
+			headerStart,
+			bodyStart: brace,
+			bodyEnd: brace + body.length + 2
+		});
+	}
+
+	const arrows =
+		/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:function\s*)?\(/g;
+	for (const match of content.matchAll(arrows)) {
+		const headerStart = match.index ?? 0;
+		const open = headerStart + match[0].length - 1;
+		const params = balancedSlice(content, open, 2_000);
+		if (params === null) continue;
+		let arrow = open + params.length + 2;
+		while (arrow < content.length && /\s/.test(content[arrow]!)) arrow++;
+		if (content[arrow] !== "=" || content[arrow + 1] !== ">") continue;
+		arrow += 2;
+		while (arrow < content.length && /\s/.test(content[arrow]!)) arrow++;
+		if (content[arrow] === "{") {
+			const body = balancedBraces(content, arrow);
+			if (body === null) continue;
+			scopes.push({
+				name: match[1]!,
+				params,
+				headerStart,
+				bodyStart: arrow,
+				bodyEnd: arrow + body.length + 2
+			});
+		} else {
+			scopes.push({
+				name: match[1]!,
+				params,
+				headerStart,
+				bodyStart: arrow,
+				bodyEnd: expressionEnd(content, arrow)
+			});
+		}
+	}
+
+	return scopes;
+}
+
+/** Innermost named function containing `index`. */
+function enclosingScope(scopes: FunctionScope[], index: number): FunctionScope | null {
+	let found: FunctionScope | null = null;
+	for (const scope of scopes) {
+		if (scope.bodyStart > index || scope.bodyEnd <= index) continue;
+		if (!found || scope.bodyStart > found.bodyStart) found = scope;
+	}
+	return found;
+}
+
+/**
+ * A named helper that only ever receives literal channels is an internal
+ * convenience wrapper, not an arbitrary forwarder. If the name is used as a
+ * value anywhere (for example handed to `exposeInMainWorld`), stay flagged.
+ */
+function isLiteralOnlyWrapper(
+	content: string,
+	scopes: FunctionScope[],
+	index: number,
+	channel: string
+): boolean {
+	const scope = enclosingScope(scopes, index);
+	if (!scope) return false;
+	const firstParam = (splitArguments(scope.params)[0] ?? "")
+		.trim()
+		.replace(/^\.\.\./, "")
+		.split("=")[0]!
+		.trim();
+	if (firstParam !== channel.trim()) return false;
+
+	const name = new RegExp(`(?<![\\w$])${escapeRegExp(scope.name)}(?![\\w$])`, "g");
+	let calls = 0;
+	for (const match of content.matchAll(name)) {
+		const at = match.index ?? 0;
+		if (at >= scope.headerStart && at < scope.bodyStart) continue;
+		let open = at + scope.name.length;
+		while (open < content.length && /\s/.test(content[open]!)) open++;
+		if (content[open] !== "(") return false;
+		const args = balancedSlice(content, open, MAX_CALL_ARGUMENTS * 20);
+		if (args === null) return false;
+		calls++;
+		if (!STATIC_STRING_RE.test((splitArguments(args)[0] ?? "").trim())) return false;
+	}
+	return calls > 0;
+}
+
 /** Runtime checks are first-party only; dependency code is deliberately skipped. */
 function isFirstParty(relativePath: string): boolean {
 	return !relativePath.split("/").includes("node_modules");
@@ -316,13 +473,17 @@ function hasChannelGuard(content: string, index: number, channel: string): boole
 
 function forwardedChannelHits(content: string): RuntimeHit[] {
 	const hits: RuntimeHit[] = [];
+	let scopes: FunctionScope[] | null = null;
 	for (const method of FORWARDED_IPC_METHODS) {
 		for (const site of callSites(content, `ipcRenderer.${method}`)) {
 			const channel = splitArguments(site.args)[0] ?? "";
 			if (STATIC_STRING_RE.test(channel)) continue;
-			// A validated channel is deliberate allowlisting, not blind forwarding.
-			if (SIMPLE_CHANNEL_RE.test(channel) && hasChannelGuard(content, site.index, channel)) {
-				continue;
+			if (SIMPLE_CHANNEL_RE.test(channel)) {
+				// A validated channel is deliberate allowlisting, not blind forwarding.
+				if (hasChannelGuard(content, site.index, channel)) continue;
+				// Likewise a helper whose every call site passes a literal channel.
+				scopes ??= functionScopes(content);
+				if (isLiteralOnlyWrapper(content, scopes, site.index, channel)) continue;
 			}
 			hits.push({
 				severity: "warning",
