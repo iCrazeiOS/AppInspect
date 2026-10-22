@@ -355,6 +355,40 @@ function isCommented(content: string, index: number): boolean {
 	);
 }
 
+/** Non-commented matches in document order; zero-length matches are skipped safely. */
+function* uncommentedMatches(content: string, pattern: RegExp): Generator<RegExpExecArray> {
+	const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+	const re = new RegExp(pattern.source, flags);
+	let match = re.exec(content);
+	while (match !== null) {
+		if (match[0].length === 0) re.lastIndex++;
+		else if (!isCommented(content, match.index)) yield match;
+		match = re.exec(content);
+	}
+}
+
+/** First match that is not inside a comment, or null when every match is commented. */
+function firstUncommentedMatch(content: string, pattern: RegExp): RegExpExecArray | null {
+	for (const match of uncommentedMatches(content, pattern)) return match;
+	return null;
+}
+
+/** Non-commented match nearest to `index` within `range` characters in either direction. */
+function nearestUncommentedMatch(
+	content: string,
+	pattern: RegExp,
+	index: number,
+	range: number
+): RegExpExecArray | null {
+	let best: RegExpExecArray | null = null;
+	for (const match of uncommentedMatches(content, pattern)) {
+		const distance = Math.abs(match.index - index);
+		if (distance > range) continue;
+		if (best === null || distance < Math.abs(best.index - index)) best = match;
+	}
+	return best;
+}
+
 // ── Dangerous command-line switches ──
 
 /**
@@ -432,6 +466,9 @@ const DEBUG_ADDRESS_PATTERN = new RegExp(
 	`\\bappendSwitch\\s*\\(\\s*["']remote-debugging-address["']\\s*,\\s*["']([^"']+)["']` +
 		`|\\bappendArgument\\s*\\(\\s*["']--remote-debugging-address=([^"']+)["']`
 );
+
+/** How far from the port match an address may sit; minified bundles are one line. */
+const DEBUG_ADDRESS_RANGE = 2000;
 
 /** A debug flag read from process.argv; the app does not enable it by itself. */
 const ARGV_DEBUG_PATTERN =
@@ -964,6 +1001,11 @@ function collectTextFindings(
 	files: BundleFileEntry[],
 	push: FindingPush
 ): void {
+	// Runtime API findings share the electron-runtime category with
+	// enableRemoteModule, so claim that budget first: certificate trust and
+	// permission findings are higher impact than a retired preference.
+	for (const finding of findRuntimeApiFindings(files)) push(finding);
+
 	// ── Renderer configuration ──
 	const electronMajor = parseElectronMajor(info.electronVersion ?? "");
 	const remoteModuleRetired = electronMajor !== null && electronMajor >= 14;
@@ -978,8 +1020,8 @@ function collectTextFindings(
 
 		const matches = new Map<string, MatchedCheck>();
 		for (const check of [...WEB_PREFERENCE_PATTERNS, ...WEBVIEW_PATTERNS]) {
-			const match = check.pattern.exec(file.content);
-			if (!match || isCommented(file.content, match.index)) continue;
+			const match = firstUncommentedMatch(file.content, check.pattern);
+			if (!match) continue;
 			// First match wins: object prefs and markup rarely coexist in one file
 			if (matches.has(check.name)) continue;
 			matches.set(check.name, { ...check, evidence: match[0].trim() });
@@ -1058,6 +1100,9 @@ function collectTextFindings(
 	// ── Command-line switches and cleartext loading ──
 	for (const file of files) {
 		if (NON_RUNTIME_PATH.test(file.relativePath)) continue;
+		// Dependency code ships Chromium defaults for its own test harness; only
+		// the app's own code can decide how this process launches.
+		if (!isFirstParty(file.relativePath, info)) continue;
 
 		const emitSwitches = (
 			severity: SecurityFinding["severity"],
@@ -1074,14 +1119,20 @@ function collectTextFindings(
 		};
 
 		for (const { severity, pattern, message } of DANGEROUS_SWITCHES) {
-			const match = pattern.exec(file.content);
+			const match = firstUncommentedMatch(file.content, pattern);
 			if (match) emitSwitches(severity, message, match[0]);
 		}
 
 		// A port on its own is loopback-only. Only a non-loopback address is remote RCE.
-		const port = DEBUG_PORT_PATTERN.exec(file.content);
+		const port = firstUncommentedMatch(file.content, DEBUG_PORT_PATTERN);
 		if (port) {
-			const address = DEBUG_ADDRESS_PATTERN.exec(file.content);
+			// Minified bundles are single-line, so correlate by character distance.
+			const address = nearestUncommentedMatch(
+				file.content,
+				DEBUG_ADDRESS_PATTERN,
+				port.index,
+				DEBUG_ADDRESS_RANGE
+			);
 			const host = address?.[1] ?? address?.[2] ?? "";
 			const exposed = host.length > 0 && !isLoopbackHost(host);
 			push({
@@ -1095,7 +1146,7 @@ function collectTextFindings(
 			});
 		}
 
-		const argv = ARGV_DEBUG_PATTERN.exec(file.content);
+		const argv = firstUncommentedMatch(file.content, ARGV_DEBUG_PATTERN);
 		if (argv) {
 			emitSwitches(
 				"info",
@@ -1104,7 +1155,7 @@ function collectTextFindings(
 			);
 		}
 
-		const load = CLEARTEXT_LOAD_URL.exec(file.content);
+		const load = firstUncommentedMatch(file.content, CLEARTEXT_LOAD_URL);
 		if (load) {
 			const url = load[2] ?? "";
 			const loopback = LOOPBACK_HTTP.test(url);
@@ -1119,8 +1170,6 @@ function collectTextFindings(
 			});
 		}
 	}
-
-	for (const finding of findRuntimeApiFindings(files)) push(finding);
 
 	for (const finding of checkContentSecurityPolicy(files)) push(finding);
 }

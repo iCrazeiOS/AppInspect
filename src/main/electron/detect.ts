@@ -23,6 +23,16 @@ import { readFuses } from "./fuses";
 const FRAMEWORK_NAME = "Electron Framework";
 const FRAMEWORK_DIR = `${FRAMEWORK_NAME}.framework`;
 const PACKAGE_JSON_MAX = 1024 * 1024;
+/** Electron 30 introduced the embedded ASAR integrity table. */
+const ASAR_INTEGRITY_MIN_MAJOR = 30;
+
+/** Major version of a `CFBundleVersion`, or null when it cannot be parsed. */
+function electronMajor(version: string | undefined): number | null {
+	const match = version === undefined ? null : /^(\d+)/.exec(version.trim());
+	if (!match) return null;
+	const major = Number.parseInt(match[1]!, 10);
+	return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
 
 function readPlist(filePath: string): Record<string, unknown> | null {
 	try {
@@ -68,12 +78,17 @@ interface IntegrityRead {
 	issue?: ElectronIntegrityIssue;
 }
 
-function readIntegrity(appRoot: string, archive: AsarArchive): IntegrityRead {
+function readIntegrity(
+	appRoot: string,
+	archive: AsarArchive,
+	electronVersion: string | undefined
+): IntegrityRead {
 	const plistPaths = [
 		path.join(appRoot, "Contents", "Info.plist"),
 		path.join(appRoot, "Info.plist")
 	];
 	let issue: ElectronIntegrityIssue | undefined;
+	const major = electronMajor(electronVersion);
 
 	for (const plistPath of plistPaths) {
 		const plist = readPlist(plistPath);
@@ -81,7 +96,11 @@ function readIntegrity(appRoot: string, archive: AsarArchive): IntegrityRead {
 
 		const table = plist.ElectronAsarIntegrity;
 		if (typeof table !== "object" || table === null || Array.isArray(table)) {
-			issue ??= { kind: "missing" };
+			// Builds before Electron 30 never wrote the table; an unknown version
+			// cannot be attributed, so stay quiet rather than flag legitimate apps.
+			if (major !== null && major >= ASAR_INTEGRITY_MIN_MAJOR) {
+				issue ??= { kind: "missing" };
+			}
 			continue;
 		}
 
@@ -172,7 +191,7 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 			const packageJson = readPackageJson(archive);
 			if (packageJson) info.packageJson = packageJson;
 
-			const integrity = readIntegrity(appRoot, archive);
+			const integrity = readIntegrity(appRoot, archive, info.electronVersion);
 			if (integrity.integrity) info.integrity = integrity.integrity;
 			if (integrity.issue) info.integrityIssue = integrity.issue;
 

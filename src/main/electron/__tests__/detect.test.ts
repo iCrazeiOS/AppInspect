@@ -77,7 +77,7 @@ interface AppOptions {
 	integrityHash?: string | null;
 	algorithm?: string;
 	/** "valid" writes the normal table; "absent" writes a plist with no table. */
-	integrityEntry?: "valid" | "absent" | "malformed" | "unsupported";
+	integrityEntry?: "valid" | "absent" | "malformed" | "unsupported" | "other";
 	asar?: Buffer | null;
 	flatFramework?: boolean;
 }
@@ -120,6 +120,15 @@ function makeApp(name: string, options: AppOptions = {}): string {
 					"Resources/app.asar": {
 						algorithm: "MD5",
 						hash: options.integrityHash ?? DEFAULT_ASAR.headerHash
+					}
+				}
+			};
+		} else if (entry === "other") {
+			plistData = {
+				ElectronAsarIntegrity: {
+					"Resources/other.asar": {
+						algorithm: "SHA256",
+						hash: DEFAULT_ASAR.headerHash
 					}
 				}
 			};
@@ -187,6 +196,40 @@ describe("detectElectron", () => {
 
 	it("reports a plist without an integrity entry as missing", () => {
 		const info = detectElectron(makeApp("Absent.app", { integrityEntry: "absent" }), true);
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toEqual({ kind: "missing" });
+	});
+
+	it("does not report an absent table for pre-Electron 30 builds", () => {
+		const info = detectElectron(
+			makeApp("PreIntegrity.app", {
+				electronVersion: "22.3.1",
+				integrityEntry: "absent"
+			}),
+			true
+		);
+		expect(info?.electronVersion).toBe("22.3.1");
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toBeUndefined();
+	});
+
+	it("does not report an absent table when the version is unknown", () => {
+		const info = detectElectron(
+			makeApp("UnknownVersion.app", { electronVersion: "", integrityEntry: "absent" }),
+			true
+		);
+		expect(info?.electronVersion).toBeUndefined();
+		expect(info?.integrityIssue).toBeUndefined();
+	});
+
+	it("reports missing when the table exists but has no app.asar entry", () => {
+		const info = detectElectron(
+			makeApp("OtherEntry.app", {
+				electronVersion: "22.3.1",
+				integrityEntry: "other"
+			}),
+			true
+		);
 		expect(info?.integrity).toBeUndefined();
 		expect(info?.integrityIssue).toEqual({ kind: "missing" });
 	});

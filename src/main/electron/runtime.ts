@@ -291,12 +291,39 @@ function ipcExposureHits(content: string): RuntimeHit[] {
 
 const FORWARDED_IPC_METHODS = ["send", "sendSync", "invoke", "postMessage", "on", "once"];
 
+/** Identifier or member expression: a channel a guard can name exactly. */
+const SIMPLE_CHANNEL_RE = /^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*$/;
+
+/** How far before the call to look for an enclosing allowlist check. */
+const CHANNEL_GUARD_WINDOW = 600;
+
+/** True when a nearby guard validates this exact channel expression. */
+function hasChannelGuard(content: string, index: number, channel: string): boolean {
+	const escaped = escapeRegExp(channel);
+	// Lookarounds instead of \b so `$`-prefixed identifiers are matched too, and
+	// so `mychannel` cannot satisfy a guard written for `channel`.
+	const left = "(?<![\\w$])";
+	const right = "(?![\\w$])";
+	const guard = new RegExp(
+		`\\.(?:includes|indexOf|startsWith|endsWith|has)\\s*\\(\\s*${left}${escaped}${right}\\s*\\)` +
+			`|\\bswitch\\s*\\(\\s*${left}${escaped}${right}\\s*\\)` +
+			`|${left}${escaped}${right}\\s*(?:===|!==|==|!=)` +
+			`|(?:===|!==|==|!=)\\s*${left}${escaped}${right}`
+	);
+	const start = Math.max(0, index - CHANNEL_GUARD_WINDOW);
+	return guard.test(content.slice(start, index));
+}
+
 function forwardedChannelHits(content: string): RuntimeHit[] {
 	const hits: RuntimeHit[] = [];
 	for (const method of FORWARDED_IPC_METHODS) {
 		for (const site of callSites(content, `ipcRenderer.${method}`)) {
 			const channel = splitArguments(site.args)[0] ?? "";
 			if (STATIC_STRING_RE.test(channel)) continue;
+			// A validated channel is deliberate allowlisting, not blind forwarding.
+			if (SIMPLE_CHANNEL_RE.test(channel) && hasChannelGuard(content, site.index, channel)) {
+				continue;
+			}
 			hits.push({
 				severity: "warning",
 				message: "preload forwards an arbitrary IPC channel",
