@@ -16,6 +16,7 @@ import { isScannableExtension } from "../analysis/security";
 import { loadSettings } from "../settings";
 import type { AsarArchive } from "./asar";
 import { readAsarFile } from "./asar";
+import { findRuntimeApiFindings } from "./runtime";
 
 const MAX_FINDINGS_PER_CATEGORY = 20;
 /** Vendor bundles ship every dependency's defaults; report a sample, not a flood. */
@@ -940,6 +941,8 @@ function collectTextFindings(
 			});
 		}
 	}
+
+	for (const finding of findRuntimeApiFindings(files)) push(finding);
 
 	for (const finding of checkContentSecurityPolicy(files)) push(finding);
 }
