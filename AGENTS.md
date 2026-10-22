@@ -49,6 +49,7 @@ Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mti
 - **Exports:** named exports, no default exports
 - **Error handling:** parsers with a hard-failure mode (input is either valid and fully parseable or not — `macho.ts`, `plist.ts`, `codesign.ts`) return the shared `Result<T>` from `src/main/parser/result.ts` (`{ ok, data } | { ok, error }`) and never throw for malformed-but-expected input. Collection extractors (`strings`, `symbols`, `load-commands`, `objc`, `chained-fixups`, `xrefs`) return partial data best-effort, skipping malformed entries — an empty result is meaningful, not a failure. Use try-catch with informative messages at boundaries
 - **BigInt:** used internally for addresses, converted to number/string before IPC serialisation (see `bigintReplacer` in MCP server)
+- **Counts and units:** use the shared helpers in `src/shared/format.ts` (`formatCount()`, `plural()`, `formatSize()`) instead of hardcoding plurals or units — e.g. `plural(n, "source map")`, not `` `${n} source map${n === 1 ? "" : "s"}` `` or a fixed `"Source Maps (1)"`. Supply an explicit plural when the default `+s` is wrong (`plural(n, "Dependency", "Dependencies")`). UI labels use sentence case
 - **Linter:** Biome (see "Linting & Formatting" section)
 - Keep implementations minimal. No unnecessary abstractions, helpers, or wrapper functions - unless it will sufficiently improve readability, or reduce code duplication
 - Follow existing patterns in the file you're editing
