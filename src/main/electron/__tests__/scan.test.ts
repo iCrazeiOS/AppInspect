@@ -173,6 +173,18 @@ describe("readAsarTextFiles", () => {
 
 		expect(readAsarTextFiles(parse(filePath), LIMITS)).toEqual([]);
 	});
+	it("reads .mjs and .cjs files", () => {
+		const filePath = writeFixture("esm.asar", {
+			"main.mjs": { data: "export default 1" },
+			"preload.cjs": { data: "require('electron')" }
+		});
+
+		const files = readAsarTextFiles(parse(filePath), LIMITS);
+		expect(files.map((f) => f.relativePath)).toEqual([
+			"app.asar/main.mjs",
+			"app.asar/preload.cjs"
+		]);
+	});
 });
 
 // ── scanElectron ───────────────────────────────────────────────────────
@@ -429,6 +441,202 @@ describe("Electron version parsing", () => {
 		expect(isElectronVersionSupported("45.0.0", 43)).toBe(true);
 		expect(isElectronVersionSupported("42.0.0", 40)).toBe(true);
 		expect(isElectronVersionSupported("nightly", 43)).toBeNull();
+	});
+});
+
+describe("scanElectron runtime API checks", () => {
+	function scanText(content: string, relativePath = "app.asar/main.js"): SecurityFinding[] {
+		return scanElectron(makeInfo(), [{ relativePath, content }]);
+	}
+
+	it("flags an unconditional certificate-error trust handler", () => {
+		const findings = scanText(
+			'app.on("certificate-error", (event, wc, url, error, cert, callback) => ' +
+				"{ event.preventDefault(); callback(true); })"
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("critical");
+		expect(findings[0]?.category).toBe("electron-runtime");
+		expect(findings[0]?.evidence).toContain("callback(true)");
+	});
+
+	it("ignores a certificate handler without preventDefault", () => {
+		expect(
+			scanText(
+				'app.on("certificate-error", (event, wc, url, error, cert, callback) => { callback(true); })'
+			)
+		).toEqual([]);
+	});
+
+	it("ignores a scoped certificate handler", () => {
+		expect(
+			scanText(
+				'app.on("certificate-error", (event, wc, url, error, cert, callback) => { ' +
+					'if (url.startsWith("https://example.com")) { event.preventDefault(); callback(true); } ' +
+					"else { callback(false); } })"
+			)
+		).toEqual([]);
+	});
+
+	it("flags a blindly accepting certificate verify proc", () => {
+		const findings = scanText(
+			"session.setCertificateVerifyProc((request, callback) => callback(0))"
+		);
+		expect(findings[0]?.severity).toBe("critical");
+		expect(findings[0]?.evidence).toContain("setCertificateVerifyProc");
+	});
+
+	it("ignores a verify proc that rejects", () => {
+		// -2 rejects, -3 defers to Chromium; neither is a trust decision.
+		expect(
+			scanText("session.setCertificateVerifyProc((request, callback) => callback(-2))")
+		).toEqual([]);
+	});
+
+	it("ignores a scoped certificate pin", () => {
+		expect(
+			scanText(
+				"session.setCertificateVerifyProc((request, callback) => { " +
+					'if (request.hostname === "api.example.com") callback(0); else callback(-2); })'
+			)
+		).toEqual([]);
+	});
+
+	it("flags a permission request handler that grants everything", () => {
+		const findings = scanText(
+			"session.setPermissionRequestHandler((wc, permission, callback) => callback(true))"
+		);
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("ignores a scoped permission request handler", () => {
+		expect(
+			scanText(
+				"session.setPermissionRequestHandler((wc, permission, callback) => { " +
+					'if (permission === "notifications") callback(true); else callback(false); })'
+			)
+		).toEqual([]);
+	});
+
+	it("flags a permission check handler that always returns true", () => {
+		const findings = scanText("session.setPermissionCheckHandler((wc, permission) => true)");
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("ignores a scoped permission check handler", () => {
+		expect(
+			scanText(
+				"session.setPermissionCheckHandler((wc, permission) => { " +
+					'if (permission === "media") return true; return false; })'
+			)
+		).toEqual([]);
+	});
+
+	it("flags an always-allow window open handler", () => {
+		const findings = scanText('wc.setWindowOpenHandler(() => ({ action: "allow" }))');
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("ignores a denying window open handler", () => {
+		expect(scanText('wc.setWindowOpenHandler(({ url }) => ({ action: "deny" }))')).toEqual([]);
+	});
+
+	it("ignores a window open handler with an origin check", () => {
+		expect(
+			scanText(
+				'wc.setWindowOpenHandler(({ url }) => { if (url.startsWith("https://example.com")) ' +
+					'return { action: "allow" }; return { action: "deny" }; })'
+			)
+		).toEqual([]);
+	});
+
+	it("flags a non-literal shell.openExternal argument", () => {
+		const findings = scanText("shell.openExternal(link)");
+		expect(findings[0]?.severity).toBe("info");
+		expect(findings[0]?.evidence).toContain("shell.openExternal");
+	});
+
+	it("ignores a literal shell.openExternal URL", () => {
+		expect(scanText('shell.openExternal("https://example.com")')).toEqual([]);
+	});
+
+	it("flags an interpolated shell.openExternal template literal", () => {
+		const findings = scanText("shell.openExternal(`$" + "{base}/docs`)");
+		expect(findings[0]?.severity).toBe("info");
+	});
+
+	it("flags raw ipcRenderer exposed through contextBridge", () => {
+		const findings = scanText(
+			'contextBridge.exposeInMainWorld("api", ipcRenderer)',
+			"app.asar/preload.js"
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+		expect(findings[0]?.source).toBe("app.asar/preload.js");
+	});
+
+	it("flags ipcRenderer exposed as an object property", () => {
+		const findings = scanText(
+			'contextBridge.exposeInMainWorld("api", { ipcRenderer })',
+			"app.asar/preload.js"
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("flags an ipcRenderer member exposed through the API", () => {
+		const findings = scanText(
+			'contextBridge.exposeInMainWorld("api", { on: ipcRenderer.on })',
+			"app.asar/preload.js"
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("flags arbitrary-channel forwarding in a preload", () => {
+		const findings = scanText("ipcRenderer.invoke(channel, payload)", "app.asar/preload.js");
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("ignores a literal IPC channel", () => {
+		expect(
+			scanText('ipcRenderer.invoke("app:get-state", payload)', "app.asar/preload.js")
+		).toEqual([]);
+	});
+
+	it("ignores IPC forwarding outside a preload", () => {
+		expect(scanText("ipcRenderer.invoke(channel, payload)", "app.asar/main.js")).toEqual([]);
+	});
+
+	it("ignores IPC wiring in node_modules", () => {
+		expect(
+			scanText("ipcRenderer.send(channel, data)", "app.asar/node_modules/vendor/preload.js")
+		).toEqual([]);
+	});
+
+	it("treats a referenced preload path as a preload", () => {
+		const findings = scanElectron(makeInfo(), [
+			{
+				relativePath: "app.asar/main.js",
+				content:
+					'new BrowserWindow({ webPreferences: { preload: path.join(__dirname, "bridge.js") } })'
+			},
+			{ relativePath: "app.asar/bridge.js", content: "ipcRenderer.send(channel, data)" }
+		]);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.source).toBe("app.asar/bridge.js");
+	});
+
+	it("caps findings per check", () => {
+		const files = Array.from({ length: 12 }, (_, index) => ({
+			relativePath: `app.asar/preload-${index}.js`,
+			content: 'contextBridge.exposeInMainWorld("api", ipcRenderer)'
+		}));
+		const findings = scanElectron(makeInfo(), files).filter(
+			(finding) => finding.category === "electron-runtime"
+		);
+		expect(findings).toHaveLength(3);
 	});
 });
 

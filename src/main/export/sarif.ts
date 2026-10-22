@@ -33,7 +33,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 	"electron-renderer": "Unsafe Electron renderer preference",
 	"electron-csp": "Electron Content-Security-Policy weakness",
 	"electron-integrity": "Electron bundle integrity issue",
-	"electron-runtime": "Deprecated Electron runtime API",
+	"electron-runtime": "Electron runtime API misuse",
 	"electron-version": "Unsupported Electron version"
 };
 

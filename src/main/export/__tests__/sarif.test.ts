@@ -192,6 +192,26 @@ describe("sarif export", () => {
 		expect(rule.shortDescription.text).toBe("Unsafe Electron renderer preference");
 		expect(log.runs[0].results[0].properties.vendor).toBeUndefined();
 	});
+
+	it("labels the Electron runtime category", () => {
+		const log = JSON.parse(
+			exportSarif(
+				makeResult([
+					{
+						severity: "critical",
+						category: "electron-runtime",
+						message: "setCertificateVerifyProc blindly accepts certificates",
+						evidence:
+							"session.setCertificateVerifyProc((request, callback) => callback(0))",
+						source: "app.asar/main.js"
+					}
+				])
+			)
+		);
+		const [rule] = log.runs[0].tool.driver.rules;
+		expect(rule.id).toBe("appinspect/electron-runtime");
+		expect(rule.shortDescription.text).toBe("Electron runtime API misuse");
+	});
 });
 
 describe("findingsAtOrAbove", () => {
