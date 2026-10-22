@@ -59,6 +59,13 @@ function makeResult(findings: SecurityFinding[]): AnalysisResult {
 		classes: [],
 		protocols: [],
 		protocolDetails: [],
+		swift: {
+			types: [],
+			protocols: [],
+			conformances: [],
+			present: false,
+			unresolvedConformances: 0
+		},
 		entitlements: [],
 		infoPlist: {},
 		security: { findings, hardening: HARDENING },

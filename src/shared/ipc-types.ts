@@ -19,6 +19,7 @@ import type {
 	SizeBreakdown,
 	SizeTreeNode,
 	StringEntry,
+	SwiftMetadata,
 	SymbolEntry
 } from "./types";
 
@@ -61,6 +62,11 @@ export interface ClassesTabData {
 	data: { classes: ObjCClass[]; protocols: string[]; protocolDetails: ObjCProtocol[] };
 }
 
+export interface SwiftTabData {
+	tab: "swift";
+	data: SwiftMetadata;
+}
+
 export interface EntitlementsTabData {
 	tab: "entitlements";
 	data: Record<string, unknown>;
@@ -101,6 +107,7 @@ export type TabData =
 	| LibrariesTabData
 	| SymbolsTabData
 	| ClassesTabData
+	| SwiftTabData
 	| EntitlementsTabData
 	| InfoPlistTabData
 	| SecurityTabData

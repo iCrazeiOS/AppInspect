@@ -176,6 +176,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					return sanitizeBigInts({ tab: "libraries", data: cached.libraries });
 				case "symbols":
 					return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
+				case "swift":
+					return sanitizeBigInts({ tab: "swift", data: cached.swift });
 				case "classes":
 					return sanitizeBigInts({
 						tab: "classes",

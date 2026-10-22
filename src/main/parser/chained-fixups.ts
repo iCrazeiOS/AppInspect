@@ -118,24 +118,40 @@ function parseImports(
 	importsOffset: number,
 	symbolsOffset: number,
 	importsCount: number,
+	importsFormat: number,
 	le: boolean
 ): ChainedImport[] {
 	const imports: ChainedImport[] = [];
 	const absImportsOffset = headerOffset + importsOffset;
 	const absSymbolsOffset = headerOffset + symbolsOffset;
+	// DYLD_CHAINED_IMPORT_ADDEND64 (3) entries are 16 bytes; ADDEND (2) entries
+	// are 8 bytes; plain IMPORT (1) entries are 4 bytes.
+	const entrySize = importsFormat === 3 ? 16 : importsFormat === 2 ? 8 : 4;
 
 	for (let i = 0; i < importsCount; i++) {
-		const raw = view.getUint32(absImportsOffset + i * 4, le);
-		const lib_ordinal = raw & 0xff; // bits 0-7
-		const weak_import = ((raw >> 8) & 1) === 1; // bit 8
-		const name_offset = (raw >>> 9) & 0x7fffff; // bits 9-31
+		const entryOffset = absImportsOffset + i * entrySize;
+		if (entryOffset + entrySize > view.byteLength) break;
+
+		let lib_ordinal: number;
+		let weak_import: boolean;
+		let name_offset: number;
+
+		if (importsFormat === 3) {
+			const raw = view.getBigUint64(entryOffset, le);
+			lib_ordinal = Number(raw & 0xffffn); // bits 0-15
+			weak_import = ((raw >> 16n) & 1n) === 1n; // bit 16
+			name_offset = Number((raw >> 32n) & 0xffffffffn); // bits 32-63
+		} else {
+			const raw = view.getUint32(entryOffset, le);
+			lib_ordinal = raw & 0xff; // bits 0-7
+			weak_import = ((raw >> 8) & 1) === 1; // bit 8
+			name_offset = (raw >>> 9) & 0x7fffff; // bits 9-31
+		}
 
 		// Read null-terminated symbol name
-		const maxLen = view.byteLength - (absSymbolsOffset + name_offset);
-		const symbolName =
-			maxLen > 0
-				? readCString(view, absSymbolsOffset + name_offset, Math.min(maxLen, 4096))
-				: "";
+		const nameStart = absSymbolsOffset + name_offset;
+		const maxLen = view.byteLength - nameStart;
+		const symbolName = maxLen > 0 ? readCString(view, nameStart, Math.min(maxLen, 4096)) : "";
 
 		imports.push({ lib_ordinal, weak_import, name_offset, symbolName });
 	}
@@ -348,6 +364,7 @@ export function buildFixupMap(
 		header.imports_offset,
 		header.symbols_offset,
 		header.imports_count,
+		header.imports_format,
 		le
 	);
 

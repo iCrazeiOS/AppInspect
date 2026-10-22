@@ -27,6 +27,7 @@ import type {
 	LoadCommand as SharedLoadCommand,
 	SizeBreakdown,
 	StringEntry,
+	SwiftMetadata,
 	SymbolEntry
 } from "../../shared/types";
 import { buildFixupMap } from "../parser/chained-fixups";
@@ -37,6 +38,7 @@ import type { MachOFile } from "../parser/macho";
 import { CPU_TYPE_ARM64, parseFatHeader, parseMachOHeader } from "../parser/macho";
 import { enrichMethodsFromSymbols, extractObjCMetadata } from "../parser/objc";
 import { extractStrings } from "../parser/strings";
+import { extractSwiftMetadata } from "../parser/swift";
 import { demangleSwiftSymbol, initSwiftDemangler } from "../parser/swift-demangle";
 import type { SymbolEntry as ParserSymbol } from "../parser/symbols";
 import { countStabsSymbols, parseExportTrie, parseSymbolTable } from "../parser/symbols";
@@ -68,6 +70,7 @@ export interface BinaryAnalysisResult {
 	classes: ObjCClass[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];
+	swift: SwiftMetadata;
 	entitlements: Entitlement[];
 	uuid: string | null;
 	teamId: string | null;
@@ -122,6 +125,13 @@ export async function analyseBinaryFile(
 	let classes: ObjCClass[] = [];
 	let protocols: string[] = [];
 	let protocolDetails: ObjCProtocol[] = [];
+	let swift: SwiftMetadata = {
+		types: [],
+		protocols: [],
+		conformances: [],
+		present: false,
+		unresolvedConformances: 0
+	};
 	let entitlements: Entitlement[] = [];
 	let uuid: string | null = null;
 	let teamId: string | null = null;
@@ -159,6 +169,7 @@ export async function analyseBinaryFile(
 			classes,
 			protocols,
 			protocolDetails,
+			swift,
 			entitlements,
 			uuid,
 			teamId,
@@ -241,6 +252,7 @@ export async function analyseBinaryFile(
 			classes,
 			protocols,
 			protocolDetails,
+			swift,
 			entitlements,
 			uuid,
 			teamId,
@@ -307,6 +319,7 @@ export async function analyseBinaryFile(
 			classes,
 			protocols,
 			protocolDetails,
+			swift,
 			entitlements,
 			uuid,
 			teamId,
@@ -321,6 +334,7 @@ export async function analyseBinaryFile(
 	// Step 7: Build chained fixup map
 	progressCallback("Building fixup map...", basePercent + 20);
 	let rebaseMap = new Map<number, bigint>();
+	let bindMap = new Map<number, { ordinal: number; symbolName: string; addend: bigint }>();
 	try {
 		if (lcResult.chainedFixupsInfo) {
 			const fixups = buildFixupMap(
@@ -331,6 +345,7 @@ export async function analyseBinaryFile(
 				machoFile.littleEndian
 			);
 			rebaseMap = fixups.rebaseMap;
+			bindMap = fixups.bindMap;
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
@@ -416,6 +431,23 @@ export async function analyseBinaryFile(
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
 		errors.push(`ObjC metadata error: ${msg}`);
+	}
+
+	// Step 10a: Extract Swift 5 metadata (nominal types, fields, protocols)
+	progressCallback("Extracting Swift metadata...", basePercent + 45);
+	await yieldToEventLoop();
+	try {
+		swift = extractSwiftMetadata(
+			buffer,
+			lcResult.segments,
+			machoFile.littleEndian,
+			machoFile.is64Bit,
+			bindMap,
+			rebaseMap
+		);
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		errors.push(`Swift metadata error: ${msg}`);
 	}
 
 	// Step 10b: Recover method selectors from the symbol table when the method
@@ -591,6 +623,7 @@ export async function analyseBinaryFile(
 		classes,
 		protocols,
 		protocolDetails,
+		swift,
 		entitlements,
 		uuid,
 		teamId,
@@ -647,6 +680,7 @@ export function buildAnalysisResult(
 		classes: br.classes,
 		protocols: br.protocols,
 		protocolDetails: br.protocolDetails,
+		swift: br.swift,
 		entitlements: opts.entitlements ?? br.entitlements,
 		infoPlist: opts.infoPlist ?? {},
 		security: opts.security ?? br.security,

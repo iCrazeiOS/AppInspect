@@ -26,6 +26,7 @@ File type is detected automatically by magic bytes.
 | **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags. Interactive force-directed dependency graph view showing inter-binary relationships, with pan/zoom, node dragging, and category filtering |
 | **Symbols** | Exported, imported, and local symbols with addresses. Swift symbols are demangled for display; the raw name stays searchable |
 | **Classes** | ObjC class names and methods with decoded type signatures, syntax-highlighted methods and Logos hooks, protocol conformances per class, protocol detail view (required/optional instance/class methods), Logos hook generation, back/forward navigation history |
+| **Swift** | Swift 5 runtime metadata: nominal types (classes, structs, enums) with their source module and nesting, stored properties and enum cases with demangled types, superclasses, protocols defined in the binary, and protocol conformances (including Swift-standard-library conformances resolved through chained-fixup binds and rebases). Filter by kind or module, and inspect protocol requirement counts and conforming types |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
 | **Info.plist** | Key-facts summary at the top (bundle metadata, device family, supported platforms, privacy strings, ATS exceptions) above the full searchable key/value tree |
@@ -161,7 +162,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
-**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`, `size`
+**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`, `size`
 
 All query tools (`get_overview`, `get_section`, `search`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
@@ -222,7 +223,7 @@ bun run cli -- /path/App.ipa --binary 1 --json        # analyse a specific binar
 |------|-------------|
 | `--json` | Emit the full analysis as JSON (default) |
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
-| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `classes`, `entitlements`, `infoPlist`, `hooks`, `security`, `files` |
+| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |
 | `--no-clobber` | Refuse to overwrite an existing `--out` file (exits 1) |
@@ -253,7 +254,7 @@ src/
     ipa/             # IPA extraction
     xcframework/     # XCFramework slice discovery
     parser/          # Mach-O parsing (headers, load commands, strings,
-                     #   symbols, ObjC metadata, code signatures, xrefs,
+                     #   symbols, ObjC + Swift metadata, code signatures, xrefs,
                      #   chained fixups, plists)
   mcp/               # Standalone MCP server (no Electron dependency)
   preload/           # Electron preload bridge
