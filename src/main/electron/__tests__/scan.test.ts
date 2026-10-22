@@ -189,9 +189,32 @@ describe("readAsarTextFiles", () => {
 			"app.asar/preload.cjs"
 		]);
 	});
-});
+	it("reads key material files but not certificates or PKCS#12 stores", () => {
+		const pem = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----";
+		const filePath = writeFixture("keys.asar", {
+			certs: {
+				files: {
+					"server.pem": { data: pem },
+					"server.cer": { data: "-----BEGIN CERTIFICATE-----" }
+				}
+			},
+			keys: {
+				files: {
+					"server.key": { data: pem },
+					"AuthKey_ABC123.p8": { data: pem },
+					"store.p12": { data: Buffer.from([0x00, 0x01, 0x02, 0x03]) }
+				}
+			}
+		});
 
-// ── scanElectron ───────────────────────────────────────────────────────
+		const files = readAsarTextFiles(parse(filePath), LIMITS);
+		expect(files.map((f) => f.relativePath)).toEqual([
+			"app.asar/certs/server.pem",
+			"app.asar/keys/server.key",
+			"app.asar/keys/AuthKey_ABC123.p8"
+		]);
+	});
+});
 
 describe("scanElectron fuses", () => {
 	it("reports risky enabled fuses and disabled or removed hardening fuses", () => {

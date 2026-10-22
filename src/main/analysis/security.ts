@@ -7,6 +7,7 @@
  * No ML, no network requests — regex patterns only.
  */
 
+import { formatCount } from "../../shared/format";
 import type {
 	BinaryHardening,
 	EncryptionInfo,
@@ -14,8 +15,8 @@ import type {
 	StringEntry,
 	SymbolEntry
 } from "../../shared/types";
-
 import { LC_RPATH } from "../parser/load-commands";
+import { loadSettings } from "../settings";
 import { checkDebugArtifacts } from "./debug-artifacts";
 
 // ── Constants ──
@@ -24,16 +25,21 @@ const MH_PIE = 0x200000;
 
 // ── Credential / secret patterns ──
 
-const SECRET_PATTERNS: Array<{
+interface SecretPattern {
 	name: string;
 	pattern: RegExp;
 	severity?: SecurityFinding["severity"];
 	message: string;
-}> = [
+	/** Characters of the match kept as evidence. Default 500. */
+	maxEvidence?: number;
+}
+
+const SECRET_PATTERNS: SecretPattern[] = [
 	{
 		name: "AWS Access Key",
 		pattern: /AKIA[0-9A-Z]{16}/,
-		message: "AWS access key found in binary strings"
+		message: "AWS access key found in binary strings",
+		maxEvidence: 32
 	},
 	{
 		name: "API Key assignment",
@@ -43,7 +49,8 @@ const SECRET_PATTERNS: Array<{
 	{
 		name: "Bearer token",
 		pattern: /[Bb]earer\s+[A-Za-z0-9\-._~+/]{20,}/,
-		message: "Bearer token found in binary strings"
+		message: "Bearer token found in binary strings",
+		maxEvidence: 64
 	},
 	{
 		name: "MongoDB URI",
@@ -79,24 +86,113 @@ const SECRET_PATTERNS: Array<{
 		name: "Google/Firebase API Key",
 		pattern: /AIza[0-9A-Za-z\-_]{35}/,
 		severity: "warning",
-		message: "Google/Firebase/Gemini API key found"
+		message: "Google/Firebase/Gemini API key found",
+		maxEvidence: 48
 	},
 	{
 		name: "Slack token",
-		pattern: /xox[bpas]-[0-9A-Za-z-]+/,
-		message: "Slack token found in binary strings"
+		pattern: /xox[bapcrsd]-[0-9A-Za-z-]{10,}/,
+		message: "Slack token found in binary strings",
+		maxEvidence: 64
 	},
 	{
 		name: "OpenAI API Key",
 		pattern: /sk-[A-Za-z0-9]{20,}/,
-		message: "OpenAI API key found in binary strings"
+		message: "OpenAI API key found in binary strings",
+		maxEvidence: 64
 	},
 	{
 		name: "Anthropic API Key",
 		pattern: /sk-ant-[A-Za-z0-9-]{20,}/,
-		message: "Anthropic API key found in binary strings"
+		message: "Anthropic API key found in binary strings",
+		maxEvidence: 72
+	},
+	{
+		name: "GitHub token",
+		pattern: /(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,255})/,
+		message: "GitHub token found in binary strings",
+		maxEvidence: 64
+	},
+	{
+		name: "Stripe live key",
+		pattern: /[sr]k_live_[A-Za-z0-9]{24,99}/,
+		message: "Stripe live API key found",
+		maxEvidence: 64
+	},
+	{
+		name: "SendGrid API key",
+		pattern: /SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}/,
+		message: "SendGrid API key found",
+		maxEvidence: 72
+	},
+	{
+		name: "Twilio API key SID",
+		pattern: /\bSK[0-9a-fA-F]{32}\b/,
+		severity: "warning",
+		message: "Twilio API key SID found (the signing secret is stored separately)",
+		maxEvidence: 40
+	},
+	{
+		name: "Discord webhook",
+		pattern:
+			/https:\/\/(?:discord(?:app)?)\.com\/api\/webhooks\/\d{17,20}\/[A-Za-z0-9_-]{60,90}/,
+		message: "Discord webhook URL found",
+		maxEvidence: 96
+	},
+	{
+		name: "JWT",
+		pattern: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*/,
+		severity: "warning",
+		message: "JWT found in binary strings (may be a public anonymous key)",
+		maxEvidence: 96
+	},
+	{
+		name: "Azure Storage account key",
+		pattern: /AccountKey=[A-Za-z0-9+/]{86}==/,
+		message: "Azure Storage account key found",
+		maxEvidence: 48
 	}
 ];
+
+/** Documentation snippets that quote a real-looking prefix without a usable body. */
+const PLACEHOLDER_RE = /x{8,}|0{8,}|example|placeholder|your[-_]?(?:token|key)/i;
+
+function isPlaceholderToken(value: string): boolean {
+	return PLACEHOLDER_RE.test(value);
+}
+
+function secretEvidence(def: SecretPattern, match: string): string {
+	const max = def.maxEvidence ?? 500;
+	if (match.length <= max) return match;
+	return `${match.slice(0, max)}... (${match.length} chars)`;
+}
+
+function readJwtRole(token: string): string | null {
+	const payload = token.split(".")[1];
+	// Untrusted input: do not decode/parse arbitrarily large claims.
+	if (!payload || payload.length > 8192) return null;
+	try {
+		const claims: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+		if (typeof claims !== "object" || claims === null) return null;
+		const role = (claims as { role?: unknown }).role;
+		return typeof role === "string" ? role : null;
+	} catch {
+		return null;
+	}
+}
+
+function classifySecret(
+	def: SecretPattern,
+	match: string
+): { severity: SecurityFinding["severity"]; message: string } {
+	if (def.name === "JWT" && readJwtRole(match) === "service_role") {
+		return {
+			severity: "critical",
+			message: "JWT with service_role claim found (Supabase service key)"
+		};
+	}
+	return { severity: def.severity ?? "critical", message: def.message };
+}
 
 // ── Insecure API patterns ──
 
@@ -168,7 +264,10 @@ const SCANNABLE_EXTENSIONS = new Set([
 	".config",
 	".cfg",
 	".ini",
-	".properties"
+	".properties",
+	".pem",
+	".key",
+	".p8"
 ]);
 
 /**
@@ -204,12 +303,12 @@ function isAssetJSON(content: string): boolean {
  */
 export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFinding[] {
 	const findings: SecurityFinding[] = [];
-	const seen = new Set<string>(); // dedupe by category+evidence+source
+	const seen = new Set<string>(); // dedupe by category+message+evidence+source
+	const budget: SecretScanBudget = { base64Decodes: MAX_BUNDLE_BASE64_DECODES };
+	const maxFileSize = loadSettings().maxFileSizeMB * 1024 * 1024;
 
 	for (const file of files) {
 		// Skip very large files
-		const { loadSettings } = require("../settings") as typeof import("../settings");
-		const maxFileSize = loadSettings().maxFileSizeMB * 1024 * 1024;
 		if (file.content.length > maxFileSize) continue;
 
 		// Skip Lottie/animation JSON files (large, never contain secrets)
@@ -223,79 +322,46 @@ export function scanBundleFileContents(files: BundleFileEntry[]): SecurityFindin
 
 		for (let li = 0; li < lines.length; li++) {
 			const line = lines[li]!;
+			const source = file.relativePath;
 
 			// PEM private key reassembly across consecutive lines
-			if (PEM_BEGIN_RE.test(line)) {
-				const pemLines = [line];
-				let foundEnd = false;
-				let lj = li + 1;
-				while (lj < lines.length && lj - li < 200) {
-					const next = lines[lj]!.trim();
-					if (PEM_END_RE.test(next)) {
-						pemLines.push(next);
-						foundEnd = true;
-						break;
-					}
-					if (PEM_BASE64_LINE_RE.test(next)) {
-						pemLines.push(next);
-					} else break;
-					lj++;
+			const pem = collectPemBlock(line, (index) => lines[index], li);
+			if (pem) {
+				const finding = pemFinding(pem, { source, suffix: BUNDLE_SUFFIX });
+				if (finding && !seen.has(findingKey(finding))) {
+					seen.add(findingKey(finding));
+					findings.push(finding);
 				}
-				const hasKeyMaterial = pemLines.length > 2 || (!foundEnd && pemLines.length === 1);
-
-				if (hasKeyMaterial) {
-					const fullPem = pemLines.join("\n");
-					const key = `credential-leak|pem-key|${file.relativePath}`;
-					if (!seen.has(key)) {
-						seen.add(key);
-						findings.push({
-							severity: "critical",
-							category: "credential-leak",
-							message: foundEnd
-								? "Private key found in bundle file (full PEM block)"
-								: "Private key header found in bundle file",
-							evidence: truncate(fullPem),
-							source: file.relativePath
-						});
-					}
-				}
-				if (foundEnd) li = lj;
+				if (pem.foundEnd) li = pem.end;
 				continue;
 			}
 
-			// Check secret patterns
-			for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
-				const match = pattern.exec(line);
-				if (match) {
-					const key = `credential-leak|${truncate(match[0])}|${file.relativePath}`;
-					if (!seen.has(key)) {
-						seen.add(key);
-						findings.push({
-							severity: patSeverity ?? "critical",
-							category: "credential-leak",
-							message: `${message} (in bundle file)`,
-							evidence: truncate(match[0]),
-							source: file.relativePath
-						});
-					}
-				}
+			for (const finding of scanTextForSecrets(
+				line,
+				{ source, suffix: BUNDLE_SUFFIX },
+				budget
+			)) {
+				const key = findingKey(finding);
+				if (seen.has(key)) continue;
+				seen.add(key);
+				findings.push(finding);
 			}
 
 			// Check jailbreak detection patterns
 			for (const jbPattern of JAILBREAK_PATTERNS) {
 				const match = jbPattern.exec(line);
 				if (match) {
-					const key = `jailbreak-detection|${truncate(match[0])}|${file.relativePath}`;
-					if (!seen.has(key)) {
-						seen.add(key);
-						findings.push({
-							severity: "info",
-							category: "jailbreak-detection",
-							message: "Jailbreak detection string found (in bundle file)",
-							evidence: truncate(match[0]),
-							source: file.relativePath
-						});
-					}
+					const finding: SecurityFinding = {
+						severity: "info",
+						category: "jailbreak-detection",
+						message: "Jailbreak detection string found (in bundle file)",
+						evidence: truncate(match[0]),
+						source
+					};
+					const key = findingKey(finding);
+					if (seen.has(key)) continue;
+					seen.add(key);
+					findings.push(finding);
 				}
 			}
 		}
@@ -432,14 +498,31 @@ function checkBinaryHardeningFindings(params: SecurityScanParams): SecurityFindi
 	return findings;
 }
 
-// Base64 detection: at least 20 chars of valid base64 with optional padding
-const BASE64_RE = /^[A-Za-z0-9+/]{20,}={0,2}$/;
+// ── Shared secret matching ──
 
-function tryBase64Decode(s: string): string | null {
-	const trimmed = s.trim();
-	if (!BASE64_RE.test(trimmed)) return null;
+const BASE64_CANDIDATE_RE = /[A-Za-z0-9+/]{40,}={0,2}/g;
+const MAX_BASE64_CANDIDATE = 8192;
+const MAX_BASE64_CANDIDATES_PER_TEXT = 4;
+const MAX_BINARY_BASE64_DECODES = 250;
+const MAX_BUNDLE_BASE64_DECODES = 500;
+const HEX_ONLY_RE = /^[0-9a-fA-F]+$/;
+
+const BUNDLE_SUFFIX = " (in bundle file)";
+
+interface SecretContext {
+	source?: string;
+	location?: string;
+	/** Appended to the message, e.g. " (in bundle file)". */
+	suffix?: string;
+}
+
+interface SecretScanBudget {
+	base64Decodes: number;
+}
+
+function decodeBase64Text(value: string): string | null {
 	try {
-		const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+		const decoded = Buffer.from(value, "base64").toString("utf8");
 		// Sanity check: decoded content should be mostly printable ASCII
 		const printable = decoded.replace(/[^\x20-\x7e]/g, "");
 		if (printable.length < decoded.length * 0.7) return null;
@@ -449,13 +532,203 @@ function tryBase64Decode(s: string): string | null {
 	}
 }
 
-// PEM detection patterns
-const PEM_BEGIN_RE = /-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----/;
-const PEM_END_RE = /-----END (RSA |EC |DSA )?PRIVATE KEY-----/;
+/**
+ * Match the secret-pattern table against one text, then optionally against
+ * bounded base64 candidates. Patterns must stay non-global; this uses exec()
+ * repeatedly. `depth` bounds base64-of-base64 recursion.
+ */
+function scanTextForSecrets(
+	text: string,
+	context: SecretContext,
+	budget: SecretScanBudget,
+	depth = 0
+): SecurityFinding[] {
+	const findings: SecurityFinding[] = [];
+	for (const def of SECRET_PATTERNS) {
+		const match = def.pattern.exec(text);
+		if (!match || isPlaceholderToken(match[0])) continue;
+		const { severity, message } = classifySecret(def, match[0]);
+		findings.push({
+			severity,
+			category: "credential-leak",
+			message: `${message}${context.suffix ?? ""}`,
+			evidence: secretEvidence(def, match[0]),
+			...(context.location ? { location: context.location } : {}),
+			...(context.source ? { source: context.source } : {})
+		});
+	}
+
+	if (depth >= 2) return findings;
+
+	let inspected = 0;
+	for (const candidate of text.matchAll(BASE64_CANDIDATE_RE)) {
+		if (inspected >= MAX_BASE64_CANDIDATES_PER_TEXT || budget.base64Decodes <= 0) break;
+		inspected++;
+		const encoded = candidate[0]!;
+		if (encoded.length > MAX_BASE64_CANDIDATE) continue;
+		// SHA-1/SHA-256 hex digests are valid base64 and decode to binary; skip
+		// them to preserve budget for real candidates.
+		if (HEX_ONLY_RE.test(encoded)) continue;
+		budget.base64Decodes--;
+		const decoded = decodeBase64Text(encoded);
+		if (!decoded || decoded.length < 8) continue;
+		findings.push(
+			...scanTextForSecrets(
+				decoded,
+				{ ...context, suffix: `${context.suffix ?? ""} (base64 encoded)` },
+				budget,
+				depth + 1
+			)
+		);
+	}
+
+	return findings;
+}
+
+// ── PEM blocks ──
+
+const PEM_BEGIN_RE = /-----BEGIN ((?:[A-Z0-9]+ )*)PRIVATE KEY( BLOCK)?-----/;
+const PEM_END_RE = /-----END ((?:[A-Z0-9]+ )*)PRIVATE KEY( BLOCK)?-----/;
 const PEM_BASE64_LINE_RE = /^[A-Za-z0-9+/]{1,76}={0,2}$/;
+
+interface PemBlock {
+	header: string;
+	body: string[];
+	/** Footer index when found; last body index otherwise. */
+	end: number;
+	foundEnd: boolean;
+}
+
+function collectPemBlock(
+	headerLine: string,
+	lineAt: (index: number) => string | undefined,
+	start: number
+): PemBlock | null {
+	if (!PEM_BEGIN_RE.test(headerLine)) return null;
+	const body: string[] = [];
+	let end = start;
+	let foundEnd = false;
+	for (let i = start + 1; i < start + 200; i++) {
+		const next = lineAt(i)?.trim();
+		if (next === undefined) break;
+		if (PEM_END_RE.test(next)) {
+			end = i;
+			foundEnd = true;
+			break;
+		}
+		if (!PEM_BASE64_LINE_RE.test(next)) break;
+		body.push(next);
+		end = i;
+	}
+	return { header: headerLine, body, end, foundEnd };
+}
+
+function pemEvidence(pem: PemBlock): string {
+	const preview = pem.body.slice(0, 3).join("\n");
+	const tail =
+		pem.body.length > 0
+			? `\n... ${pem.body.length} base64 lines${pem.foundEnd ? "" : " (no footer)"}`
+			: "";
+	return truncate(`${pem.header}${preview ? `\n${preview}` : ""}${tail}`, 320);
+}
+
+function pemFinding(pem: PemBlock, context: SecretContext): SecurityFinding | null {
+	// Bare header+footer with nothing in between are just format strings used by
+	// RSA utility code, not actual embedded keys; a lone header is suspicious.
+	const hasKeyMaterial = pem.foundEnd ? pem.body.length > 0 : pem.body.length !== 1;
+	if (!hasKeyMaterial) return null;
+	const message = pem.foundEnd
+		? "Private key embedded (full PEM block)"
+		: "Private key header found";
+	return {
+		severity: "critical",
+		category: "credential-leak",
+		message: `${message}${context.suffix ?? ""}`,
+		evidence: pemEvidence(pem),
+		...(context.location ? { location: context.location } : {}),
+		...(context.source ? { source: context.source } : {})
+	};
+}
+
+// ── Dedupe and cap ──
+
+export const MAX_FINDINGS_PER_CATEGORY = 50;
+
+const SEVERITY_RANK: Record<SecurityFinding["severity"], number> = {
+	critical: 3,
+	warning: 2,
+	info: 1
+};
+
+function normalizeEvidence(evidence: string): string {
+	return evidence
+		.trim()
+		.replace(/\s+/g, " ")
+		.replace(/^['"]|['"]$/g, "");
+}
+
+function findingKey(finding: SecurityFinding): string {
+	return `${finding.category}|${finding.message}|${normalizeEvidence(finding.evidence)}|${
+		finding.source ?? ""
+	}`;
+}
+
+/**
+ * Collapse duplicate findings and cap each category, keeping the highest
+ * severities. Credentials dedupe across sources; other categories keep the
+ * source in the key because their evidence is per-file.
+ */
+export function dedupeAndCapFindings(findings: SecurityFinding[]): SecurityFinding[] {
+	const seen = new Set<string>();
+	const unique: SecurityFinding[] = [];
+	for (const finding of findings) {
+		// The bundle suffix is presentation only; the same match in a binary and
+		// a bundle file is one remediation item.
+		const message = finding.message.replace(/ \(in bundle file\)/g, "");
+		// Cross-file collapse is only safe for credentials: the same token is the
+		// same remediation. Electron/webPreferences/debug findings are per-file
+		// evidence, so keep their source in the key.
+		const source = finding.category === "credential-leak" ? "" : (finding.source ?? "");
+		const key = `${finding.category}|${message}|${normalizeEvidence(finding.evidence)}|${source}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		unique.push(finding);
+	}
+
+	const byCategory = new Map<string, SecurityFinding[]>();
+	for (const finding of unique) {
+		const group = byCategory.get(finding.category);
+		if (group) group.push(finding);
+		else byCategory.set(finding.category, [finding]);
+	}
+
+	const result: SecurityFinding[] = [];
+	for (const [category, group] of byCategory) {
+		const sorted = group
+			.map((finding, index) => ({ finding, index }))
+			.sort(
+				(a, b) =>
+					SEVERITY_RANK[b.finding.severity] - SEVERITY_RANK[a.finding.severity] ||
+					a.index - b.index
+			)
+			.map((entry) => entry.finding);
+		result.push(...sorted.slice(0, MAX_FINDINGS_PER_CATEGORY));
+		const omitted = sorted.length - MAX_FINDINGS_PER_CATEGORY;
+		if (omitted > 0) {
+			result.push({
+				severity: "info",
+				category,
+				message: `${formatCount(omitted, "finding")} omitted (category limit ${MAX_FINDINGS_PER_CATEGORY})`,
+				evidence: `truncated=${omitted}`
+			});
+		}
+	}
+	return result;
+}
 
 function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
 	const findings: SecurityFinding[] = [];
+	const budget: SecretScanBudget = { base64Decodes: MAX_BINARY_BASE64_DECODES };
 
 	for (let i = 0; i < strings.length; i++) {
 		const entry = strings[i]!;
@@ -463,81 +736,24 @@ function checkSecretPatterns(strings: StringEntry[]): SecurityFinding[] {
 		// ── PEM private key reassembly ──
 		// The header, base64 lines, and footer are separate null-terminated strings
 		// in the binary. Collect adjacent strings to reconstruct the full PEM block.
-		const pemMatch = PEM_BEGIN_RE.exec(entry.value);
-		if (pemMatch) {
-			const pemLines = [entry.value];
-			let j = i + 1;
-			let foundEnd = false;
-			// Collect up to 200 following strings (RSA-4096 ≈ 50 lines)
-			while (j < strings.length && j - i < 200) {
-				const next = strings[j]!.value;
-				if (PEM_END_RE.test(next)) {
-					pemLines.push(next);
-					foundEnd = true;
-					break;
-				}
-				if (PEM_BASE64_LINE_RE.test(next)) {
-					pemLines.push(next);
-				} else {
-					// Non-base64, non-footer line — stop collecting
-					break;
-				}
-				j++;
-			}
-
-			// Only report if there's actual base64 key material between header and footer.
-			// Bare header+footer with nothing in between are just format strings used
-			// by RSA utility code, not actual embedded keys.
-			const hasKeyMaterial = pemLines.length > 2 || (!foundEnd && pemLines.length === 1); // lone header with no end = suspicious
-
-			if (hasKeyMaterial) {
-				const fullPem = pemLines.join("\n");
-				findings.push({
-					severity: "critical",
-					category: "credential-leak",
-					message: foundEnd
-						? "Private key embedded in binary (full PEM block)"
-						: "Private key header found in binary",
-					evidence: truncate(fullPem),
-					location: `offset=0x${entry.offset.toString(16)}`
-				});
-			}
-
+		const pem = collectPemBlock(entry.value, (index) => strings[index]?.value, i);
+		if (pem) {
+			const finding = pemFinding(pem, {
+				location: `offset=0x${entry.offset.toString(16)}`
+			});
+			if (finding) findings.push(finding);
 			// Skip past the strings we consumed
-			if (foundEnd) i = j;
+			if (pem.foundEnd) i = pem.end;
 			continue;
 		}
 
-		// ── Standard secret patterns ──
-		for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
-			const match = pattern.exec(entry.value);
-			if (match) {
-				findings.push({
-					severity: patSeverity ?? "critical",
-					category: "credential-leak",
-					message,
-					evidence: truncate(match[0]),
-					location: `offset=0x${entry.offset.toString(16)}`
-				});
-			}
-		}
-
-		// Also check base64-encoded strings
-		const decoded = tryBase64Decode(entry.value);
-		if (decoded) {
-			for (const { pattern, message, severity: patSeverity } of SECRET_PATTERNS) {
-				const match = pattern.exec(decoded);
-				if (match) {
-					findings.push({
-						severity: patSeverity ?? "critical",
-						category: "credential-leak",
-						message: `${message} (base64 encoded)`,
-						evidence: truncate(match[0]),
-						location: `offset=0x${entry.offset.toString(16)}`
-					});
-				}
-			}
-		}
+		findings.push(
+			...scanTextForSecrets(
+				entry.value,
+				{ location: `offset=0x${entry.offset.toString(16)}` },
+				budget
+			)
+		);
 	}
 
 	return findings;

@@ -52,7 +52,7 @@ import {
 	convertSymbols
 } from "./conversion";
 import { detectHooks } from "./hook-detection";
-import { getBinaryHardening, runSecurityScan } from "./security";
+import { dedupeAndCapFindings, getBinaryHardening, runSecurityScan } from "./security";
 import { buildSizeBreakdown, EMPTY_SIZE_BREAKDOWN } from "./size-breakdown";
 
 /** Yield to the event loop so the UI stays responsive during heavy parsing. */
@@ -668,6 +668,7 @@ export function buildAnalysisResult(
 		electron?: ElectronInfo | null;
 	} = {}
 ): AnalysisResult {
+	const security = opts.security ?? br.security;
 	return {
 		overview,
 		strings: br.strings,
@@ -685,7 +686,7 @@ export function buildAnalysisResult(
 		swift: br.swift,
 		entitlements: opts.entitlements ?? br.entitlements,
 		infoPlist: opts.infoPlist ?? {},
-		security: opts.security ?? br.security,
+		security: { ...security, findings: dedupeAndCapFindings(security.findings) },
 		hooks: br.hooks,
 		size: br.size,
 		files: opts.files ?? [],
