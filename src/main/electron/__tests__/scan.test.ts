@@ -5,7 +5,15 @@ import * as path from "node:path";
 
 import type { ElectronInfo, SecurityFinding } from "../../../shared/types";
 import { type AsarArchive, readAsarHeader } from "../asar";
-import { readAsarTextFiles, readAsarUnpackedHtmlFiles, scanElectron } from "../scan";
+import {
+	isElectronVersionSupported,
+	MIN_SUPPORTED_ELECTRON_MAJOR,
+	parseElectronMajor,
+	readAsarTextFiles,
+	readAsarUnpackedHtmlFiles,
+	scanElectron,
+	scanElectronMetadata
+} from "../scan";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -170,37 +178,96 @@ describe("readAsarTextFiles", () => {
 // ── scanElectron ───────────────────────────────────────────────────────
 
 describe("scanElectron fuses", () => {
-	it("reports risky enabled fuses and disabled load restrictions", () => {
+	it("reports risky enabled fuses and disabled or removed hardening fuses", () => {
 		const info = makeInfo({
 			fuses: [
 				{ name: "RunAsNode", state: "enabled" },
+				{ name: "EnableCookieEncryption", state: "disabled" },
 				{ name: "EnableNodeOptionsEnvironmentVariable", state: "enabled" },
 				{ name: "EnableNodeCliInspectArguments", state: "enabled" },
 				{ name: "OnlyLoadAppFromAsar", state: "disabled" },
-				{ name: "EnableEmbeddedAsarIntegrityValidation", state: "disabled" }
+				{ name: "EnableEmbeddedAsarIntegrityValidation", state: "disabled" },
+				{ name: "GrantFileProtocolExtraPrivileges", state: "enabled" }
 			]
 		});
 
 		expect(scanElectron(info, []).map(summary)).toEqual([
 			["warning", "electron-fuses", "RunAsNode=enabled"],
-			["info", "electron-fuses", "EnableNodeOptionsEnvironmentVariable=enabled"],
-			["info", "electron-fuses", "EnableNodeCliInspectArguments=enabled"],
+			["info", "electron-fuses", "EnableCookieEncryption=disabled"],
+			["warning", "electron-fuses", "EnableNodeOptionsEnvironmentVariable=enabled"],
+			["warning", "electron-fuses", "EnableNodeCliInspectArguments=enabled"],
 			["info", "electron-fuses", "OnlyLoadAppFromAsar=disabled"],
-			["info", "electron-fuses", "EnableEmbeddedAsarIntegrityValidation=disabled"]
+			["info", "electron-fuses", "EnableEmbeddedAsarIntegrityValidation=disabled"],
+			["warning", "electron-fuses", "GrantFileProtocolExtraPrivileges=enabled"]
 		]);
 	});
 
-	it("stays quiet when the hardening fuses are enabled or removed", () => {
+	it("reports removed hardening fuses as weak", () => {
 		const info = makeInfo({
 			fuses: [
-				{ name: "RunAsNode", state: "disabled" },
+				{ name: "OnlyLoadAppFromAsar", state: "removed" },
+				{ name: "EnableEmbeddedAsarIntegrityValidation", state: "removed" }
+			]
+		});
+
+		expect(scanElectron(info, []).map(summary)).toEqual([
+			["info", "electron-fuses", "OnlyLoadAppFromAsar=removed"],
+			["info", "electron-fuses", "EnableEmbeddedAsarIntegrityValidation=removed"]
+		]);
+	});
+
+	it("stays quiet for removed permissive fuses but reports removed cookie encryption", () => {
+		const info = makeInfo({
+			fuses: [
+				{ name: "RunAsNode", state: "removed" },
 				{ name: "EnableNodeOptionsEnvironmentVariable", state: "removed" },
-				{ name: "EnableNodeCliInspectArguments", state: "disabled" },
-				{ name: "OnlyLoadAppFromAsar", state: "enabled" },
-				{ name: "EnableEmbeddedAsarIntegrityValidation", state: "enabled" }
+				{ name: "EnableNodeCliInspectArguments", state: "removed" },
+				{ name: "GrantFileProtocolExtraPrivileges", state: "removed" }
 			]
 		});
 		expect(scanElectron(info, [])).toEqual([]);
+
+		const cookie = makeInfo({ fuses: [{ name: "EnableCookieEncryption", state: "removed" }] });
+		expect(scanElectron(cookie, []).map(summary)).toEqual([
+			["info", "electron-fuses", "EnableCookieEncryption=removed"]
+		]);
+	});
+
+	it("stays quiet when the fuses are in their secure states", () => {
+		const info = makeInfo({
+			fuses: [
+				{ name: "RunAsNode", state: "disabled" },
+				{ name: "EnableCookieEncryption", state: "enabled" },
+				{ name: "EnableNodeOptionsEnvironmentVariable", state: "disabled" },
+				{ name: "EnableNodeCliInspectArguments", state: "disabled" },
+				{ name: "OnlyLoadAppFromAsar", state: "enabled" },
+				{ name: "EnableEmbeddedAsarIntegrityValidation", state: "enabled" },
+				{ name: "GrantFileProtocolExtraPrivileges", state: "disabled" }
+			]
+		});
+		expect(scanElectron(info, [])).toEqual([]);
+	});
+
+	it("reports no fuse wire only when a framework version is present", () => {
+		const framework = scanElectronMetadata(makeInfo({ electronVersion: "44.0.0" }));
+		expect(framework.map(summary)).toEqual([["info", "electron-fuses", "fuses=unavailable"]]);
+
+		expect(scanElectronMetadata(makeInfo())).toEqual([]);
+	});
+
+	it("does not infer removed for fuses missing from a partial wire", () => {
+		const info = makeInfo({ fuses: [{ name: "RunAsNode", state: "disabled" }] });
+		expect(scanElectron(info, [])).toEqual([]);
+	});
+
+	it("reports fuse findings without a readable archive", () => {
+		const info = makeInfo({
+			electronVersion: "44.0.0",
+			fuses: [{ name: "RunAsNode", state: "enabled" }]
+		});
+		expect(scanElectronMetadata(info).map(summary)).toEqual([
+			["warning", "electron-fuses", "RunAsNode=enabled"]
+		]);
 	});
 });
 
@@ -219,6 +286,8 @@ describe("scanElectron integrity and source maps", () => {
 		expect(finding?.severity).toBe("critical");
 		expect(finding?.category).toBe("electron-integrity");
 		expect(finding?.source).toBe("app.asar");
+		expect(finding?.message).toContain("header");
+		expect(finding?.message).not.toContain("contents verified");
 		expect(finding?.evidence).toBe(`expected ${"aa".repeat(32)}, actual ${"bb".repeat(32)}`);
 	});
 
@@ -240,6 +309,126 @@ describe("scanElectron integrity and source maps", () => {
 		expect(finding?.category).toBe("electron-integrity");
 		expect(finding?.message).toContain("4");
 		expect(finding?.evidence).toBe("dist/a.js.map, dist/b.js.map, dist/c.js.map");
+	});
+
+	function integrity(info: Partial<ElectronInfo>): SecurityFinding[] {
+		return scanElectronMetadata(makeInfo(info)).filter(
+			(finding) => finding.category === "electron-integrity"
+		);
+	}
+
+	it("warns when the integrity fuse is enabled but the entry is missing", () => {
+		const [finding] = integrity({
+			asarPath: "/tmp/app.asar",
+			integrityIssue: { kind: "missing" },
+			fuses: [{ name: "EnableEmbeddedAsarIntegrityValidation", state: "enabled" }]
+		});
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.evidence).toBe("integrity=missing");
+		expect(finding?.message).toContain("no ElectronAsarIntegrity");
+		expect(finding?.message).toContain("header hash only");
+	});
+
+	it("reports a missing entry as info when the fuse is off", () => {
+		const [finding] = integrity({
+			asarPath: "/tmp/app.asar",
+			integrityIssue: { kind: "missing" },
+			fuses: [{ name: "EnableEmbeddedAsarIntegrityValidation", state: "disabled" }]
+		});
+		expect(finding?.severity).toBe("info");
+		expect(finding?.evidence).toBe("integrity=missing");
+	});
+
+	it("ignores an integrity issue without a readable archive", () => {
+		expect(integrity({ integrityIssue: { kind: "missing" } })).toEqual([]);
+	});
+
+	it("warns about an unsupported algorithm when the fuse is enabled", () => {
+		const [finding] = integrity({
+			asarPath: "/tmp/app.asar",
+			integrityIssue: { kind: "unsupported-algorithm", algorithm: "MD5" },
+			fuses: [{ name: "EnableEmbeddedAsarIntegrityValidation", state: "enabled" }]
+		});
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.evidence).toContain("algorithm=MD5");
+		expect(finding?.message).toContain("MD5");
+	});
+
+	it("reports an unsupported algorithm as info when the fuse is off", () => {
+		const [finding] = integrity({
+			asarPath: "/tmp/app.asar",
+			integrityIssue: { kind: "unsupported-algorithm", algorithm: "MD5" },
+			fuses: [{ name: "EnableEmbeddedAsarIntegrityValidation", state: "disabled" }]
+		});
+		expect(finding?.severity).toBe("info");
+	});
+
+	it("reports a malformed entry as info when the fuse is off", () => {
+		const [finding] = integrity({
+			asarPath: "/tmp/app.asar",
+			integrityIssue: { kind: "malformed" },
+			fuses: [{ name: "EnableEmbeddedAsarIntegrityValidation", state: "disabled" }]
+		});
+		expect(finding?.severity).toBe("info");
+		expect(finding?.evidence).toBe("integrity=malformed");
+	});
+
+	it("does not report when there is no integrity entry or issue", () => {
+		expect(integrity({ asarPath: "/tmp/app.asar" })).toEqual([]);
+	});
+});
+
+describe("scanElectron version support", () => {
+	function versions(info: Partial<ElectronInfo>): SecurityFinding[] {
+		return scanElectronMetadata(makeInfo(info)).filter(
+			(finding) => finding.category === "electron-version"
+		);
+	}
+
+	it("warns about an end-of-support major", () => {
+		const [finding] = versions({ electronVersion: "12.0.0" });
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.evidence).toBe("electronVersion=12.0.0");
+		expect(finding?.message).toContain(String(MIN_SUPPORTED_ELECTRON_MAJOR));
+	});
+
+	it("stays quiet for a future major", () => {
+		expect(versions({ electronVersion: "999.0.0" })).toEqual([]);
+	});
+
+	it("stays quiet for an unparseable version", () => {
+		expect(versions({ electronVersion: "nightly" })).toEqual([]);
+	});
+
+	it("stays quiet without a version", () => {
+		expect(versions({ electronVersion: undefined })).toEqual([]);
+	});
+});
+
+describe("Electron version parsing", () => {
+	it("parses supported version shapes", () => {
+		expect(parseElectronMajor("45.0.0")).toBe(45);
+		expect(parseElectronMajor("44.9")).toBe(44);
+		expect(parseElectronMajor("44")).toBe(44);
+		expect(parseElectronMajor(" 45.0.0 ")).toBe(45);
+		expect(parseElectronMajor("45.0.0-beta.1")).toBe(45);
+		expect(parseElectronMajor("45.0.0+build.1")).toBe(45);
+	});
+
+	it("rejects malformed versions", () => {
+		expect(parseElectronMajor("v45.0.0")).toBeNull();
+		expect(parseElectronMajor("45.0.0.1")).toBeNull();
+		expect(parseElectronMajor("")).toBeNull();
+		expect(parseElectronMajor("nightly")).toBeNull();
+		expect(parseElectronMajor("0.0.0")).toBeNull();
+	});
+
+	it("compares against an injected minimum", () => {
+		expect(isElectronVersionSupported("42.9.9", 43)).toBe(false);
+		expect(isElectronVersionSupported("43.0.0", 43)).toBe(true);
+		expect(isElectronVersionSupported("45.0.0", 43)).toBe(true);
+		expect(isElectronVersionSupported("42.0.0", 40)).toBe(true);
+		expect(isElectronVersionSupported("nightly", 43)).toBeNull();
 	});
 });
 
@@ -421,11 +610,11 @@ describe("scanElectron renderer detection", () => {
 		const [legacy] = scanPrefs("enableRemoteModule: true");
 		expect(legacy?.severity).toBe("warning");
 
-		const [retired] = scanPrefs(
+		const retired = scanPrefs(
 			"enableRemoteModule: true",
 			"app.asar/main.js",
 			makeInfo({ electronVersion: "40.4.0" })
-		);
+		).find((finding) => finding.category === "electron-runtime");
 		expect(retired?.severity).toBe("info");
 		expect(retired?.message).toContain("removed in Electron 14");
 	});

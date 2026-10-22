@@ -528,6 +528,14 @@ export interface ElectronAsarIntegrity {
 	valid: boolean;
 }
 
+export type ElectronIntegrityIssueKind = "missing" | "unsupported-algorithm" | "malformed";
+
+export interface ElectronIntegrityIssue {
+	kind: ElectronIntegrityIssueKind;
+	/** Algorithm from Info.plist when kind is `unsupported-algorithm`. */
+	algorithm?: string;
+}
+
 export interface AsarEntry {
 	name: string;
 	/** POSIX path relative to the archive root. */
@@ -549,6 +557,8 @@ export interface ElectronInfo {
 	unpackedCount: number;
 	packageJson?: { [key: string]: PlistValue };
 	integrity?: ElectronAsarIntegrity;
+	/** Set when app.asar was read but its Info.plist integrity entry was unusable. */
+	integrityIssue?: ElectronIntegrityIssue;
 	fuses: ElectronFuse[];
 	/** Archive-relative paths of shipped .map files. */
 	sourceMaps: string[];

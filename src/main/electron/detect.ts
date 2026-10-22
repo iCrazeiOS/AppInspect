@@ -10,7 +10,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { ElectronAsarIntegrity, ElectronInfo, PlistValue } from "../../shared/types";
+import type {
+	ElectronAsarIntegrity,
+	ElectronInfo,
+	ElectronIntegrityIssue,
+	PlistValue
+} from "../../shared/types";
 import { parsePlistBuffer } from "../parser/plist";
 import { type AsarArchive, readAsarFile, readAsarHeader } from "./asar";
 import { readFuses } from "./fuses";
@@ -58,33 +63,66 @@ function readPackageJson(archive: AsarArchive): { [key: string]: PlistValue } | 
 	}
 }
 
-function readIntegrity(appRoot: string, archive: AsarArchive): ElectronAsarIntegrity | null {
+interface IntegrityRead {
+	integrity?: ElectronAsarIntegrity;
+	issue?: ElectronIntegrityIssue;
+}
+
+function readIntegrity(appRoot: string, archive: AsarArchive): IntegrityRead {
 	const plistPaths = [
 		path.join(appRoot, "Contents", "Info.plist"),
 		path.join(appRoot, "Info.plist")
 	];
+	let issue: ElectronIntegrityIssue | undefined;
+
 	for (const plistPath of plistPaths) {
 		const plist = readPlist(plistPath);
-		const table = plist?.ElectronAsarIntegrity;
-		if (typeof table !== "object" || table === null || Array.isArray(table)) continue;
+		if (!plist) continue;
+
+		const table = plist.ElectronAsarIntegrity;
+		if (typeof table !== "object" || table === null || Array.isArray(table)) {
+			issue ??= { kind: "missing" };
+			continue;
+		}
 
 		for (const [key, value] of Object.entries(table)) {
 			if (!key.endsWith("app.asar")) continue;
-			if (typeof value !== "object" || value === null || Array.isArray(value)) continue;
+			if (typeof value !== "object" || value === null || Array.isArray(value)) {
+				issue ??= { kind: "malformed" };
+				continue;
+			}
+
 			const record = value as Record<string, unknown>;
 			const algorithm = record.algorithm;
 			const expected = record.hash;
-			if (typeof algorithm !== "string" || typeof expected !== "string") continue;
+			if (typeof algorithm !== "string" || typeof expected !== "string") {
+				issue ??= { kind: "malformed" };
+				continue;
+			}
 
 			// Electron only writes SHA-256 here. An unknown algorithm cannot be
-			// verified, so leave integrity unreported instead of calling it a mismatch.
-			if (algorithm.toLowerCase() !== "sha256") continue;
+			// verified, so report the entry as unusable instead of a mismatch.
+			if (algorithm.toLowerCase() !== "sha256") {
+				issue ??= { kind: "unsupported-algorithm", algorithm };
+				continue;
+			}
 
 			const actual = archive.headerHash;
-			return { algorithm, expected, actual, valid: expected.toLowerCase() === actual };
+			return {
+				integrity: {
+					algorithm,
+					expected,
+					actual,
+					valid: expected.toLowerCase() === actual
+				}
+			};
 		}
+
+		// A plist exists but has no entry for app.asar.
+		issue ??= { kind: "missing" };
 	}
-	return null;
+
+	return issue ? { issue } : {};
 }
 
 export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo | null {
@@ -135,7 +173,8 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 			if (packageJson) info.packageJson = packageJson;
 
 			const integrity = readIntegrity(appRoot, archive);
-			if (integrity) info.integrity = integrity;
+			if (integrity.integrity) info.integrity = integrity.integrity;
+			if (integrity.issue) info.integrityIssue = integrity.issue;
 
 			for (const record of archive.files.values()) {
 				if (record.link !== undefined) continue;

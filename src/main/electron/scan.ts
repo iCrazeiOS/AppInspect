@@ -10,7 +10,7 @@
 import * as path from "node:path";
 
 import { formatCount } from "../../shared/format";
-import type { ElectronInfo, SecurityFinding } from "../../shared/types";
+import type { ElectronFuseState, ElectronInfo, SecurityFinding } from "../../shared/types";
 import type { BundleFileEntry } from "../analysis/security";
 import { isScannableExtension } from "../analysis/security";
 import { loadSettings } from "../settings";
@@ -26,30 +26,160 @@ type ElectronCategory =
 	| "electron-renderer"
 	| "electron-csp"
 	| "electron-integrity"
-	| "electron-runtime";
+	| "electron-runtime"
+	| "electron-version";
 
-/** Fuse states that weaken the Electron runtime sandbox. */
-const RISKY_FUSES: Array<{
+interface FuseRule {
 	name: string;
-	severity: SecurityFinding["severity"];
-	message: string;
-}> = [
+	/** States that weaken the runtime, with the finding to emit for each. */
+	findings: Partial<
+		Record<ElectronFuseState, { severity: SecurityFinding["severity"]; message: string }>
+	>;
+}
+
+/**
+ * Fuse defaults and secure states from Electron's fuse docs.
+ *
+ * | Fuse | Default | Secure |
+ * |---|---|---|
+ * | RunAsNode | enabled | disabled |
+ * | EnableCookieEncryption | disabled | enabled |
+ * | EnableNodeOptionsEnvironmentVariable | enabled | disabled |
+ * | EnableNodeCliInspectArguments | enabled | disabled |
+ * | OnlyLoadAppFromAsar | disabled | enabled |
+ * | EnableEmbeddedAsarIntegrityValidation | disabled | enabled |
+ * | LoadBrowserProcessSpecificV8Snapshot | disabled | enabled |
+ * | GrantFileProtocolExtraPrivileges | enabled | disabled |
+ * | WasmTrapHandlers | enabled | enabled |
+ *
+ * `removed` means the feature is compiled out permanently. For a permissive fuse
+ * that is safe; for a hardening fuse it is as weak as `disabled`.
+ *
+ * Grouped permissive → restricting → `file://` privilege; this is not wire order.
+ */
+const FUSE_RULES: FuseRule[] = [
 	{
 		name: "RunAsNode",
-		severity: "warning",
-		message: "RunAsNode is enabled — ELECTRON_RUN_AS_NODE runs the binary as plain Node"
+		findings: {
+			enabled: {
+				severity: "warning",
+				message: "RunAsNode is enabled — ELECTRON_RUN_AS_NODE runs the binary as plain Node"
+			}
+		}
+	},
+	{
+		name: "EnableCookieEncryption",
+		findings: {
+			disabled: {
+				severity: "info",
+				message:
+					"EnableCookieEncryption is disabled — cookies are stored unencrypted " +
+					"in Chromium's SQLite cookie store"
+			},
+			removed: {
+				severity: "info",
+				message:
+					"EnableCookieEncryption is removed — this build cannot encrypt cookies at rest"
+			}
+		}
 	},
 	{
 		name: "EnableNodeOptionsEnvironmentVariable",
-		severity: "info",
-		message: "NODE_OPTIONS is honoured — environment variables can inject Node flags"
+		findings: {
+			enabled: {
+				severity: "warning",
+				message: "NODE_OPTIONS is honoured — environment variables can inject Node flags"
+			}
+		}
 	},
 	{
 		name: "EnableNodeCliInspectArguments",
-		severity: "info",
-		message: "Node CLI inspect arguments are honoured — the debugger can attach"
+		findings: {
+			enabled: {
+				severity: "warning",
+				message: "Node CLI inspect arguments are honoured — the debugger can attach"
+			}
+		}
+	},
+	{
+		name: "OnlyLoadAppFromAsar",
+		findings: {
+			disabled: {
+				severity: "info",
+				message: "OnlyLoadAppFromAsar is disabled — the app can load unpacked app code"
+			},
+			removed: {
+				severity: "info",
+				message:
+					"OnlyLoadAppFromAsar is removed — this build cannot restrict app loading " +
+					"to app.asar"
+			}
+		}
+	},
+	{
+		name: "EnableEmbeddedAsarIntegrityValidation",
+		findings: {
+			disabled: {
+				severity: "info",
+				message:
+					"EnableEmbeddedAsarIntegrityValidation is disabled — app.asar integrity " +
+					"is not enforced at launch"
+			},
+			removed: {
+				severity: "info",
+				message:
+					"EnableEmbeddedAsarIntegrityValidation is removed — this build cannot " +
+					"enforce app.asar integrity at launch"
+			}
+		}
+	},
+	{
+		name: "GrantFileProtocolExtraPrivileges",
+		findings: {
+			enabled: {
+				severity: "warning",
+				message:
+					"GrantFileProtocolExtraPrivileges is enabled — file:// pages can fetch " +
+					"local assets, use service workers, and access child file:// frames " +
+					"regardless of sandbox"
+			}
+		}
 	}
 ];
+
+const INTEGRITY_FUSE = "EnableEmbeddedAsarIntegrityValidation";
+
+/**
+ * Oldest Electron major with upstream security support.
+ *
+ * Electron supports the latest three stable majors. As of 2026-10-22:
+ *   45.x current, 44.x supported, 43.x supported, 42.x end-of-life.
+ * Bump this when a new major ships (roughly every 8 weeks) and the oldest
+ * major drops out of support. Last verified: 2026-10-22.
+ */
+export const MIN_SUPPORTED_ELECTRON_MAJOR = 43;
+
+const ELECTRON_VERSION_RE = /^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+][0-9A-Za-z.-]+)?$/;
+
+/** Major version of an Electron `CFBundleVersion`, or null when it cannot be parsed. */
+export function parseElectronMajor(version: string): number | null {
+	const match = ELECTRON_VERSION_RE.exec(version.trim());
+	if (!match) return null;
+	const major = Number.parseInt(match[1]!, 10);
+	return Number.isSafeInteger(major) && major > 0 ? major : null;
+}
+
+/**
+ * Compare an Electron version against a minimum major. Returns null when the
+ * version cannot be parsed. The `minimum` parameter is injectable for tests.
+ */
+export function isElectronVersionSupported(
+	version: string,
+	minimum: number = MIN_SUPPORTED_ELECTRON_MAJOR
+): boolean | null {
+	const major = parseElectronMajor(version);
+	return major === null ? null : major >= minimum;
+}
 
 /** Terser/esbuild/swc emit `!0`/`!1` for `true`/`false` in minified output. */
 const TRUE_VALUE = "(?:true|!0)";
@@ -575,14 +705,18 @@ export function readAsarUnpackedHtmlFiles(
 	return files;
 }
 
-/** Derive Electron findings from the bundle metadata and archive text files. */
-export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[] {
+type FindingPush = (finding: SecurityFinding) => void;
+
+function createFindingCollector(): {
+	findings: SecurityFinding[];
+	push: FindingPush;
+} {
 	const findings: SecurityFinding[] = [];
 	const seen = new Set<string>();
 	const counts = new Map<string, number>();
 	let vendorCount = 0;
 
-	const push = (finding: SecurityFinding): void => {
+	const push: FindingPush = (finding) => {
 		const key = `${finding.category}|${finding.source ?? ""}|${finding.evidence ?? ""}`;
 		if (seen.has(key)) return;
 		if (finding.vendor && vendorCount >= MAX_VENDOR_FINDINGS) return;
@@ -594,47 +728,109 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 		findings.push(finding);
 	};
 
+	return { findings, push };
+}
+
+function collectFuseFindings(info: ElectronInfo, push: FindingPush): void {
 	const fuseStates = new Map(info.fuses.map((fuse) => [fuse.name, fuse.state]));
 
-	for (const { name, severity, message } of RISKY_FUSES) {
-		if (fuseStates.get(name) !== "enabled") continue;
+	for (const rule of FUSE_RULES) {
+		const state = fuseStates.get(rule.name);
+		if (!state) continue;
+		const finding = rule.findings[state];
+		if (!finding) continue;
 		push({
-			severity,
+			severity: finding.severity,
 			category: "electron-fuses",
-			message,
-			evidence: `${name}=enabled`
+			message: finding.message,
+			evidence: `${rule.name}=${state}`
 		});
 	}
 
-	if (fuseStates.get("OnlyLoadAppFromAsar") === "disabled") {
-		push({
-			severity: "info",
-			category: "electron-fuses",
-			message: "OnlyLoadAppFromAsar is disabled — the app can load unpacked app code",
-			evidence: "OnlyLoadAppFromAsar=disabled"
-		});
-	}
-
-	if (fuseStates.get("EnableEmbeddedAsarIntegrityValidation") === "disabled") {
+	// `fuses: []` is ambiguous: an asar-only folder has no framework binary, while an
+	// older Electron build (pre-12) or an unreadable wire has a framework but no wire.
+	// `electronVersion` is only set when the framework Info.plist was readable, so use it
+	// as the "framework present" signal and stay quiet for asar-only inputs.
+	if (info.fuses.length === 0 && info.electronVersion !== undefined) {
 		push({
 			severity: "info",
 			category: "electron-fuses",
 			message:
-				"EnableEmbeddedAsarIntegrityValidation is disabled — app.asar can be modified without detection",
-			evidence: "EnableEmbeddedAsarIntegrityValidation=disabled"
+				"No Electron fuse wire was found — this build predates fuses or the " +
+				"framework binary could not be read; fuse hardening was not assessed",
+			evidence: "fuses=unavailable"
 		});
 	}
+}
 
-	const integrity = info.integrity;
-	if (integrity && !integrity.valid) {
+function collectIntegrityFindings(info: ElectronInfo, push: FindingPush): void {
+	const fuseStates = new Map(info.fuses.map((fuse) => [fuse.name, fuse.state]));
+
+	if (info.integrity && !info.integrity.valid) {
 		push({
 			severity: "critical",
 			category: "electron-integrity",
-			message: "app.asar header does not match the ElectronAsarIntegrity hash",
-			evidence: `expected ${integrity.expected}, actual ${integrity.actual}`,
+			message:
+				"app.asar header does not match the ElectronAsarIntegrity hash " +
+				"(AppInspect compares the header hash only, not file contents)",
+			evidence: `expected ${info.integrity.expected}, actual ${info.integrity.actual}`,
 			source: "app.asar"
 		});
+		return;
 	}
+
+	if (!info.integrityIssue || !info.asarPath) return;
+
+	const enforced = fuseStates.get(INTEGRITY_FUSE) === "enabled";
+	const issue = info.integrityIssue;
+
+	let detail = "the ElectronAsarIntegrity entry for app.asar is unusable";
+	switch (issue.kind) {
+		case "missing":
+			detail = "no ElectronAsarIntegrity entry exists for app.asar";
+			break;
+		case "unsupported-algorithm":
+			detail =
+				`the ElectronAsarIntegrity algorithm ${issue.algorithm || "unknown"} ` +
+				"is not SHA-256";
+			break;
+		case "malformed":
+			detail = "the ElectronAsarIntegrity entry for app.asar is malformed";
+			break;
+	}
+
+	push({
+		severity: enforced ? "warning" : "info",
+		category: "electron-integrity",
+		message: enforced
+			? `The ASAR integrity fuse is enabled but ${detail} — the archive cannot be ` +
+				"verified (header hash only) and the app may fail to launch"
+			: `ASAR integrity cannot be verified — ${detail} (header hash only)`,
+		evidence: `integrity=${issue.kind}${issue.algorithm ? `, algorithm=${issue.algorithm}` : ""}`,
+		source: "app.asar"
+	});
+}
+
+function collectVersionFindings(info: ElectronInfo, push: FindingPush): void {
+	const version = info.electronVersion;
+	if (!version) return;
+
+	const major = parseElectronMajor(version);
+	if (major === null || major >= MIN_SUPPORTED_ELECTRON_MAJOR) return;
+
+	push({
+		severity: "warning",
+		category: "electron-version",
+		message:
+			`Electron ${version} is no longer supported — it misses Chromium and ` +
+			`Node.js security fixes (oldest supported major: ${MIN_SUPPORTED_ELECTRON_MAJOR})`,
+		evidence: `electronVersion=${version}`
+	});
+}
+
+function collectInfoFindings(info: ElectronInfo, push: FindingPush): void {
+	collectFuseFindings(info, push);
+	collectIntegrityFindings(info, push);
 
 	if (info.sourceMaps.length > 0) {
 		push({
@@ -646,9 +842,17 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 		});
 	}
 
+	collectVersionFindings(info, push);
+}
+
+function collectTextFindings(
+	info: ElectronInfo,
+	files: BundleFileEntry[],
+	push: FindingPush
+): void {
 	// ── Renderer configuration ──
-	const electronMajor = Number.parseInt(info.electronVersion?.split(".")[0] ?? "", 10);
-	const remoteModuleRetired = Number.isFinite(electronMajor) && electronMajor >= 14;
+	const electronMajor = parseElectronMajor(info.electronVersion ?? "");
+	const remoteModuleRetired = electronMajor !== null && electronMajor >= 14;
 
 	type MatchedCheck = ElectronCheck & { evidence: string };
 	const perFile: Array<{ source: string; vendor: boolean; matches: Map<string, MatchedCheck> }> =
@@ -738,6 +942,26 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	}
 
 	for (const finding of checkContentSecurityPolicy(files)) push(finding);
+}
 
+/** Metadata-only findings: safe to run without a readable app.asar. */
+export function scanElectronMetadata(info: ElectronInfo): SecurityFinding[] {
+	const { findings, push } = createFindingCollector();
+	collectInfoFindings(info, push);
+	return findings;
+}
+
+/** Archive text findings: require the extracted scannable files. */
+export function scanElectronText(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[] {
+	const { findings, push } = createFindingCollector();
+	collectTextFindings(info, files, push);
+	return findings;
+}
+
+/** Existing API: all Electron findings for an info object plus archive text. */
+export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[] {
+	const { findings, push } = createFindingCollector();
+	collectInfoFindings(info, push);
+	collectTextFindings(info, files, push);
 	return findings;
 }
