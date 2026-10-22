@@ -123,9 +123,9 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			if (debControl.description)
 				debItems.push(buildKV("Description", String(debControl.description)));
 			if (debControl.installedSize) {
-				const kb = Number(debControl.installedSize);
-				const sizeStr = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;
-				debItems.push(buildKV("Installed Size", sizeStr));
+				debItems.push(
+					buildKV("Installed Size", formatSize(Number(debControl.installedSize) * 1024))
+				);
 			}
 		}
 		wrapper.appendChild(buildCard("Package Info", ...debItems));
@@ -142,11 +142,7 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			buildKV("UUID", String(uuid))
 		];
 		if (binarySize != null) {
-			const sizeStr =
-				binarySize > 1024 * 1024
-					? `${(binarySize / (1024 * 1024)).toFixed(1)} MB`
-					: `${(binarySize / 1024).toFixed(1)} KB`;
-			machoItems.push(buildKV("File Size", sizeStr));
+			machoItems.push(buildKV("File Size", formatSize(binarySize)));
 		}
 		if (platformName) machoItems.push(buildKV("Platform", platformName));
 		machoItems.push(buildKV(minOSLabel, minOS));

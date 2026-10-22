@@ -42,7 +42,7 @@ import { renderSize } from "./tabs/size";
 import { renderStrings } from "./tabs/strings";
 import { renderSwift } from "./tabs/swift";
 import { renderSymbols } from "./tabs/symbols";
-import { formatCount, formatSize } from "./utils/format";
+import { formatCount, formatSize, plural } from "./utils/format";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 
 // ── Types ──
@@ -664,7 +664,7 @@ function populateArchSelector(fatArchs: FatArchInfo[]): void {
 		const arch = fatArchs[i]!;
 		const opt = document.createElement("option");
 		opt.value = String(i);
-		opt.textContent = `${cpuLabel(arch.cputype, arch.cpusubtype)}  (${(arch.size / 1024).toFixed(0)} KB)`;
+		opt.textContent = `${cpuLabel(arch.cputype, arch.cpusubtype)}  (${formatSize(arch.size)})`;
 		archDropdown.appendChild(opt);
 	}
 
@@ -1079,7 +1079,7 @@ async function refreshCacheSize(): Promise<void> {
 				? ""
 				: entryCount === 0
 					? "Cache is empty"
-					: `Nothing to clear: ${keptInUse} ${keptInUse === 1 ? "entry is" : "entries are"} used by open files`;
+					: `Nothing to clear: ${keptInUse} ${plural(keptInUse, "entry")} ${keptInUse === 1 ? "is" : "are"} used by open files`;
 	} catch {
 		cacheSize.textContent = "Unavailable";
 		btnClearCache.disabled = true;

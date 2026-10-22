@@ -676,7 +676,8 @@ export function renderClasses(
 			if (methods.length === 0) return;
 			const groupHeader = document.createElement("li");
 			groupHeader.className = "cls-proto-method-group";
-			groupHeader.textContent = `${methods.length === 1 ? title.replace(/ Methods$/, " Method") : title} (${methods.length})`;
+			const singularTitle = title.replace(/ Methods$/, " Method");
+			groupHeader.textContent = `${plural(methods.length, singularTitle, title)} (${methods.length})`;
 			methodList.appendChild(groupHeader);
 
 			for (const m of methods) {
@@ -903,7 +904,7 @@ export function renderClasses(
 
 			const countEl = document.createElement("div");
 			countEl.className = "cls-detail-count";
-			countEl.textContent = `${filtered.length.toLocaleString()} result${filtered.length !== 1 ? "s" : ""} across all classes`;
+			countEl.textContent = `${filtered.length.toLocaleString()} ${plural(filtered.length, "result")} across all classes`;
 			detailHeader.appendChild(countEl);
 
 			methodSearchBar.updateCount(filtered.length, totalMethods);
@@ -917,9 +918,9 @@ export function renderClasses(
 			countEl.className = "cls-detail-count";
 			const total = selectedClass.methods.length;
 			if (methodSearchTerm) {
-				countEl.textContent = `${filtered.length} of ${total} method${total !== 1 ? "s" : ""}`;
+				countEl.textContent = `${filtered.length} of ${total} ${plural(total, "method")}`;
 			} else {
-				countEl.textContent = `${total} method${total !== 1 ? "s" : ""}`;
+				countEl.textContent = `${total} ${plural(total, "method")}`;
 			}
 			detailHeader.appendChild(countEl);
 

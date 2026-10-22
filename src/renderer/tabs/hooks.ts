@@ -4,6 +4,7 @@
  */
 
 import { EmptyState } from "../components";
+import { formatCount } from "../utils/format";
 
 interface HookInfo {
 	frameworks: string[];
@@ -53,7 +54,11 @@ export function renderHooks(container: HTMLElement, data: unknown): void {
 	if (hooks.hookedClasses.length) {
 		const info = document.createElement("span");
 		info.className = "hooks-stat";
-		info.textContent = `${hooks.hookedClasses.length} hooked class${hooks.hookedClasses.length !== 1 ? "es" : ""}`;
+		info.textContent = formatCount(
+			hooks.hookedClasses.length,
+			"hooked class",
+			"hooked classes"
+		);
 		summary.appendChild(info);
 	}
 
