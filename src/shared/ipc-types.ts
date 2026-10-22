@@ -124,7 +124,7 @@ export interface CrossBinarySearchResult {
 	symbolType?: string;
 }
 
-export type SearchableTab = "classes" | "strings" | "symbols" | "libraries";
+export type SearchableTab = "classes" | "strings" | "symbols" | "libraries" | "swift";
 
 export type TabName = TabData["tab"];
 

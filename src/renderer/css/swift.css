@@ -234,3 +234,7 @@
 .swift-detail-scroll {
   padding-right: 4px;
 }
+
+.swift-module-select:disabled {
+  opacity: 0.45;
+}

@@ -13,10 +13,21 @@ import type {
 import { EmptyState, SearchBar } from "../components";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
+import {
+	addAllBinariesToggle,
+	binaryTypeBadge,
+	buildShowAllLink,
+	createCrossBinaryState,
+	doCrossBinarySearch
+} from "../utils/cross-binary-search";
 import { initPanelResize } from "../utils/panel-resize";
 
 const ROW_HEIGHT = 28;
+const CROSS_ROW_HEIGHT = 44; // taller rows for cross-binary results
 const BUFFER = 20;
+
+/** Type name queued by a cross-binary click on a different binary. */
+let pendingSwiftSelect: string | null = null;
 
 const KIND_LABEL: Record<SwiftTypeKind, string> = {
 	class: "class",
@@ -63,7 +74,8 @@ export function renderSwift(
 	container: HTMLElement,
 	data: SwiftMetadata | null,
 	sessionId: string,
-	binary?: BinaryInfo
+	binary?: BinaryInfo,
+	binaryCount: number = 1
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container", "swift-container");
@@ -76,6 +88,7 @@ export function renderSwift(
 				: "No Swift metadata found. This binary may be Objective-C/C++ only, or built without Swift reflection metadata."
 		});
 		empty.mount(container);
+		pendingSwiftSelect = null;
 		return;
 	}
 
@@ -111,6 +124,7 @@ export function renderSwift(
 	let selectedType: SwiftType | null = null;
 	let selectedProtocol: SwiftProtocol | null = null;
 	let selectedIndex = -1;
+	const xbin = createCrossBinaryState();
 
 	// ── Stats ──
 	const statsBar = document.createElement("div");
@@ -173,6 +187,22 @@ export function renderSwift(
 
 	// ── Search ──
 	const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
+		if (xbin.active) {
+			doCrossBinarySearch(
+				sessionId,
+				term,
+				"swift",
+				xbin,
+				() => {
+					if (!xbin.active) return;
+					searchBar.updateCount(xbin.results.length, xbin.results.length);
+					renderList();
+				},
+				isRegex,
+				caseSensitive
+			);
+			return;
+		}
 		filterTerm = term;
 		filterRegex = isRegex;
 		filterCase = caseSensitive;
@@ -181,6 +211,17 @@ export function renderSwift(
 	});
 	searchBar.mount(leftPanel);
 	registerSearchBar(sessionId, "swift", searchBar);
+
+	addAllBinariesToggle(searchBar, binaryCount, xbin, (active) => {
+		updateFilterBarDisabled();
+		if (!active) selectedIndex = selectedType ? filteredTypes.indexOf(selectedType) : -1;
+		else selectedIndex = -1;
+		searchBar.setValue(
+			searchBar.getValue(),
+			searchBar.isRegexMode(),
+			searchBar.isCaseSensitive()
+		);
+	});
 
 	// ── Filters ──
 	const filterBar = document.createElement("div");
@@ -235,7 +276,7 @@ export function renderSwift(
 
 	function updatePrefixToggle(): void {
 		const hidePrefix = hideModulePrefix && moduleFilter !== "";
-		prefixToggle.disabled = moduleFilter === "";
+		prefixToggle.disabled = xbin.active || moduleFilter === "";
 		prefixToggle.textContent = "Hide prefix";
 		prefixToggle.classList.toggle("swift-filter-btn--active", hidePrefix);
 		prefixToggle.title = hidePrefix
@@ -243,6 +284,12 @@ export function renderSwift(
 			: moduleFilter
 				? "Hide the selected module name from type names"
 				: "Select a module to hide its name prefix";
+	}
+
+	function updateFilterBarDisabled(): void {
+		for (const btn of kindButtons) btn.disabled = xbin.active;
+		moduleSelect.disabled = xbin.active;
+		updatePrefixToggle();
 	}
 
 	moduleSelect.addEventListener("change", () => {
@@ -318,11 +365,124 @@ export function renderSwift(
 	}
 
 	function renderList(): void {
-		spacer.style.height = `${filteredTypes.length * ROW_HEIGHT}px`;
+		const rowHeight = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
+		const total = xbin.active ? xbin.results.length : filteredTypes.length;
+		spacer.style.height = `${total * rowHeight}px`;
 		renderVisibleRows();
 	}
 
+	function renderCrossBinaryRows(): void {
+		if (xbin.loading) {
+			rowContainer.innerHTML = "";
+			rowContainer.style.transform = "";
+			const loading = document.createElement("div");
+			loading.className = "cls-cross-loading";
+			loading.textContent = "Indexing binaries\u2026";
+			rowContainer.appendChild(loading);
+			return;
+		}
+
+		if (xbin.results.length === 0) {
+			rowContainer.innerHTML = "";
+			rowContainer.style.transform = "";
+			const hint = document.createElement("div");
+			hint.className = "cls-cross-loading";
+			if (searchBar.getValue()) {
+				hint.textContent = "No Swift types found across binaries.";
+			} else {
+				hint.textContent = "Type a Swift type name to search across all binaries.";
+				const showAll = buildShowAllLink(sessionId, "Swift types", "swift", xbin, () => {
+					searchBar.updateCount(xbin.results.length, xbin.results.length);
+					renderList();
+				});
+				hint.appendChild(document.createElement("br"));
+				hint.appendChild(showAll);
+			}
+			rowContainer.appendChild(hint);
+			return;
+		}
+
+		const scrollTop = scrollContainer.scrollTop;
+		const viewportHeight = scrollContainer.clientHeight;
+		const total = xbin.results.length;
+		const startIndex = Math.max(0, Math.floor(scrollTop / CROSS_ROW_HEIGHT) - BUFFER);
+		const visibleCount = Math.ceil(viewportHeight / CROSS_ROW_HEIGHT);
+		const endIndex = Math.min(total, startIndex + visibleCount + BUFFER * 2);
+
+		rowContainer.style.transform = `translateY(${startIndex * CROSS_ROW_HEIGHT}px)`;
+
+		const fragment = document.createDocumentFragment();
+		for (let i = startIndex; i < endIndex; i++) {
+			const result = xbin.results[i];
+			if (!result) continue;
+
+			const row = document.createElement("div");
+			row.className = "cls-row cls-cross-row";
+			if (i === selectedIndex) row.classList.add("cls-row-active");
+			row.style.height = `${CROSS_ROW_HEIGHT}px`;
+			row.title = `${result.match} in ${result.binaryName}`;
+
+			const nameSpan = document.createElement("span");
+			nameSpan.className = "cls-cross-name";
+			nameSpan.textContent = result.match;
+			row.appendChild(nameSpan);
+
+			const binSpan = document.createElement("span");
+			binSpan.className = "cls-cross-binary";
+			binSpan.textContent = `${result.binaryName}  [${binaryTypeBadge(result.binaryType)}]`;
+			row.appendChild(binSpan);
+
+			row.addEventListener("click", () => activateCrossResult(i));
+			fragment.appendChild(row);
+		}
+		rowContainer.innerHTML = "";
+		rowContainer.appendChild(fragment);
+	}
+
+	function activateCrossResult(index: number): void {
+		const result = xbin.results[index];
+		if (!result) return;
+		const dropdown = document.getElementById("binary-dropdown") as HTMLSelectElement | null;
+		const sameBinary = !dropdown || dropdown.value === String(result.binaryIndex);
+
+		if (sameBinary) {
+			const type = allTypes.find((t) => t.fullName === result.match);
+			if (!type) return;
+			xbin.active = false;
+			leftPanel
+				.querySelector(".sb-extra-toggle--active")
+				?.classList.remove("sb-extra-toggle--active");
+			// Reset filters so the selected type cannot be filtered out of the list.
+			kindFilter = "all";
+			moduleFilter = "";
+			for (const [i, btn] of kindButtons.entries()) {
+				btn.classList.toggle("swift-filter-btn--active", KIND_FILTERS[i]?.id === "all");
+			}
+			moduleSelect.value = "";
+			updateFilterBarDisabled();
+			searchBar.setValue("", false);
+			filterTerm = "";
+			filterRegex = false;
+			filterCase = false;
+			applyFilters();
+			selectType(type);
+			const idx = filteredTypes.indexOf(type);
+			selectedIndex = idx;
+			if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
+			renderVisibleRows();
+		} else if (dropdown) {
+			pendingSwiftSelect = result.match;
+			dropdown.value = String(result.binaryIndex);
+			dropdown.dispatchEvent(new Event("change", { bubbles: true }));
+		}
+	}
+
 	function renderVisibleRows(): void {
+		if (xbin.active) {
+			renderCrossBinaryRows();
+			return;
+		}
+
 		const scrollTop = scrollContainer.scrollTop;
 		const viewportHeight = scrollContainer.clientHeight;
 		const total = filteredTypes.length;
@@ -679,27 +839,33 @@ export function renderSwift(
 	}
 
 	// ── Keyboard navigation ──
+	function listLength(): number {
+		return xbin.active ? xbin.results.length : filteredTypes.length;
+	}
+
 	function setSelection(next: number): void {
-		const total = filteredTypes.length;
+		const total = listLength();
 		if (total === 0) return;
 		const index = Math.max(0, Math.min(total - 1, next));
 		selectedIndex = index;
-		const type = filteredTypes[index];
-		if (!type) return;
+		const type = xbin.active ? null : filteredTypes[index];
+		if (!xbin.active && !type) return;
 
-		const top = index * ROW_HEIGHT;
-		const bottom = top + ROW_HEIGHT;
+		const rowHeight = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
+		const top = index * rowHeight;
+		const bottom = top + rowHeight;
 		if (top < scrollContainer.scrollTop) {
 			scrollContainer.scrollTop = top;
 		} else if (bottom > scrollContainer.scrollTop + scrollContainer.clientHeight) {
 			scrollContainer.scrollTop = bottom - scrollContainer.clientHeight;
 		}
 
-		selectType(type);
+		if (type) selectType(type);
+		else renderVisibleRows();
 	}
 
 	function moveSelection(delta: number): void {
-		const total = filteredTypes.length;
+		const total = listLength();
 		if (total === 0) return;
 		if (selectedIndex === -1) {
 			setSelection(delta > 0 ? 0 : total - 1);
@@ -712,8 +878,15 @@ export function renderSwift(
 	}
 
 	scrollContainer.addEventListener("keydown", (event: KeyboardEvent) => {
-		if (filteredTypes.length === 0) return;
+		if (listLength() === 0) return;
+		const rowHeight = xbin.active ? CROSS_ROW_HEIGHT : ROW_HEIGHT;
 		switch (event.key) {
+			case "Enter":
+				if (xbin.active && selectedIndex >= 0) {
+					event.preventDefault();
+					activateCrossResult(selectedIndex);
+				}
+				break;
 			case "ArrowDown":
 				event.preventDefault();
 				moveSelection(1);
@@ -728,17 +901,17 @@ export function renderSwift(
 				break;
 			case "End":
 				event.preventDefault();
-				setSelection(filteredTypes.length - 1);
+				setSelection(listLength() - 1);
 				break;
 			case "PageDown": {
 				event.preventDefault();
-				const page = Math.max(1, Math.floor(scrollContainer.clientHeight / ROW_HEIGHT));
+				const page = Math.max(1, Math.floor(scrollContainer.clientHeight / rowHeight));
 				moveSelection(page);
 				break;
 			}
 			case "PageUp": {
 				event.preventDefault();
-				const page = Math.max(1, Math.floor(scrollContainer.clientHeight / ROW_HEIGHT));
+				const page = Math.max(1, Math.floor(scrollContainer.clientHeight / rowHeight));
 				moveSelection(-page);
 				break;
 			}
@@ -757,4 +930,21 @@ export function renderSwift(
 
 	renderList();
 	renderDetail();
+
+	// Pending selection from a cross-binary click on a different binary.
+	if (pendingSwiftSelect) {
+		const type = allTypes.find((t) => t.fullName === pendingSwiftSelect);
+		pendingSwiftSelect = null;
+		if (type) {
+			selectedIndex = filteredTypes.indexOf(type);
+			selectType(type);
+			if (selectedIndex >= 0) {
+				// Defer so the jump wins over the tab's stored scroll restoration.
+				const top = selectedIndex * ROW_HEIGHT;
+				requestAnimationFrame(() => {
+					scrollContainer.scrollTop = top;
+				});
+			}
+		}
+	}
 }
