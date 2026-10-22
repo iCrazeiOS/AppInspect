@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { analyseBinaryFile } from "../orchestrator";
+import { AnalysisSession, analyseBinaryFile } from "../orchestrator";
+import type { BinarySearchIndex } from "../search-index";
 
 const TMP_DIR = path.join(import.meta.dir, ".tmp-search-index-test");
 const TEST_FILE = path.join(TMP_DIR, "dylib-test.bin");
@@ -82,5 +83,45 @@ describe("analyseBinaryFile light path (search index)", () => {
 		expect(light.teamId).toBeNull();
 		expect(light.security.findings).toEqual([]);
 		expect(light.hooks.frameworks).toEqual([]);
+	});
+});
+
+describe("AnalysisSession.searchAllBinaries swift tab", () => {
+	async function sessionWithSwift(swift: string[]): Promise<AnalysisSession> {
+		const session = new AnalysisSession();
+		await session.analyseMachO(TEST_FILE, () => {});
+		const entry: BinarySearchIndex = {
+			classes: [],
+			strings: [],
+			symbols: [],
+			symbolTypes: [],
+			libraries: [],
+			swift
+		};
+		(session as unknown as { searchIndex: Map<number, BinarySearchIndex> }).searchIndex =
+			new Map([[0, entry]]);
+		return session;
+	}
+
+	it("matches Swift type full names case-insensitively by default", async () => {
+		const session = await sessionWithSwift(["Nationwide.Foo.Bar", "Other.Baz"]);
+		const results = await session.searchAllBinaries("foo", "swift", () => {});
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({ binaryIndex: 0, match: "Nationwide.Foo.Bar" });
+	});
+
+	it("honours case sensitivity and regex", async () => {
+		const session = await sessionWithSwift(["Nationwide.Foo.Bar", "Other.Baz"]);
+		expect(await session.searchAllBinaries("foo", "swift", () => {}, false, true)).toHaveLength(
+			0
+		);
+		const re = await session.searchAllBinaries("^Other\\.", "swift", () => {}, true, true);
+		expect(re.map((r) => r.match)).toEqual(["Other.Baz"]);
+	});
+
+	it("indexes a real analysis with no Swift types as empty", async () => {
+		const session = new AnalysisSession();
+		await session.analyseMachO(TEST_FILE, () => {});
+		expect(await session.searchAllBinaries("x", "swift", () => {})).toEqual([]);
 	});
 });

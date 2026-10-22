@@ -159,15 +159,17 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules. Optional `maxDepth` (default 3). |
-| `search` | Cross-binary search across all binaries in the loaded container |
+| `search` | Cross-binary search across all binaries in the loaded container. `tab`: `classes`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
+| `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
+| `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
 **`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `security`, `files`, `hooks`, `size`
 
-All query tools (`get_overview`, `get_section`, `search`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
+All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `search_hex`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
-`get_overview`, `get_section`, and `read_hex` also accept an optional `binary` index (from `overview.ipa.binaries`) to query any binary in the container directly, without `switch_binary` changing the active one.
+`get_overview`, `get_section`, `read_hex`, and `search_hex` also accept an optional `binary` index (from `overview.ipa.binaries`) to query any binary in the container directly, without `switch_binary` changing the active one.
 
 ### Example workflow
 

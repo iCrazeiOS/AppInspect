@@ -150,6 +150,50 @@ export class AnalysisSession {
 		);
 	}
 
+	/** Index of the active binary within the container's binary list. */
+	getActiveBinaryIndex(): number {
+		return Math.max(
+			0,
+			this.binaries.findIndex((b) => b.name === this.activeBinaryName)
+		);
+	}
+
+	/**
+	 * Search a specific binary for a byte pattern without changing the active one.
+	 * `regionSize` defaults to the whole slice and is clamped to it.
+	 */
+	async searchHexForBinary(
+		binaryIndex: number,
+		regionOffset: number,
+		regionSize: number | undefined,
+		pattern: number[],
+		caseInsensitive = false
+	): Promise<{
+		matches: number[];
+		binaryName: string;
+		regionOffset: number;
+		regionSize: number;
+	} | null> {
+		const { path, fatSliceOffset } = await this.resolveBinary(binaryIndex);
+		const sliceSize = readHexAt(path, fatSliceOffset, 0, 0)?.fileSize ?? 0;
+		const size = Math.max(0, Math.min(regionSize ?? sliceSize, sliceSize - regionOffset));
+		const found = searchHexInFile(
+			path,
+			fatSliceOffset,
+			regionOffset,
+			size,
+			pattern,
+			caseInsensitive
+		);
+		if (!found) return null;
+		return {
+			matches: found.matches,
+			binaryName: this.binaries[binaryIndex]!.name,
+			regionOffset,
+			regionSize: size
+		};
+	}
+
 	// ── Library dependency graph ────────────────────────────────────────
 
 	/** Build a dependency graph across all binaries in the container. */
@@ -230,7 +274,8 @@ export class AnalysisSession {
 					strings: result.strings.map((s) => s.value),
 					symbols: result.symbols.map((s) => s.demangled ?? s.name),
 					symbolTypes: result.symbols.map((s) => s.type),
-					libraries: result.libraries.map((l) => l.name)
+					libraries: result.libraries.map((l) => l.name),
+					swift: result.swift.types.map((t) => t.fullName)
 				});
 			} catch {
 				this.searchIndex.set(i, {
@@ -238,7 +283,8 @@ export class AnalysisSession {
 					strings: [],
 					symbols: [],
 					symbolTypes: [],
-					libraries: []
+					libraries: [],
+					swift: []
 				});
 			}
 		}
