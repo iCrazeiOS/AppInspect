@@ -3,59 +3,24 @@
  * package metadata, fuses and ASAR integrity recorded for the bundle.
  */
 
-import {
-	ASAR_FULL_BYTES,
-	ASAR_IMAGE_BYTES,
-	ASAR_PREVIEW_BYTES,
-	imageMimeType
-} from "../../shared/asar-preview";
-import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AsarEntry,
-	AsarFileContent,
 	ElectronAsarIntegrity,
 	ElectronFuse,
 	ElectronFuseState,
 	ElectronInfo,
 	PlistValue
 } from "../../shared/types";
-import { EmptyState, SearchBar } from "../components";
-import { showToast } from "../components/toast";
-import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
+import { EmptyState, FileBrowser } from "../components";
+import { saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
-import {
-	type BeautifyParser,
-	beautifyParser,
-	beautifyText,
-	prettyPrintJson
-} from "../utils/beautify";
 import { copyText } from "../utils/clipboard";
 import { el } from "../utils/dom";
+import type { FileBadge } from "../utils/file-browser";
+import { ancestorPaths } from "../utils/file-browser";
 import { formatCount, formatSize, plural } from "../utils/format";
-import {
-	clampImageZoom,
-	fitImageZoom,
-	IMAGE_ZOOM_MAX,
-	IMAGE_ZOOM_MIN,
-	pinchImageZoom,
-	stepImageZoom
-} from "../utils/image-zoom";
-import { initPanelResize } from "../utils/panel-resize";
-import {
-	HIGHLIGHT_AUTO_BYTES,
-	highlightLanguage,
-	highlightSource
-} from "../utils/source-highlight";
 
 type ElectronView = "files" | "package";
-
-interface ImageZoomState {
-	image: HTMLImageElement;
-	width: number;
-	height: number;
-	fit: number;
-	scale: number;
-}
 
 const FUSE_STATE_CLASS: Record<ElectronFuseState, string> = {
 	enabled: "el-fuse-state--enabled",
@@ -76,148 +41,6 @@ function integrityBadge(info: ElectronInfo): HTMLElement | null {
 	return integrityEnforced(info)
 		? el("span", "el-badge el-badge--ok", "Integrity verified")
 		: el("span", "el-badge el-badge--warn", "Hash matches (not enforced)");
-}
-
-// ── Pure helpers (also unit-tested) ──
-
-/** Build a path matcher for the tree filter, or null for an invalid pattern. */
-export function compilePathMatcher(
-	term: string,
-	isRegex: boolean,
-	caseSensitive: boolean
-): ((path: string) => boolean) | null {
-	if (!term) return null;
-	if (isRegex) {
-		const re = compileSafeRegex(term, caseSensitive ? "" : "i");
-		return re ? (path) => re.test(path) : null;
-	}
-	if (caseSensitive) return (path) => path.includes(term);
-	const lower = term.toLowerCase();
-	return (path) => path.toLowerCase().includes(lower);
-}
-
-/** Ancestor archive paths of a file, e.g. "a/b/c.js" -> ["a", "a/b"]. */
-export function ancestorPaths(path: string): string[] {
-	const segments = path.split("/");
-	const out: string[] = [];
-	for (let i = 1; i < segments.length; i++) {
-		out.push(segments.slice(0, i).join("/"));
-	}
-	return out;
-}
-
-/** Matching entry paths plus every ancestor, so a filtered tree keeps its structure. */
-export function collectMatchedPaths(
-	entries: AsarEntry[],
-	test: (path: string) => boolean,
-	parentChain: string[] = []
-): Set<string> {
-	const result = new Set<string>();
-	for (const entry of entries) {
-		const chain = [...parentChain, entry.path];
-		if (test(entry.path)) {
-			for (const path of chain) result.add(path);
-		}
-		if (entry.isDirectory && entry.children) {
-			const sub = collectMatchedPaths(entry.children, test, chain);
-			for (const path of sub) result.add(path);
-		}
-	}
-	return result;
-}
-
-const CODE_EXTENSIONS = new Set([
-	"js",
-	"mjs",
-	"cjs",
-	"jsx",
-	"ts",
-	"tsx",
-	"css",
-	"scss",
-	"sass",
-	"less",
-	"html",
-	"htm",
-	"xhtml",
-	"svg",
-	"vue",
-	"svelte",
-	"sh",
-	"py",
-	"rb",
-	"go",
-	"rs",
-	"c",
-	"h",
-	"cpp",
-	"hpp",
-	"java",
-	"kt",
-	"swift",
-	"m"
-]);
-
-const DATA_EXTENSIONS = new Set([
-	"json",
-	"map",
-	"json5",
-	"yaml",
-	"yml",
-	"toml",
-	"xml",
-	"csv",
-	"tsv",
-	"plist",
-	"webmanifest"
-]);
-
-const FONT_EXTENSIONS = new Set(["woff", "woff2", "ttf", "otf", "eot"]);
-
-const ARCHIVE_EXTENSIONS = new Set(["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "asar"]);
-
-const MEDIA_EXTENSIONS = new Set([
-	"mp3",
-	"wav",
-	"ogg",
-	"flac",
-	"m4a",
-	"aac",
-	"mp4",
-	"webm",
-	"mov",
-	"mkv",
-	"avi"
-]);
-
-const BINARY_EXTENSIONS = new Set([
-	"node",
-	"dll",
-	"dylib",
-	"so",
-	"exe",
-	"wasm",
-	"bin",
-	"dat",
-	"db"
-]);
-
-const DOC_EXTENSIONS = new Set(["md", "markdown", "txt", "log"]);
-
-/** File icon for an archive tree row. */
-export function fileIcon(name: string, isDirectory: boolean): string {
-	if (isDirectory) return "\u{1F4C1}";
-	if (imageMimeType(name)) return "\u{1F5BC}\u{FE0F}";
-	const dot = name.lastIndexOf(".");
-	const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-	if (CODE_EXTENSIONS.has(extension)) return "\u{1F4DC}";
-	if (DATA_EXTENSIONS.has(extension)) return "\u{1F5C2}\u{FE0F}";
-	if (FONT_EXTENSIONS.has(extension)) return "\u{1F524}";
-	if (ARCHIVE_EXTENSIONS.has(extension)) return "\u{1F4E6}";
-	if (MEDIA_EXTENSIONS.has(extension)) return "\u{1F3B5}";
-	if (BINARY_EXTENSIONS.has(extension)) return "\u2699\u{FE0F}";
-	if (DOC_EXTENSIONS.has(extension)) return "\u{1F4DD}";
-	return "\u{1F4C4}";
 }
 
 // ── Value formatting ──
@@ -425,43 +248,6 @@ function renderPackageView(
 	container.appendChild(cards);
 }
 
-// ── Files view ──
-
-function findEntry(entries: AsarEntry[], path: string): AsarEntry | null {
-	for (const entry of entries) {
-		if (entry.path === path) return entry;
-		if (entry.children) {
-			const found = findEntry(entry.children, path);
-			if (found) return found;
-		}
-	}
-	return null;
-}
-
-function countArchiveFiles(entries: AsarEntry[]): number {
-	let count = 0;
-	for (const entry of entries) {
-		if (entry.isDirectory) {
-			if (entry.children) count += countArchiveFiles(entry.children);
-		} else {
-			count++;
-		}
-	}
-	return count;
-}
-
-function countMatchedFiles(entries: AsarEntry[], test: (path: string) => boolean): number {
-	let count = 0;
-	for (const entry of entries) {
-		if (entry.isDirectory) {
-			if (entry.children) count += countMatchedFiles(entry.children, test);
-		} else if (test(entry.path)) {
-			count++;
-		}
-	}
-	return count;
-}
-
 // ── Main render ──
 
 export function renderElectron(
@@ -470,7 +256,7 @@ export function renderElectron(
 	sessionId: string = ""
 ): void {
 	container.innerHTML = "";
-	container.classList.add("el-container");
+	container.classList.add("fb-container");
 
 	if (!data?.info) {
 		new EmptyState({
@@ -484,14 +270,14 @@ export function renderElectron(
 	const files = Array.isArray(data.files) ? data.files : [];
 	const sourceMaps = Array.isArray(info.sourceMaps) ? info.sourceMaps : [];
 
-	const wrapper = el("div", "el-wrapper");
+	const wrapper = el("div", "fb-wrapper");
 
 	// ── Summary strip ──
-	const summary = el("div", "el-summary");
+	const summary = el("div", "fb-summary");
 	const stat = (value: string, label: string): HTMLElement => {
-		const item = el("div", "el-stat");
-		item.appendChild(el("span", "el-stat-value", value));
-		item.appendChild(el("span", "el-stat-label", label));
+		const item = el("div", "fb-stat");
+		item.appendChild(el("span", "fb-stat-value", value));
+		item.appendChild(el("span", "fb-stat-label", label));
 		return item;
 	};
 
@@ -506,7 +292,7 @@ export function renderElectron(
 	);
 	summary.appendChild(stat(String(sourceMaps.length), plural(sourceMaps.length, "Source map")));
 
-	const badges = el("div", "el-summary-badges");
+	const badges = el("div", "fb-summary-badges");
 	if (info.electronVersion) {
 		badges.appendChild(
 			el("span", "el-badge el-badge--version", `Electron ${info.electronVersion}`)
@@ -538,15 +324,12 @@ export function renderElectron(
 	container.appendChild(wrapper);
 
 	let view: ElectronView = getTabState<ElectronView>(sessionId, "electron", "view") ?? "files";
-	let previewRequest = 0;
-	let previewPath: string | null = null;
 
 	function show(next: ElectronView): void {
 		view = next;
 		setTabState(sessionId, "electron", "view", next);
 		filesBtn.classList.toggle("el-toggle-btn--active", next === "files");
 		packageBtn.classList.toggle("el-toggle-btn--active", next === "package");
-		if (next !== "files") previewRequest++;
 		content.innerHTML = "";
 		if (next === "files") renderFilesView(content);
 		else renderPackageView(content, info, openPathFromPackage);
@@ -567,567 +350,34 @@ export function renderElectron(
 	}
 
 	function renderFilesView(target: HTMLElement): void {
-		const panels = el("div", "el-panels");
-		const sidebar = el("div", "el-sidebar");
-		const handle = el("div", "el-resize-handle");
-		const preview = el("div", "el-preview");
-		panels.appendChild(sidebar);
-		panels.appendChild(handle);
-		panels.appendChild(preview);
-
-		// ── Tree state ──
-		const savedExpanded = getTabState<string[]>(sessionId, "electron", "expanded");
-		const expandedSet = new Set<string>(Array.isArray(savedExpanded) ? savedExpanded : []);
-		let selectedPath = getTabState<string>(sessionId, "electron", "selected") ?? null;
-		let matchSet: Set<string> | null = null;
-		const rowMap = new Map<string, HTMLElement>();
-		const totalFileCount = countArchiveFiles(files);
-
-		// ── Search ──
-		const searchWrap = el("div", "el-search");
-		sidebar.appendChild(searchWrap);
-
-		// ── Tree ──
-		const treeEl = el("div", "el-tree");
-		sidebar.appendChild(treeEl);
-
-		// ── Preview ──
-		const header = el("div", "el-preview-header");
-		const pathEl = el("span", "el-preview-path", "Select a file to preview");
-		const sizeEl = el("span", "el-preview-size");
-		const zoomControls = el("div", "el-zoom-controls");
-		const zoomOutBtn = el("button", "el-preview-btn el-zoom-btn", "\u2212");
-		const zoomLabel = el("button", "el-preview-btn el-zoom-label", "100%");
-		const zoomInBtn = el("button", "el-preview-btn el-zoom-btn", "+");
-		zoomOutBtn.title = "Zoom out";
-		zoomInBtn.title = "Zoom in";
-		zoomLabel.title = "Reset zoom";
-		zoomControls.hidden = true;
-		zoomControls.appendChild(zoomOutBtn);
-		zoomControls.appendChild(zoomLabel);
-		zoomControls.appendChild(zoomInBtn);
-		const beautifyBtn = el("button", "el-preview-btn", "Beautify");
-		beautifyBtn.title = "Beautify code";
-		beautifyBtn.hidden = true;
-		beautifyBtn.disabled = true;
-		const copyBtn = el("button", "el-preview-btn", "Copy path");
-		copyBtn.disabled = true;
-		copyBtn.addEventListener("click", () => {
-			if (previewPath) copyText(previewPath, "Copied path");
-		});
-		header.appendChild(pathEl);
-		header.appendChild(sizeEl);
-		header.appendChild(zoomControls);
-		header.appendChild(beautifyBtn);
-		header.appendChild(copyBtn);
-
-		const notices = el("div", "el-preview-notices");
-		const body = el("div", "el-preview-body");
-		const placeholder = el("div", "el-preview-empty", "Select a file to preview.");
-		body.appendChild(placeholder);
-		preview.appendChild(header);
-		preview.appendChild(notices);
-		preview.appendChild(body);
-
-		// ── Preview code state (raw text is kept so toggling is lossless) ──
-		let rawText: string | null = null;
-		let textParser: BeautifyParser | null = null;
-		let beautified = false;
-		let codeEl: HTMLElement | null = null;
-		let sourceLanguage: string | null = null;
-		let highlightEnabled = false;
-		let highlightNotice: HTMLElement | null = null;
-
-		function updateBeautifyButton(): void {
-			const enabled = rawText !== null && textParser !== null;
-			beautifyBtn.hidden = !enabled;
-			beautifyBtn.disabled = !enabled;
-			beautifyBtn.classList.toggle("el-preview-btn--active", beautified);
-		}
-
-		function resetCodePreview(): void {
-			rawText = null;
-			textParser = null;
-			beautified = false;
-			codeEl = null;
-			sourceLanguage = null;
-			highlightEnabled = false;
-			highlightNotice = null;
-			updateBeautifyButton();
-		}
-
-		function setCodeContent(text: string): boolean {
-			if (!codeEl) return false;
-			if (highlightEnabled && sourceLanguage) {
-				const html = highlightSource(text, sourceLanguage);
-				if (html !== null) {
-					codeEl.innerHTML = html;
-					return true;
-				}
-			}
-			codeEl.textContent = text;
-			return false;
-		}
-
-		// ── Image zoom state ──
-		let imageZoom: ImageZoomState | null = null;
-
-		function updateZoomControls(): void {
-			if (!imageZoom) return;
-			zoomLabel.textContent = `${Math.round(imageZoom.scale * 100)}%`;
-			zoomOutBtn.disabled = imageZoom.scale <= IMAGE_ZOOM_MIN;
-			zoomInBtn.disabled = imageZoom.scale >= IMAGE_ZOOM_MAX;
-		}
-
-		/** Resize the image around an anchor point in body coordinates. */
-		function applyImageZoom(scale: number, anchorX?: number, anchorY?: number): void {
-			if (!imageZoom) return;
-			const ax = anchorX ?? body.clientWidth / 2;
-			const ay = anchorY ?? body.clientHeight / 2;
-			const ratioX = (ax + body.scrollLeft) / Math.max(1, body.scrollWidth);
-			const ratioY = (ay + body.scrollTop) / Math.max(1, body.scrollHeight);
-
-			imageZoom.scale = clampImageZoom(scale);
-			imageZoom.image.style.width = `${imageZoom.width * imageZoom.scale}px`;
-			imageZoom.image.style.height = `${imageZoom.height * imageZoom.scale}px`;
-
-			body.scrollLeft = ratioX * body.scrollWidth - ax;
-			body.scrollTop = ratioY * body.scrollHeight - ay;
-			updateZoomControls();
-		}
-
-		function fitImage(): void {
-			if (!imageZoom) return;
-			imageZoom.fit = fitImageZoom(
-				imageZoom.width,
-				imageZoom.height,
-				body.clientWidth,
-				body.clientHeight
-			);
-			applyImageZoom(imageZoom.fit);
-			body.scrollLeft = 0;
-			body.scrollTop = 0;
-		}
-
-		function resetImageZoom(): void {
-			imageZoom = null;
-			zoomControls.hidden = true;
-		}
-
-		zoomOutBtn.addEventListener("click", () => {
-			if (imageZoom) applyImageZoom(stepImageZoom(imageZoom.scale, "out"));
-		});
-		zoomInBtn.addEventListener("click", () => {
-			if (imageZoom) applyImageZoom(stepImageZoom(imageZoom.scale, "in"));
-		});
-		zoomLabel.addEventListener("click", fitImage);
-
-		// Trackpad pinch is reported as a ctrl+wheel event. Without ctrl the
-		// browser keeps its normal scroll behaviour, letting a zoomed image pan.
-		body.addEventListener(
-			"wheel",
-			(event) => {
-				if (!event.ctrlKey || !imageZoom) return;
-				event.preventDefault();
-				const rect = body.getBoundingClientRect();
-				applyImageZoom(
-					pinchImageZoom(imageZoom.scale, event.deltaY),
-					event.clientX - rect.left,
-					event.clientY - rect.top
-				);
+		new FileBrowser<AsarEntry>({
+			entries: files,
+			sessionId,
+			stateKey: "electron",
+			widthKey: "electron-tree",
+			preview: {
+				read: (path, maxBytes, includeImage) =>
+					window.api.readAsarFile(sessionId, path, maxBytes, includeImage)
 			},
-			{ passive: false }
-		);
-
-		beautifyBtn.addEventListener("click", async () => {
-			if (rawText === null || !textParser || !codeEl) return;
-			if (beautified) {
-				setCodeContent(rawText);
-				beautified = false;
-				updateBeautifyButton();
-				return;
-			}
-
-			const text = rawText;
-			const parser = textParser;
-			const target = codeEl;
-			beautifyBtn.disabled = true;
-			// Let the pending label paint before Prettier blocks the thread.
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			const formatted = await beautifyText(text, parser);
-			// A different file may have been selected while formatting.
-			if (codeEl !== target || rawText !== text || textParser !== parser) return;
-			if (formatted === null) {
-				showToast("Could not beautify this file");
-			} else {
-				setCodeContent(formatted);
-				beautified = true;
-			}
-			updateBeautifyButton();
-		});
-
-		initPanelResize(handle, () => sidebar, {
-			side: "left",
-			min: 240,
-			max: () => Math.max(240, panels.getBoundingClientRect().width - 240),
-			storageKey: "electron-tree",
-			activeClass: "el-resize-handle--active"
-		});
-
-		function updateSelection(): void {
-			for (const [path, row] of rowMap) {
-				row.classList.toggle("el-tree-row--selected", path === selectedPath);
-			}
-		}
-
-		function buildHighlightNotice(size: number): HTMLElement {
-			const notice = el("div", "el-notice el-notice--warn el-notice--inline");
-			notice.appendChild(
-				el(
-					"span",
-					"el-notice-text",
-					`Syntax highlighting is off for this large file (${formatSize(size)}).`
-				)
-			);
-			const button = el("button", "el-notice-action", "Highlight anyway");
-			button.title = "Highlighting may take a moment for large files";
-			button.addEventListener("click", () => {
-				void enableHighlighting(button);
-			});
-			notice.appendChild(button);
-			return notice;
-		}
-
-		async function enableHighlighting(button: HTMLButtonElement): Promise<void> {
-			const target = codeEl;
-			if (!target || !sourceLanguage) return;
-			const requestId = previewRequest;
-			button.disabled = true;
-			button.textContent = "Highlighting\u2026";
-			// Let the pending label paint before highlight.js blocks the thread.
-			await new Promise((resolve) => setTimeout(resolve, 0));
-			if (requestId !== previewRequest || codeEl !== target) return;
-
-			highlightEnabled = true;
-			if (!setCodeContent(target.textContent ?? "")) {
-				highlightEnabled = false;
-				button.disabled = false;
-				button.textContent = "Highlight anyway";
-				showToast("Could not highlight this file");
-				return;
-			}
-			highlightNotice?.remove();
-			highlightNotice = null;
-		}
-
-		async function loadFullContent(path: string, button: HTMLButtonElement): Promise<void> {
-			const requestId = previewRequest;
-			button.disabled = true;
-			button.textContent = "Loading full content\u2026";
-			try {
-				const result = await window.api.readAsarFile(
-					sessionId,
-					path,
-					ASAR_FULL_BYTES,
-					true
-				);
-				if (requestId !== previewRequest || previewPath !== path || !body.isConnected)
-					return;
-				if (!result) {
-					showToast("Could not load the full file");
-					button.disabled = false;
-					button.textContent = "Load full content";
-					return;
-				}
-				renderPreviewContent(result, path, ASAR_FULL_BYTES);
-			} catch (err) {
-				if (requestId !== previewRequest || previewPath !== path || !body.isConnected)
-					return;
-				showToast(
-					`Could not load the full file: ${err instanceof Error ? err.message : String(err)}`
-				);
-				button.disabled = false;
-				button.textContent = "Load full content";
-			}
-		}
-
-		function buildTruncatedNotice(
-			result: AsarFileContent,
-			path: string,
-			limit: number
-		): HTMLElement {
-			const notice = el("div", "el-notice el-notice--warn el-notice--inline");
-			notice.appendChild(
-				el(
-					"span",
-					"el-notice-text",
-					`Showing the first ${formatSize(limit)} of ${formatSize(result.size)}.`
-				)
-			);
-			if (limit < ASAR_FULL_BYTES) {
-				const button = el("button", "el-notice-action", "Load full content");
-				button.title = `Load the full ${formatSize(result.size)} file`;
-				button.addEventListener("click", () => {
-					void loadFullContent(path, button);
-				});
-				notice.appendChild(button);
-			}
-			return notice;
-		}
-
-		function renderPreviewContent(
-			result: AsarFileContent,
-			path: string,
-			limit = ASAR_PREVIEW_BYTES
-		): void {
-			notices.innerHTML = "";
-			body.innerHTML = "";
-			body.classList.remove("el-preview-body--image");
-			sizeEl.textContent = formatSize(result.size);
-			resetCodePreview();
-			resetImageZoom();
-
-			if (result.kind === "image") {
-				if (result.image) {
-					body.classList.add("el-preview-body--image");
-					const stage = el("div", "el-image-stage");
-					const image = el("img", "el-image");
-					image.alt = path;
-					image.addEventListener("load", () => {
-						if (!image.isConnected || image.naturalWidth === 0) return;
-						imageZoom = {
-							image,
-							width: image.naturalWidth,
-							height: image.naturalHeight,
-							fit: 1,
-							scale: 1
-						};
-						zoomControls.hidden = false;
-						fitImage();
-						image.classList.add("el-image--ready");
+			badges: (entry) => {
+				const entryBadges: FileBadge[] = [];
+				if (entry.unpacked) entryBadges.push({ label: "unpacked", tone: "unpacked" });
+				if (entry.link) {
+					entryBadges.push({
+						label: "link",
+						tone: "link",
+						title: `Links to ${entry.link}`
 					});
-					image.addEventListener("error", () => {
-						resetImageZoom();
-						body.classList.remove("el-preview-body--image");
-						body.innerHTML = "";
-						body.appendChild(
-							el("div", "el-preview-empty", "Could not render this image.")
-						);
-					});
-					stage.appendChild(image);
-					body.appendChild(stage);
-					image.src = result.image;
-					return;
 				}
-				notices.appendChild(
-					el(
-						"div",
-						"el-notice el-notice--warn",
-						result.truncated
-							? `Image is too large to preview (limit ${formatSize(ASAR_IMAGE_BYTES)}).`
-							: "Image preview unavailable."
-					)
-				);
-				return;
-			}
-
-			if (result.kind === "binary") {
-				notices.appendChild(
-					el(
-						"div",
-						"el-notice el-notice--binary",
-						`Binary file \u2014 preview not available (${formatSize(result.size)}).`
-					)
-				);
-				return;
-			}
-
-			if (result.truncated) {
-				notices.appendChild(buildTruncatedNotice(result, path, limit));
-			}
-
-			const text = result.text ?? "";
-			const pretty = result.truncated ? null : prettyPrintJson(text);
-			rawText = text;
-			textParser = result.truncated ? null : beautifyParser(path);
-			beautified = pretty !== null;
-			codeEl = el("pre", "el-code");
-			body.appendChild(codeEl);
-			sourceLanguage = highlightLanguage(path);
-			const displayed = pretty ?? text;
-			const autoHighlight =
-				sourceLanguage !== null && displayed.length <= HIGHLIGHT_AUTO_BYTES;
-			highlightEnabled = autoHighlight;
-			if (autoHighlight) highlightEnabled = setCodeContent(displayed);
-			if (!highlightEnabled) {
-				codeEl.textContent = displayed;
-				if (sourceLanguage && !autoHighlight) {
-					highlightNotice = buildHighlightNotice(displayed.length);
-					notices.appendChild(highlightNotice);
-				}
-			}
-			updateBeautifyButton();
-		}
-
-		async function loadPreview(entry: AsarEntry): Promise<void> {
-			const requestId = ++previewRequest;
-			previewPath = entry.path;
-			pathEl.textContent = entry.path;
-			sizeEl.textContent = formatSize(entry.size);
-			copyBtn.disabled = false;
-			notices.innerHTML = "";
-			body.innerHTML = "";
-			body.classList.remove("el-preview-body--image");
-			resetCodePreview();
-			resetImageZoom();
-			body.appendChild(el("div", "el-preview-loading", "Loading\u2026"));
-
-			try {
-				const result = await window.api.readAsarFile(
-					sessionId,
-					entry.path,
-					ASAR_PREVIEW_BYTES,
-					true
-				);
-				if (requestId !== previewRequest || !body.isConnected) return;
-				if (!result) {
-					body.innerHTML = "";
-					body.appendChild(
-						el("div", "el-preview-empty", "Could not read this archive entry.")
-					);
-					return;
-				}
-				renderPreviewContent(result, entry.path);
-			} catch (err) {
-				if (requestId !== previewRequest || !body.isConnected) return;
-				body.innerHTML = "";
-				body.appendChild(
-					el(
-						"div",
-						"el-preview-empty",
-						`Could not read this archive entry: ${err instanceof Error ? err.message : String(err)}`
-					)
-				);
-			}
-		}
-
-		function renderNode(entry: AsarEntry, depth: number): HTMLElement {
-			const wrap = el("div", "el-tree-node");
-			if (matchSet && !matchSet.has(entry.path)) {
-				wrap.classList.add("hidden");
-				return wrap;
-			}
-
-			const row = el("div", "el-tree-row");
-			row.style.paddingLeft = `${depth * 16 + 8}px`;
-			rowMap.set(entry.path, row);
-
-			const hasChildren =
-				entry.isDirectory && entry.children !== undefined && entry.children.length > 0;
-			const isExpanded = expandedSet.has(entry.path) || matchSet?.has(entry.path) === true;
-
-			const toggle = el("span", "el-tree-toggle");
-			toggle.textContent = hasChildren ? (isExpanded ? "\u25BE" : "\u25B8") : " ";
-			if (hasChildren) toggle.classList.add("el-tree-toggle--active");
-			row.appendChild(toggle);
-
-			row.appendChild(el("span", "el-tree-icon", fileIcon(entry.name, entry.isDirectory)));
-			row.appendChild(el("span", "el-tree-name", entry.name));
-
-			if (entry.unpacked) {
-				row.appendChild(el("span", "el-tree-badge el-tree-badge--unpacked", "unpacked"));
-			}
-			if (entry.link) {
-				const badge = el("span", "el-tree-badge el-tree-badge--link", "link");
-				badge.title = `Links to ${entry.link}`;
-				row.appendChild(badge);
-			}
-			if (entry.executable) {
-				row.appendChild(el("span", "el-tree-badge el-tree-badge--exec", "executable"));
-			}
-
-			if (!entry.isDirectory) {
-				row.appendChild(el("span", "el-tree-size", formatSize(entry.size)));
-			}
-			wrap.appendChild(row);
-
-			if (hasChildren && entry.children) {
-				const childrenEl = el("div", "el-children");
-				if (isExpanded) childrenEl.classList.add("el-children--open");
-				for (const child of entry.children) {
-					childrenEl.appendChild(renderNode(child, depth + 1));
-				}
-				wrap.appendChild(childrenEl);
-
-				row.addEventListener("click", () => {
-					const open = childrenEl.classList.contains("el-children--open");
-					if (open) {
-						expandedSet.delete(entry.path);
-						childrenEl.classList.remove("el-children--open");
-						toggle.textContent = "\u25B8";
-					} else {
-						expandedSet.add(entry.path);
-						childrenEl.classList.add("el-children--open");
-						toggle.textContent = "\u25BE";
-					}
-					setTabState(sessionId, "electron", "expanded", [...expandedSet]);
-				});
-				row.style.cursor = "pointer";
-			} else if (!entry.isDirectory) {
-				row.classList.toggle("el-tree-row--selected", entry.path === selectedPath);
-				row.addEventListener("click", () => {
-					selectedPath = entry.path;
-					setTabState(sessionId, "electron", "selected", entry.path);
-					updateSelection();
-					void loadPreview(entry);
-				});
-				row.style.cursor = "pointer";
-			}
-
-			return wrap;
-		}
-
-		function renderTree(): void {
-			treeEl.innerHTML = "";
-			rowMap.clear();
-			const fragment = document.createDocumentFragment();
-			for (const entry of files) fragment.appendChild(renderNode(entry, 0));
-			treeEl.appendChild(fragment);
-		}
-
-		const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
-			saveSearchState(sessionId, "electron", term, isRegex);
-
-			if (!term) {
-				matchSet = null;
-				renderTree();
-				searchBar.updateCount(totalFileCount, totalFileCount);
-				return;
-			}
-
-			const test = compilePathMatcher(term, isRegex, caseSensitive);
-			if (!test) return;
-			matchSet = collectMatchedPaths(files, test);
-			renderTree();
-			searchBar.updateCount(countMatchedFiles(files, test), totalFileCount);
-		});
-		searchBar.mount(searchWrap);
-		registerSearchBar(sessionId, "electron", searchBar);
-
-		renderTree();
-		searchBar.updateCount(totalFileCount, totalFileCount);
-
-		const savedSearch = getSearchState(sessionId, "electron");
-		if (savedSearch?.term) {
-			searchBar.setValue(savedSearch.term, savedSearch.isRegex);
-		}
-
-		if (selectedPath) {
-			const entry = findEntry(files, selectedPath);
-			if (entry) void loadPreview(entry);
-		}
-
-		target.appendChild(panels);
+				if (entry.executable) entryBadges.push({ label: "executable", tone: "exec" });
+				return entryBadges;
+			},
+			contextMenu: (entry) => [
+				{ label: "Copy Path", action: () => copyText(entry.path, "Copied path") },
+				{ label: "Copy Name", action: () => copyText(entry.name, "Copied name") }
+			],
+			emptyMessage: "This archive is empty."
+		}).mount(target);
 	}
 
 	show(view);

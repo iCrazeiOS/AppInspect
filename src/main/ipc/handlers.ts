@@ -8,7 +8,7 @@
 import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { ASAR_PREVIEW_BYTES } from "../../shared/asar-preview";
+import { FILE_PREVIEW_BYTES } from "../../shared/file-preview";
 import { formatCount, formatSize } from "../../shared/format";
 import type { TabName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
@@ -312,7 +312,29 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				const session = getSession(args.sessionId);
 				return session.readAsarFile(
 					args.path,
-					args.maxBytes ?? ASAR_PREVIEW_BYTES,
+					args.maxBytes ?? FILE_PREVIEW_BYTES,
+					args.includeImage === true
+				);
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+				return null;
+			}
+		}
+	);
+
+	// ── read-file-preview ──
+	ipcMain.handle(
+		"read-file-preview",
+		(
+			_event,
+			args: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean }
+		) => {
+			try {
+				const session = getSession(args.sessionId);
+				return session.readWorkspaceFile(
+					args.path,
+					args.maxBytes ?? FILE_PREVIEW_BYTES,
 					args.includeImage === true
 				);
 			} catch (err) {

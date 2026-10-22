@@ -1,6 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import type { AsarEntry } from "../../../shared/types";
-import { ancestorPaths, collectMatchedPaths, compilePathMatcher, fileIcon } from "../electron";
+import {
+	ancestorPaths,
+	collectMatchedPaths,
+	compilePathMatcher,
+	countMatchedFiles,
+	countTreeFiles,
+	fileIcon,
+	findEntry,
+	treeTotals
+} from "../file-browser";
 
 const file = (path: string): AsarEntry => ({
 	name: path.split("/").pop() ?? path,
@@ -60,20 +69,87 @@ describe("collectMatchedPaths", () => {
 	];
 
 	it("keeps matching files and their ancestors", () => {
-		const matches = collectMatchedPaths(entries, (path) => path.includes("renderer"));
+		const matches = collectMatchedPaths(entries, (entry) => entry.path.includes("renderer"));
 		expect(matches).toEqual(new Set(["dist", "dist/renderer.js"]));
 	});
 
 	it("keeps intermediate directories for deep matches", () => {
-		const matches = collectMatchedPaths(entries, (path) => path.endsWith("index.js"));
+		const matches = collectMatchedPaths(entries, (entry) => entry.path.endsWith("index.js"));
 		expect(matches).toEqual(
 			new Set(["node_modules", "node_modules/pkg", "node_modules/pkg/index.js"])
 		);
 	});
 
 	it("matches root-level files without adding ancestors", () => {
-		const matches = collectMatchedPaths(entries, (path) => path === "package.json");
+		const matches = collectMatchedPaths(entries, (entry) => entry.path === "package.json");
 		expect(matches).toEqual(new Set(["package.json"]));
+	});
+
+	it("can match on entry names rather than paths", () => {
+		const matches = collectMatchedPaths(entries, (entry) => entry.name === "main.js");
+		expect(matches).toEqual(new Set(["dist", "dist/main.js"]));
+	});
+});
+
+describe("countTreeFiles", () => {
+	it("counts files recursively and ignores directories", () => {
+		const entries = [
+			dir("dist", [file("dist/main.js"), file("dist/renderer.js")]),
+			dir("node_modules", [dir("node_modules/pkg", [file("node_modules/pkg/index.js")])]),
+			file("package.json")
+		];
+		expect(countTreeFiles(entries)).toBe(4);
+	});
+});
+
+describe("countMatchedFiles", () => {
+	const entries = [
+		dir("dist", [file("dist/main.js"), file("dist/renderer.js")]),
+		dir("node_modules", [dir("node_modules/pkg", [file("node_modules/pkg/index.js")])]),
+		file("package.json")
+	];
+
+	it("counts matching files recursively", () => {
+		expect(countMatchedFiles(entries, (entry) => entry.path.includes("dist"))).toBe(2);
+	});
+
+	it("returns zero when nothing matches", () => {
+		expect(countMatchedFiles(entries, () => false)).toBe(0);
+	});
+});
+
+describe("treeTotals", () => {
+	it("sums files and their sizes recursively", () => {
+		const entries = [
+			dir("dist", [file("dist/main.js"), file("dist/renderer.js")]),
+			dir("node_modules", [dir("node_modules/pkg", [file("node_modules/pkg/index.js")])]),
+			file("package.json")
+		];
+		expect(treeTotals(entries)).toEqual({ count: 4, totalSize: 40 });
+	});
+
+	it("returns zeroes for an empty tree", () => {
+		expect(treeTotals([])).toEqual({ count: 0, totalSize: 0 });
+	});
+});
+
+describe("findEntry", () => {
+	const entries = [
+		dir("dist", [file("dist/main.js"), file("dist/renderer.js")]),
+		dir("node_modules", [dir("node_modules/pkg", [file("node_modules/pkg/index.js")])]),
+		file("package.json")
+	];
+
+	it("finds a nested entry", () => {
+		expect(findEntry(entries, "node_modules/pkg/index.js")?.size).toBe(10);
+	});
+
+	it("finds a root entry", () => {
+		expect(findEntry(entries, "package.json")?.name).toBe("package.json");
+	});
+
+	it("returns null for a missing path", () => {
+		expect(findEntry(entries, "missing.js")).toBeNull();
 	});
 });
 

@@ -11,17 +11,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import {
-	ASAR_FULL_BYTES,
-	ASAR_IMAGE_BYTES,
-	ASAR_PREVIEW_BYTES,
+	FILE_PREVIEW_BYTES,
+	FILE_PREVIEW_FULL_BYTES,
+	FILE_PREVIEW_IMAGE_BYTES,
 	imageMimeType
-} from "../../shared/asar-preview";
+} from "../../shared/file-preview";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
 	AsarEntry,
-	AsarFileContent,
 	ElectronInfo,
+	FilePreviewContent,
 	LibraryGraphData,
 	LocalisationString,
 	PlistValue,
@@ -56,6 +56,7 @@ import { extractToCache, getCacheBase, getCacheDir } from "./cache";
 import { assembleBinaryList, scanAdditionalBinaries } from "./containers/shared";
 import { convertEntitlements } from "./conversion";
 import { findBundleDebugArtifacts } from "./debug-artifacts";
+import { buildFilePreview, readFilePreview } from "./file-preview";
 import { buildFileTree } from "./file-tree";
 import { detectFileType } from "./file-type";
 import { discoverFolderBinaries } from "./folder";
@@ -65,9 +66,6 @@ import { buildLibraryGraph } from "./library-graph";
 import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "./search-index";
 import { scanBundleFileContents } from "./security";
 import { buildSizeTree } from "./size-tree";
-
-/** Bytes of a file inspected for a NUL byte to tell text from binary. */
-const BINARY_SNIFF_BYTES = 8 * 1024;
 
 export class AnalysisSession {
 	// ── State ──────────────────────────────────────────────────────────
@@ -236,16 +234,16 @@ export class AnalysisSession {
 		entryPath: string,
 		maxBytes: number,
 		includeImage = false
-	): AsarFileContent | null {
+	): FilePreviewContent | null {
 		if (!this.asarArchive) return null;
 		const mime = imageMimeType(entryPath);
 		const limit = mime
-			? ASAR_IMAGE_BYTES
+			? FILE_PREVIEW_IMAGE_BYTES
 			: Math.min(
-					ASAR_FULL_BYTES,
+					FILE_PREVIEW_FULL_BYTES,
 					Math.max(
 						1,
-						Number.isFinite(maxBytes) ? Math.floor(maxBytes) : ASAR_PREVIEW_BYTES
+						Number.isFinite(maxBytes) ? Math.floor(maxBytes) : FILE_PREVIEW_BYTES
 					)
 				);
 
@@ -254,21 +252,22 @@ export class AnalysisSession {
 
 		const { data, truncated } = result.data;
 		const record = this.asarArchive.files.get(entryPath);
-		const content: AsarFileContent = {
-			path: entryPath,
-			size: truncated ? (record?.size ?? data.length) : data.length,
+		return buildFilePreview(
+			entryPath,
+			data,
+			record?.size ?? data.length,
 			truncated,
-			kind: mime ? "image" : "binary"
-		};
-		if (mime) {
-			if (includeImage && !truncated) {
-				content.image = `data:${mime};base64,${data.toString("base64")}`;
-			}
-		} else if (!data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
-			content.kind = "text";
-			content.text = data.toString("utf8");
-		}
-		return content;
+			includeImage
+		);
+	}
+
+	/** Read a file from the loaded container for preview, confined to session roots. */
+	readWorkspaceFile(
+		filePath: string,
+		maxBytes: number,
+		includeImage = false
+	): FilePreviewContent | null {
+		return readFilePreview(filePath, this.getAllowedOpenRoots(), maxBytes, includeImage);
 	}
 
 	// ── Size treemap ────────────────────────────────────────────────────

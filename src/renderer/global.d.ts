@@ -1,7 +1,7 @@
 import type {
 	AnalysisResult,
 	AppSettings,
-	AsarFileContent,
+	FilePreviewContent,
 	LibraryGraphData,
 	SizeTreeNode
 } from "../shared/types";
@@ -62,7 +62,13 @@ export interface AppInspectAPI {
 		path: string,
 		maxBytes?: number,
 		includeImage?: boolean
-	): Promise<AsarFileContent | null>;
+	): Promise<FilePreviewContent | null>;
+	readFilePreview(
+		sessionId: string,
+		path: string,
+		maxBytes?: number,
+		includeImage?: boolean
+	): Promise<FilePreviewContent | null>;
 	showItemInFolder(filePath: string): Promise<void>;
 	openFile(filePath: string): Promise<void>;
 	getPlatform(): Promise<string>;

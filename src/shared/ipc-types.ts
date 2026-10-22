@@ -4,11 +4,11 @@ import type {
 	AnalysisResult,
 	AppSettings,
 	AsarEntry,
-	AsarFileContent,
 	BinaryHardening,
 	ElectronInfo,
 	FatArch,
 	FileEntry,
+	FilePreviewContent,
 	HookInfo,
 	LibraryGraphData,
 	LinkedLibrary,
@@ -231,7 +231,11 @@ export type InvokeChannelMap = {
 	};
 	"read-asar-file": {
 		params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
-		result: AsarFileContent | null;
+		result: FilePreviewContent | null;
+	};
+	"read-file-preview": {
+		params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
+		result: FilePreviewContent | null;
 	};
 	"search-hex": {
 		params: {
