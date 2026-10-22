@@ -445,7 +445,7 @@ async function loadTabData(tabId: string): Promise<void> {
 					renderClasses(panel, tabData.data, binCount, sid);
 					break;
 				case "swift":
-					renderSwift(panel, tabData.data, sid, currentBinary);
+					renderSwift(panel, tabData.data, sid, currentBinary, binCount);
 					break;
 				case "entitlements":
 					renderEntitlements(panel, tabData.data, sid);
