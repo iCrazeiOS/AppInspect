@@ -80,9 +80,11 @@ export function renderSwift(
 
 	const allTypes = data.types;
 	const allConformances = data.conformances;
+	// Folder binaries are named by relative path, so compare only the basename.
+	const binaryBaseName = binary?.name.split(/[\\/]/).pop() ?? "";
 	const mainModuleName =
 		binary?.type === "main"
-			? binary.name.replace(/\.(?:dylib|so|app|framework|bundle)$/i, "")
+			? binaryBaseName.replace(/\.(?:dylib|so|app|framework|bundle)$/i, "")
 			: "";
 	const conformanceByType = new Map<string, SwiftType>();
 	for (const type of allTypes) conformanceByType.set(type.fullName, type);

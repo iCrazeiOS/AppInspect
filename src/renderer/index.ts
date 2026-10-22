@@ -258,7 +258,7 @@ function showError(message: string): void {
 
 // ── Tab visibility based on source type ──
 function updateTabsForSourceType(sourceType: string): void {
-	const isTweak = sourceType === "deb" || sourceType === "macho";
+	const isTweak = sourceType === "deb" || sourceType === "macho" || sourceType === "folder";
 	tabBtnInfoPlist.classList.toggle("hidden", isTweak);
 	tabBtnHooks.classList.toggle("hidden", !isTweak);
 }
@@ -785,6 +785,7 @@ window.api.onCloseActiveTab(() => {
 	if (activeFileTabId) closeFileTab(activeFileTabId);
 });
 window.api.onOpenFile(() => handleOpenIPA());
+window.api.onOpenFolder(() => handleOpenFolder());
 
 // ── Analysis ──
 async function startAnalysis(filePath: string): Promise<void> {
@@ -873,8 +874,23 @@ async function handleOpenIPA(): Promise<void> {
 	}
 }
 
+async function handleOpenFolder(): Promise<void> {
+	try {
+		const folderPath = await window.api.openFolderPicker();
+		if (folderPath) {
+			await startAnalysis(folderPath);
+		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		showToast(`Folder picker error: ${message}`, "error");
+		console.error("[AppInspect] Folder picker error:", err);
+	}
+}
+
 $<HTMLButtonElement>("#btn-open-ipa").addEventListener("click", handleOpenIPA);
 $<HTMLButtonElement>("#btn-open-ipa-empty").addEventListener("click", handleOpenIPA);
+$<HTMLButtonElement>("#btn-open-folder").addEventListener("click", handleOpenFolder);
+$<HTMLButtonElement>("#btn-open-folder-empty").addEventListener("click", handleOpenFolder);
 $<HTMLButtonElement>("#file-tab-add").addEventListener("click", handleOpenIPA);
 
 // ── Drag and drop ──
@@ -904,7 +920,7 @@ document.addEventListener("dragleave", (e: DragEvent) => {
 	}
 });
 
-document.addEventListener("drop", (e: DragEvent) => {
+document.addEventListener("drop", async (e: DragEvent) => {
 	e.preventDefault();
 	e.stopPropagation();
 	dragCounter = 0;
@@ -929,12 +945,13 @@ document.addEventListener("drop", (e: DragEvent) => {
 		lowerPath.endsWith(".app") ||
 		lowerPath.endsWith(".xcframework") ||
 		lowerPath.endsWith(".zip");
-	if (!supported) {
+	const isFolder = await window.api.isDirectory(filePath);
+	if (!supported && !isFolder) {
 		const fileName = filePath.split(/[\\/]/).pop() ?? "";
 		const hasExtension = fileName.includes(".");
 		if (hasExtension) {
 			showToast(
-				"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O",
+				"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O, folder",
 				"warning"
 			);
 			return;

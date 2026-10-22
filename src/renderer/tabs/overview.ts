@@ -239,6 +239,24 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 			return row;
 		});
 		wrapper.appendChild(buildCard(`Slices (${libraries.length})`, ...sliceItems));
+	} else if (sourceType === "folder") {
+		// ── Folder Summary card ──
+		const folderName = (data.filePath ?? "").split(/[\\/]/).pop() ?? "N/A";
+		const folderItems: HTMLElement[] = [
+			buildKV("Folder", folderName),
+			buildKV("Binaries", String(ipa?.binaries?.length ?? 0)),
+			buildKV("Architecture", arch),
+			buildKV("File Type", fileType),
+			buildKV("UUID", String(uuid))
+		];
+
+		const encRow = el("div", "ov-kv");
+		encRow.appendChild(el("span", "ov-kv-label", "Encryption"));
+		encRow.appendChild(encBadge);
+		folderItems.push(encRow);
+		folderItems.push(buildKV("Team ID", String(teamId)));
+
+		wrapper.appendChild(buildCard("Folder Summary", ...folderItems));
 	} else {
 		// ── IPA App Summary card (existing) ──
 		const bundleId = infoPlist?.CFBundleIdentifier ?? "N/A";

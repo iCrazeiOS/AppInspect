@@ -1,7 +1,7 @@
 // ── Shared analysis data types for AppInspect ──
 
-/** What kind of file was loaded */
-export type SourceType = "ipa" | "macho" | "deb" | "app" | "xcframework";
+/** What kind of input was loaded */
+export type SourceType = "ipa" | "macho" | "deb" | "app" | "xcframework" | "folder";
 
 /** One platform slice declared in an .xcframework's Info.plist (AvailableLibraries) */
 export interface XCFrameworkLibrary {

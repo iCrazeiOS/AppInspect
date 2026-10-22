@@ -5,7 +5,7 @@
  * Bridges renderer requests to the analysis orchestrator.
  */
 
-import { writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type { TabName } from "../../shared/ipc-types";
@@ -401,8 +401,15 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	ipcMain.handle("get-platform", () => process.platform);
 
 	// ── open-file-picker ──
-	ipcMain.handle("open-file-picker", async () => {
+	ipcMain.handle("open-file-picker", async (_event, args?: { mode?: "file" | "folder" }) => {
 		try {
+			if (args?.mode === "folder") {
+				const result = await dialog.showOpenDialog(win, {
+					properties: ["openDirectory"]
+				});
+				return result.canceled ? null : (result.filePaths[0] ?? null);
+			}
+
 			// On macOS, .app bundles and .xcframeworks are directories that appear as files in
 			// Finder, so we need both openFile and openDirectory. On Windows
 			// and Linux, combining the two flags results in a folder-only
@@ -440,6 +447,15 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			return result.filePaths[0] ?? null;
 		} catch {
 			return null;
+		}
+	});
+
+	// ── is-directory ──
+	ipcMain.handle("is-directory", (_event, args: { path: string }) => {
+		try {
+			return statSync(args.path).isDirectory();
+		} catch {
+			return false;
 		}
 	});
 }

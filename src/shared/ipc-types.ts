@@ -152,8 +152,12 @@ export type InvokeChannelMap = {
 		result: { success: boolean; path?: string };
 	};
 	"open-file-picker": {
-		params: undefined;
+		params: { mode?: "file" | "folder" } | undefined;
 		result: string | null;
+	};
+	"is-directory": {
+		params: { path: string };
+		result: boolean;
 	};
 	"analyse-binary": {
 		params: { sessionId: string; binaryIndex: number; cpuType?: number; cpuSubtype?: number };

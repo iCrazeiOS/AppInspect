@@ -45,6 +45,7 @@ import { convertEntitlements } from "./conversion";
 import { findBundleDebugArtifacts } from "./debug-artifacts";
 import { buildFileTree } from "./file-tree";
 import { detectFileType } from "./file-type";
+import { discoverFolderBinaries } from "./folder";
 import { detectAppFrameworks } from "./framework-detection";
 import { type HexReadResult, readHexAt, searchHexInFile } from "./hex";
 import { buildLibraryGraph } from "./library-graph";
@@ -990,21 +991,84 @@ export class AnalysisSession {
 		return result;
 	}
 
+	// ── Analyse a plain folder ───────────────────────────────────────
+
+	/**
+	 * Analyse a folder that is not an .app or .xcframework: scan it for Mach-O
+	 * binaries (including .dylibs, framework executables and extracted .debs)
+	 * and analyse the first one. Every discovered binary stays selectable.
+	 */
+	async analyseFolder(
+		folderPath: string,
+		progressCallback: (phase: string, percent: number) => void
+	): Promise<AnalysisResult> {
+		this.filePath = folderPath;
+		this.appBundlePath = folderPath;
+
+		const binaries = await discoverFolderBinaries(folderPath, progressCallback);
+		this.binaries = binaries;
+		this.searchIndex = null;
+
+		if (binaries.length === 0) {
+			throw new Error("No Mach-O binaries found in folder");
+		}
+
+		const mainBinary = binaries[0]!;
+		this.activeBinaryName = mainBinary.name;
+		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+		this.fatSliceOffset = binaryResult.fatSliceOffset;
+
+		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const security = {
+			findings: [...binaryResult.security.findings, ...extraBinaryFindings],
+			hardening: binaryResult.security.hardening
+		};
+
+		let localisationStrings: LocalisationString[] = [];
+		try {
+			localisationStrings = extractLocalisationStrings(folderPath);
+		} catch {
+			// Non-critical
+		}
+
+		progressCallback("Building file tree...", 95);
+		await yieldToEventLoop();
+		const files = buildFileTree(folderPath);
+
+		const result = buildAnalysisResult(
+			binaryResult,
+			{
+				sourceType: "folder",
+				filePath: folderPath,
+				ipa: {
+					bundlePath: folderPath,
+					appName: path.basename(folderPath),
+					binaries: assembleBinaryList(binaries)
+				},
+				...binaryOverviewFields(binaryResult)
+			},
+			{ localisationStrings, security, files }
+		);
+
+		this.result = result;
+		progressCallback("Analysis complete", 100);
+		return result;
+	}
+
 	// ── Unified file analysis entry point ────────────────────────────
 
-	/** Analyse any supported file — auto-detects type and dispatches to the right method. */
+	/** Analyse any supported input — auto-detects type and dispatches to the right method. */
 	async analyseFile(
 		filePath: string,
 		progressCallback: (phase: string, percent: number) => void
 	): Promise<AnalysisResult> {
-		// Check if it's a .app directory
 		try {
-			const stat = fs.statSync(filePath);
-			if (stat.isDirectory() && filePath.endsWith(".app")) {
-				return this.analyseApp(filePath, progressCallback);
-			}
-			if (stat.isDirectory() && isXCFrameworkPath(filePath)) {
-				return this.analyseXCFramework(filePath, progressCallback);
+			if (fs.statSync(filePath).isDirectory()) {
+				if (filePath.endsWith(".app")) return this.analyseApp(filePath, progressCallback);
+				if (isXCFrameworkPath(filePath)) {
+					return this.analyseXCFramework(filePath, progressCallback);
+				}
+				return this.analyseFolder(filePath, progressCallback);
 			}
 		} catch {
 			// Not a directory — continue with file-based detection
@@ -1023,6 +1087,8 @@ export class AnalysisSession {
 				return this.analyseApp(filePath, progressCallback);
 			case "xcframework":
 				return this.analyseXCFramework(filePath, progressCallback);
+			case "folder":
+				return this.analyseFolder(filePath, progressCallback);
 		}
 	}
 }

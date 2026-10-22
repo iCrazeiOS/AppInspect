@@ -1,6 +1,6 @@
 # AppInspect
 
-A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, .xcframework, or bare Mach-O/dylib and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
+A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, .xcframework, bare Mach-O/dylib, or a folder and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
 Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
@@ -13,6 +13,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
 - **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
+- **Folder** — scans any directory for Mach-O binaries (extensionless executables, dylibs, and binaries inside `.app`/`.framework` bundles) and extracts any `.deb` packages found inside; every discovered binary is selectable
 
 File type is detected automatically by magic bytes.
 
@@ -39,7 +40,7 @@ File type is detected automatically by magic bytes.
 ### Other capabilities
 
 - **Tabbed multi-file sessions** — open multiple files simultaneously in separate tabs, each with independent analysis state (scroll position, filters, search, and tree expansions are per tab)
-- **Multi-binary switching** — select between main app, frameworks, extensions, or multiple dylibs in a DEB
+- **Multi-binary switching** — select between main app, frameworks, extensions, multiple dylibs in a DEB, or every binary found in a folder
 - **Cross-binary search** — search classes, strings, symbols, or libraries across all binaries in a container at once
 - **Fat binary architecture selector** — choose which slice to analyse in universal binaries
 - **Jailbreak tweak detection** — identifies binaries linking hooking frameworks (Substrate, Libhooker, Substitute, ElleKit) and marks them as tweaks in the dependency graph
@@ -48,7 +49,7 @@ File type is detected automatically by magic bytes.
 - **Security scan** — 14 credential/secret patterns (AWS, Google/Firebase, OpenAI, Anthropic, Slack, bearer tokens, private keys, database URIs, hardcoded passwords), also checks base64-encoded strings and scans bundle files (JS bundles, JSON configs, plists). Flags leaked build artifacts: DWARF debug info and retained debug symbols, developer source paths embedded in strings, and shipped source maps / Swift module interfaces / bitcode symbol maps
 - **Function attribution** — security findings show which function references the flagged string (xref analysis for ARM64, ARM32/THUMB, x86_64, and x86, runs lazily only when needed)
 - **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
-- **Drag-and-drop** — drop files onto the window to start analysis
+- **Drag-and-drop** — drop files or folders onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
 - **Settings** — configurable options including multi-binary scanning
 - **Keyboard navigation** — Ctrl/Cmd+F for search, Ctrl+Tab to cycle file tabs, Alt+1-9 for section tabs, arrow keys in sidebar and lists
@@ -154,7 +155,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 
 | Tool | Description |
 |------|-------------|
-| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, or .xcframework). Must be called first. |
+| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework) or folder. Must be called first. |
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules. Optional `maxDepth` (default 3). |

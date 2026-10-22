@@ -220,6 +220,31 @@ body.platform-darwin .app-title-row {
   transform: scale(0.98);
 }
 
+.btn-open-folder {
+  -webkit-app-region: no-drag;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-stack);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.btn-open-folder:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.btn-open-folder:active {
+  transform: scale(0.98);
+}
+
 
 /* ── Binary selector ── */
 .binary-selector {
@@ -599,6 +624,11 @@ body.platform-darwin .app-title-row {
   max-width: 300px;
   text-align: center;
   line-height: 1.6;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 10px;
 }
 
 .btn-open-ipa-alt {
