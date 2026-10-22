@@ -33,6 +33,7 @@ import { MAX_HEX_MATCHES } from "../main/analysis/hex";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
+import { ASAR_FULL_BYTES, ASAR_PREVIEW_BYTES } from "../shared/asar-preview";
 import type { AnalysisResult, AsarEntry, SizeTreeNode } from "../shared/types";
 import {
 	buildHexSearchResult,
@@ -108,9 +109,6 @@ const binaryParam = z
 	);
 
 const noop = () => {};
-
-/** Preview reads from an app.asar archive are capped at this many bytes. */
-const ASAR_PREVIEW_MAX = 512 * 1024;
 
 /** Flatten an ASAR entry tree into its files, sorted by archive path. */
 function flattenAsar(entries: AsarEntry[]): AsarEntry[] {
@@ -340,7 +338,9 @@ server.registerTool(
 	{
 		description:
 			"Read a file from an Electron app.asar archive by archive-relative path " +
-			"(from list_asar). Text entries return their text (up to maxBytes); image " +
+			`(from list_asar). Text entries return their text (up to maxBytes, capped at ${
+				ASAR_FULL_BYTES / (1024 * 1024)
+			} MB); image ` +
 			'entries return kind: "image" metadata without image bytes, and other ' +
 			"binary entries return metadata only. Archive contents are never extracted.",
 		inputSchema: {
@@ -348,11 +348,15 @@ server.registerTool(
 			maxBytes: z
 				.number()
 				.optional()
-				.describe(`Max bytes to read (default and max: ${ASAR_PREVIEW_MAX})`),
+				.describe(
+					`Max bytes to read (default: ${ASAR_PREVIEW_BYTES}; capped at ${
+						ASAR_FULL_BYTES / (1024 * 1024)
+					} MB)`
+				),
 			path: pathParam
 		}
 	},
-	async ({ file, maxBytes = ASAR_PREVIEW_MAX, path }) => {
+	async ({ file, maxBytes = ASAR_PREVIEW_BYTES, path }) => {
 		const content = getSession(path).readAsarFile(file, maxBytes);
 		if (!content) throw new Error(`Could not read ${file} from app.asar.`);
 		return ok(content);
