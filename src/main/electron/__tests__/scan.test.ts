@@ -110,6 +110,10 @@ function summary(finding: SecurityFinding): [string, string, string] {
 	return [finding.severity, finding.category, finding.evidence ?? ""];
 }
 
+function scanText(content: string, relativePath = "app.asar/main.js"): SecurityFinding[] {
+	return scanElectron(makeInfo(), [{ relativePath, content }]);
+}
+
 function scanCsp(content: string, relativePath = "app.asar/index.html"): SecurityFinding[] {
 	return scanElectron(makeInfo(), [{ relativePath, content }]).filter(
 		(finding) => finding.category === "electron-csp"
@@ -445,10 +449,6 @@ describe("Electron version parsing", () => {
 });
 
 describe("scanElectron runtime API checks", () => {
-	function scanText(content: string, relativePath = "app.asar/main.js"): SecurityFinding[] {
-		return scanElectron(makeInfo(), [{ relativePath, content }]);
-	}
-
 	it("flags an unconditional certificate-error trust handler", () => {
 		const findings = scanText(
 			'app.on("certificate-error", (event, wc, url, error, cert, callback) => ' +
@@ -637,6 +637,183 @@ describe("scanElectron runtime API checks", () => {
 			(finding) => finding.category === "electron-runtime"
 		);
 		expect(findings).toHaveLength(3);
+	});
+});
+
+describe("scanElectron command-line switches", () => {
+	it("flags each dangerous appendSwitch with its severity", () => {
+		const cases: Array<[string, SecurityFinding["severity"]]> = [
+			["disable-web-security", "warning"],
+			["ignore-certificate-errors", "warning"],
+			["allow-running-insecure-content", "warning"],
+			["disable-site-isolation-trials", "warning"],
+			["inspect", "info"],
+			["inspect-brk", "info"]
+		];
+
+		for (const [name, severity] of cases) {
+			const [finding] = scanText(`app.commandLine.appendSwitch("${name}")`);
+			expect(finding?.category).toBe("electron-switches");
+			expect(finding?.severity).toBe(severity);
+			expect(finding?.evidence).toBe(`appendSwitch("${name}")`);
+		}
+	});
+
+	it("accepts appendArgument and additionalArguments forms", () => {
+		const argument = scanText('app.commandLine.appendArgument("--disable-web-security")');
+		expect(argument[0]?.severity).toBe("warning");
+
+		const inspect = scanText('app.commandLine.appendArgument("--inspect=9229")');
+		expect(inspect[0]?.severity).toBe("info");
+
+		const prefs = scanText(
+			'new BrowserWindow({ webPreferences: { additionalArguments: ["--inspect=9229"] } })'
+		);
+		expect(prefs[0]?.severity).toBe("info");
+		expect(prefs[0]?.message).toContain("launch-time argv");
+	});
+
+	it("does not flag the wrong appendSwitch form", () => {
+		expect(scanText('app.commandLine.appendSwitch("--disable-web-security")')).toEqual([]);
+	});
+
+	it("handles whitespace and quote variants", () => {
+		expect(scanText('app.commandLine.appendSwitch( "disable-web-security" )')).toHaveLength(1);
+		expect(scanText("app.commandLine.appendSwitch('ignore-certificate-errors')")).toHaveLength(
+			1
+		);
+		expect(
+			scanText("app.commandLine.appendSwitch(\n\t'allow-running-insecure-content'\n)")
+		).toHaveLength(1);
+	});
+
+	it("matches minified call sites", () => {
+		const findings = scanText(
+			'!function(){app.commandLine.appendSwitch("disable-web-security"),' +
+				'app.commandLine.appendSwitch("ignore-certificate-errors")}()'
+		);
+		expect(findings.map((f) => f.severity)).toEqual(["warning", "warning"]);
+	});
+
+	it("reports a remote debugging port on loopback as a warning", () => {
+		const findings = scanText(
+			'app.commandLine.appendSwitch("remote-debugging-port", "9222");' +
+				'app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1")'
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+		expect(findings[0]?.message).toContain("local processes");
+	});
+
+	it("escalates a port bound beyond loopback to critical", () => {
+		const [finding] = scanText(
+			'app.commandLine.appendArgument("--remote-debugging-port=9222");' +
+				'app.commandLine.appendArgument("--remote-debugging-address=0.0.0.0")'
+		);
+		expect(finding?.severity).toBe("critical");
+		expect(finding?.message).toContain("0.0.0.0");
+		expect(finding?.evidence).toContain("remote-debugging-address");
+	});
+
+	it("reports process.argv debug-flag handling as info", () => {
+		const [finding] = scanText('if (process.argv.includes("--inspect")) { }');
+		expect(finding?.severity).toBe("info");
+		expect(finding?.category).toBe("electron-switches");
+		expect(finding?.evidence).toContain("--inspect");
+	});
+
+	it("skips docs, tests and lockfiles", () => {
+		const files = [
+			{
+				relativePath: "app.asar/README.txt",
+				content: 'appendSwitch("disable-web-security")'
+			},
+			{
+				relativePath: "app.asar/__tests__/main.js",
+				content: 'appendSwitch("disable-web-security")'
+			},
+			{
+				relativePath: "app.asar/package-lock.json",
+				content: 'appendSwitch("disable-web-security")'
+			}
+		];
+		expect(scanElectron(makeInfo(), files)).toEqual([]);
+	});
+
+	it("ignores bare switch constants", () => {
+		expect(scanText('const BLOCKED = ["disable-web-security", "--inspect"];')).toEqual([]);
+	});
+
+	it("caps findings in the new category", () => {
+		const files = Array.from({ length: 25 }, (_, i) => ({
+			relativePath: `app.asar/chunk-${i}.js`,
+			content: 'app.commandLine.appendSwitch("disable-web-security")'
+		}));
+		expect(scanElectron(makeInfo(), files)).toHaveLength(20);
+	});
+});
+
+describe("scanElectron cleartext loadURL", () => {
+	it("flags literals and templates that load http content", () => {
+		const cases = [
+			'win.loadURL("http://example.com/app")',
+			"win.loadURL('http://example.com/app')",
+			"win.loadURL(`http://example.com/app`)",
+			"win.loadURL(`http://$" + "{host}/app`)"
+		];
+		for (const content of cases) {
+			const [finding] = scanText(content);
+			expect(finding?.category).toBe("electron-cleartext");
+			expect(finding?.severity).toBe("warning");
+			expect(finding?.evidence.startsWith("loadURL(")).toBe(true);
+		}
+	});
+
+	it("downgrades loopback URLs to info", () => {
+		for (const url of ["http://localhost:3000", "http://127.0.0.1:8080", "http://[::1]:3000"]) {
+			const [finding] = scanText(`win.loadURL("${url}")`);
+			expect(finding?.severity).toBe("info");
+		}
+	});
+
+	it("does not whitelist lookalike hosts", () => {
+		const [finding] = scanText('win.loadURL("http://localhost.evil.com/")');
+		expect(finding?.severity).toBe("warning");
+	});
+
+	it("ignores https and URLs that only mention http in a query", () => {
+		expect(scanText('win.loadURL("https://example.com/app")')).toEqual([]);
+		expect(scanText('win.loadURL("https://example.com/?next=http://other")')).toEqual([]);
+	});
+
+	it("matches new BrowserWindow(...).loadURL and whitespace variants", () => {
+		const [finding] = scanText('new BrowserWindow({}).loadURL(\n\t"http://example.com"\n)');
+		expect(finding?.severity).toBe("warning");
+	});
+
+	it("matches the scheme case-insensitively", () => {
+		const [finding] = scanText('win.loadURL("HTTP://EXAMPLE.COM")');
+		expect(finding?.severity).toBe("warning");
+	});
+
+	it("leaves openExternal and indirect variables alone", () => {
+		expect(scanText('shell.openExternal("http://example.com")')).toEqual([]);
+		expect(scanText('const url = "http://example.com"; win.loadURL(url)')).toEqual([]);
+	});
+
+	it("skips documentation and test files", () => {
+		expect(
+			scanElectron(makeInfo(), [
+				{
+					relativePath: "app.asar/docs/example.html",
+					content: 'win.loadURL("http://example.com")'
+				},
+				{
+					relativePath: "app.asar/main.test.js",
+					content: 'win.loadURL("http://example.com")'
+				}
+			])
+		).toEqual([]);
 	});
 });
 
