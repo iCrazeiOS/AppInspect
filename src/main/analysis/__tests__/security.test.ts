@@ -187,6 +187,23 @@ describe("Security Scan Engine", () => {
 		expect(jb.every((f) => f.severity === "info")).toBe(true);
 	});
 
+	it("does not flag Frida as a substring of an English word", () => {
+		const findings = runSecurityScan(
+			baseParams({
+				strings: [makeStr("Friday the 13th")]
+			})
+		);
+		expect(findings.filter((f) => f.category === "jailbreak-detection")).toHaveLength(0);
+
+		// Underscore-separated identifiers are still Frida references.
+		const detected = runSecurityScan(
+			baseParams({
+				strings: [makeStr("frida_server")]
+			})
+		);
+		expect(detected.filter((f) => f.category === "jailbreak-detection")).toHaveLength(1);
+	});
+
 	// ── No false positives ──
 
 	it("does not flag common English words", () => {

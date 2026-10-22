@@ -231,7 +231,7 @@ const UNSAFE_API_SYMBOLS: Array<{
 const JAILBREAK_PATTERNS: RegExp[] = [
 	/cydia:\/\//,
 	/\/Applications\/Cydia\.app/,
-	/frida/i,
+	/(?<![A-Za-z])frida(?![A-Za-z])/i,
 	/substrate/,
 	/MobileSubstrate/
 ];
