@@ -33,7 +33,12 @@ import { extractDEB } from "../deb/extractor";
 import type { AsarArchive } from "../electron/asar";
 import { readAsarFile as readAsarArchiveFile, readAsarHeader } from "../electron/asar";
 import { detectElectron } from "../electron/detect";
-import { readAsarTextFiles, readAsarUnpackedHtmlFiles, scanElectron } from "../electron/scan";
+import {
+	readAsarTextFiles,
+	readAsarUnpackedHtmlFiles,
+	scanElectronMetadata,
+	scanElectronText
+} from "../electron/scan";
 import type { BinaryInfo } from "../ipa/extractor";
 import {
 	discoverAppBundle,
@@ -863,7 +868,11 @@ export class AnalysisSession {
 		let info: ElectronInfo | null = null;
 		try {
 			info = detectElectron(appRoot, isMacOS);
-			if (!info?.asarPath) return info;
+			if (!info) return null;
+
+			// Fuses, ASAR integrity status and the Electron version do not require an archive.
+			this.electronFindings = scanElectronMetadata(info);
+			if (!info.asarPath) return info;
 
 			progressCallback("Scanning Electron bundle...", percent);
 			await yieldToEventLoop();
@@ -875,9 +884,11 @@ export class AnalysisSession {
 			this.asarArchive = parsed.data;
 			const files = readAsarTextFiles(parsed.data);
 			const unpackedHtml = readAsarUnpackedHtmlFiles(parsed.data);
+			const textFiles = [...files, ...unpackedHtml];
 			this.electronFindings = [
+				...this.electronFindings,
 				...scanBundleFileContents(files),
-				...scanElectron(info, [...files, ...unpackedHtml])
+				...scanElectronText(info, textFiles)
 			];
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);

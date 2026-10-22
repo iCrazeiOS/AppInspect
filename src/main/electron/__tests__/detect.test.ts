@@ -76,6 +76,8 @@ interface AppOptions {
 	electronVersion?: string;
 	integrityHash?: string | null;
 	algorithm?: string;
+	/** "valid" writes the normal table; "absent" writes a plist with no table. */
+	integrityEntry?: "valid" | "absent" | "malformed" | "unsupported";
 	asar?: Buffer | null;
 	flatFramework?: boolean;
 }
@@ -102,17 +104,36 @@ function makeApp(name: string, options: AppOptions = {}): string {
 	}
 
 	if (options.integrityHash !== null) {
-		writeFileSync(
-			path.join(contents, "Info.plist"),
-			plist.build({
+		const entry = options.integrityEntry ?? "valid";
+		let plistData: Record<string, unknown> = {};
+		if (entry === "absent") {
+			plistData = { CFBundleName: "Demo" };
+		} else if (entry === "malformed") {
+			plistData = {
+				ElectronAsarIntegrity: {
+					"Resources/app.asar": { algorithm: "SHA256", hash: 123 }
+				}
+			};
+		} else if (entry === "unsupported") {
+			plistData = {
+				ElectronAsarIntegrity: {
+					"Resources/app.asar": {
+						algorithm: "MD5",
+						hash: options.integrityHash ?? DEFAULT_ASAR.headerHash
+					}
+				}
+			};
+		} else {
+			plistData = {
 				ElectronAsarIntegrity: {
 					"Resources/app.asar": {
 						algorithm: options.algorithm ?? "SHA256",
 						hash: options.integrityHash ?? DEFAULT_ASAR.headerHash
 					}
 				}
-			})
-		);
+			};
+		}
+		writeFileSync(path.join(contents, "Info.plist"), plist.build(plistData));
 	}
 
 	return root;
@@ -143,6 +164,7 @@ describe("detectElectron", () => {
 		expect(info.sourceMaps).toEqual(["maps/app.js.map"]);
 		expect(info.nativeAddons).toEqual(["addons/native.node"]);
 		expect(info.fuses).toEqual([{ name: "RunAsNode", state: "enabled" }]);
+		expect(info.integrityIssue).toBeUndefined();
 	});
 
 	it("marks a mismatched integrity hash as invalid", () => {
@@ -160,6 +182,40 @@ describe("detectElectron", () => {
 	it("accepts a lower-case algorithm name", () => {
 		const info = detectElectron(makeApp("Lowercase.app", { algorithm: "sha256" }), true);
 		expect(info?.integrity?.valid).toBe(true);
+		expect(info?.integrityIssue).toBeUndefined();
+	});
+
+	it("reports a plist without an integrity entry as missing", () => {
+		const info = detectElectron(makeApp("Absent.app", { integrityEntry: "absent" }), true);
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toEqual({ kind: "missing" });
+	});
+
+	it("reports an unsupported integrity algorithm", () => {
+		const info = detectElectron(
+			makeApp("Unsupported.app", { integrityEntry: "unsupported" }),
+			true
+		);
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toEqual({
+			kind: "unsupported-algorithm",
+			algorithm: "MD5"
+		});
+	});
+
+	it("reports a malformed integrity entry", () => {
+		const info = detectElectron(
+			makeApp("MalformedEntry.app", { integrityEntry: "malformed" }),
+			true
+		);
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toEqual({ kind: "malformed" });
+	});
+
+	it("does not record an issue when no Info.plist exists", () => {
+		const info = detectElectron(makeApp("NoPlist.app", { integrityHash: null }), true);
+		expect(info?.integrity).toBeUndefined();
+		expect(info?.integrityIssue).toBeUndefined();
 	});
 
 	it("keeps info when the archive is malformed", () => {

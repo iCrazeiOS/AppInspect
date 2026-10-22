@@ -188,7 +188,8 @@ server.registerTool(
 			"+ methods + protocols), swift (Swift nominal types with stored " +
 			"properties, superclasses, protocols, and protocol conformances), " +
 			"entitlements (code signing), infoPlist " +
-			"(Info.plist), electron (Electron version, fuses, ASAR integrity, " +
+			"(Info.plist), electron (Electron version, fuses, ASAR header integrity " +
+			"status (header hash only), " +
 			"package.json, source maps, native addons), security (findings + hardening), " +
 			"files (bundle file " +
 			"tree), hooks (jailbreak hook detection), size (bytes per " +

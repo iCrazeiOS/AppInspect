@@ -9,6 +9,7 @@ import type {
 	ElectronFuse,
 	ElectronFuseState,
 	ElectronInfo,
+	ElectronIntegrityIssue,
 	PlistValue
 } from "../../shared/types";
 import { EmptyState, FileBrowser } from "../components";
@@ -30,6 +31,9 @@ const FUSE_STATE_CLASS: Record<ElectronFuseState, string> = {
 
 const INTEGRITY_FUSE = "EnableEmbeddedAsarIntegrityValidation";
 
+/** The header hash does not cover entry data, so never imply content verification. */
+const HEADER_ONLY_NOTE = "Only the ASAR header hash is compared; file contents are not re-hashed.";
+
 /** The hash only proves tamper-resistance when the integrity fuse enforces it. */
 function integrityEnforced(info: ElectronInfo): boolean {
 	return info.fuses.some((fuse) => fuse.name === INTEGRITY_FUSE && fuse.state === "enabled");
@@ -37,10 +41,10 @@ function integrityEnforced(info: ElectronInfo): boolean {
 
 function integrityBadge(info: ElectronInfo): HTMLElement | null {
 	if (!info.integrity) return null;
-	if (!info.integrity.valid) return el("span", "el-badge el-badge--bad", "Integrity mismatch");
+	if (!info.integrity.valid) return el("span", "el-badge el-badge--bad", "Header hash mismatch");
 	return integrityEnforced(info)
-		? el("span", "el-badge el-badge--ok", "Integrity verified")
-		: el("span", "el-badge el-badge--warn", "Hash matches (not enforced)");
+		? el("span", "el-badge el-badge--ok", "Header hash verified")
+		: el("span", "el-badge el-badge--warn", "Header hash matches (not enforced)");
 }
 
 // ── Value formatting ──
@@ -121,7 +125,7 @@ function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean)
 		el(
 			"span",
 			integrity.valid ? "el-badge el-badge--ok" : "el-badge el-badge--bad",
-			integrity.valid ? "Valid" : "Invalid"
+			integrity.valid ? "Header matches" : "Header mismatch"
 		)
 	);
 
@@ -141,7 +145,28 @@ function buildIntegrityCard(integrity: ElectronAsarIntegrity, enforced: boolean)
 		buildKV("Expected", integrity.expected, true),
 		buildKV("Actual", integrity.actual, true),
 		status,
-		enforcedRow
+		enforcedRow,
+		el("p", "el-muted", HEADER_ONLY_NOTE)
+	);
+}
+
+/** Describe why the Info.plist entry could not be compared with the header hash. */
+function integrityIssueLabel(issue: ElectronIntegrityIssue): string {
+	switch (issue.kind) {
+		case "missing":
+			return "No ElectronAsarIntegrity entry";
+		case "unsupported-algorithm":
+			return `Unsupported integrity algorithm: ${issue.algorithm || "unknown"}`;
+		case "malformed":
+			return "Malformed ElectronAsarIntegrity entry";
+	}
+}
+
+function buildIntegrityIssueCard(issue: ElectronIntegrityIssue): HTMLElement {
+	return buildCard(
+		"ASAR Integrity",
+		el("p", "el-muted", integrityIssueLabel(issue)),
+		el("p", "el-muted", HEADER_ONLY_NOTE)
 	);
 }
 
@@ -193,6 +218,7 @@ function buildMissingArchive(info: ElectronInfo): HTMLElement {
 	if (fuses.length > 0) cards.appendChild(buildFusesCard(fuses));
 	if (info.integrity)
 		cards.appendChild(buildIntegrityCard(info.integrity, integrityEnforced(info)));
+	if (info.integrityIssue) cards.appendChild(buildIntegrityIssueCard(info.integrityIssue));
 	if (cards.childElementCount > 0) wrap.appendChild(cards);
 
 	return wrap;
@@ -238,6 +264,7 @@ function renderPackageView(
 
 	if (info.integrity)
 		cards.appendChild(buildIntegrityCard(info.integrity, integrityEnforced(info)));
+	if (info.integrityIssue) cards.appendChild(buildIntegrityIssueCard(info.integrityIssue));
 
 	const sourceMaps = Array.isArray(info.sourceMaps) ? info.sourceMaps : [];
 	cards.appendChild(buildPathCard("Source Map", sourceMaps, onOpenPath));
