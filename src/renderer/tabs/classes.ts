@@ -13,8 +13,9 @@ import {
 	doCrossBinarySearch
 } from "../utils/cross-binary-search";
 import { highlightLogos, highlightObjCMethod } from "../utils/highlight";
-import { loadWidths, saveWidths } from "../utils/layout-store";
+import { loadWidths } from "../utils/layout-store";
 import { generateLogosHook, parseMethodSignature } from "../utils/logos-hook";
+import { initPanelResize } from "../utils/panel-resize";
 
 interface ObjCMethod {
 	selector: string;
@@ -783,59 +784,19 @@ export function renderClasses(
 		return Math.max(180, containerW - siblingW - MIN_MIDDLE - 10);
 	}
 
-	function initPanelResize(
-		handle: HTMLElement,
-		getTargetEl: () => HTMLElement,
-		options: { side: "left" | "right"; min?: number; storageKey: string }
-	): void {
-		const min = options.min ?? 180;
-
-		// Restore saved width (skip sidebar — restored on open in renderSidebar)
-		if (options.side === "left") {
-			const saved = loadWidths(options.storageKey);
-			if (saved?.width) {
-				getTargetEl().style.width = saved.width;
-			}
-		}
-
-		handle.addEventListener("mousedown", (e) => {
-			e.preventDefault();
-			const el = getTargetEl();
-			const startX = e.clientX;
-			const startW = el.getBoundingClientRect().width;
-			const max = panelMax(options.side);
-			const prevSelect = document.body.style.userSelect;
-			document.body.style.userSelect = "none";
-			handle.classList.add("cls-resize-handle--active");
-
-			const onMove = (ev: MouseEvent): void => {
-				const delta = ev.clientX - startX;
-				const raw = options.side === "left" ? startW + delta : startW - delta;
-				const newW = Math.max(min, Math.min(max, raw));
-				el.style.width = `${newW}px`;
-				if (options.side === "right") el.style.minWidth = `${newW}px`;
-			};
-
-			const onUp = (): void => {
-				document.removeEventListener("mousemove", onMove);
-				document.removeEventListener("mouseup", onUp);
-				document.body.style.userSelect = prevSelect;
-				handle.classList.remove("cls-resize-handle--active");
-				saveWidths(options.storageKey, { width: el.style.width });
-			};
-
-			document.addEventListener("mousemove", onMove);
-			document.addEventListener("mouseup", onUp);
-		});
-	}
-
 	initPanelResize(leftHandle, () => leftPanel, {
 		side: "left",
-		storageKey: "panels:classes:left"
+		max: () => panelMax("left"),
+		storageKey: "panels:classes:left",
+		activeClass: "cls-resize-handle--active"
 	});
 	initPanelResize(rightHandle, () => sidebar, {
 		side: "right",
-		storageKey: "panels:classes:sidebar"
+		max: () => panelMax("right"),
+		storageKey: "panels:classes:sidebar",
+		activeClass: "cls-resize-handle--active",
+		pinMinWidth: true,
+		restore: false
 	});
 
 	// Re-clamp panels when the container resizes (e.g. window resize)
