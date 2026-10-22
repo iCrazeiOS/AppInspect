@@ -414,6 +414,8 @@ async function loadTabData(tabId: string): Promise<void> {
 		if (panel && tabData != null) {
 			const sid = tab.sessionId;
 			const binCount = tab.analysisResult?.overview?.ipa?.binaries?.length ?? 1;
+			const currentBinary =
+				tab.analysisResult?.overview?.ipa?.binaries?.[tab.currentBinaryIndex];
 			switch (tabData.tab) {
 				case "overview":
 					renderOverview(panel, tabData.data);
@@ -440,7 +442,7 @@ async function loadTabData(tabId: string): Promise<void> {
 					renderClasses(panel, tabData.data, binCount, sid);
 					break;
 				case "swift":
-					renderSwift(panel, tabData.data, sid);
+					renderSwift(panel, tabData.data, sid, currentBinary);
 					break;
 				case "entitlements":
 					renderEntitlements(panel, tabData.data, sid);
