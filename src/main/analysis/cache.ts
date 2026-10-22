@@ -109,3 +109,121 @@ export function pruneCache(maxAgeDays = 7): void {
 		}
 	}
 }
+
+/** Base directory holding every cached extraction. */
+export function getCacheBase(): string {
+	return CACHE_BASE;
+}
+
+/** Interrupted-extraction directories younger than this may still be written to. */
+const TEMP_GRACE_MS = 10 * 60 * 1000;
+
+export interface CacheInfo {
+	path: string;
+	/** Top-level entries, including `-tmp-` directories. */
+	entryCount: number;
+	/** Sum of file sizes, recursive. */
+	totalBytes: number;
+}
+
+export interface CacheClearResult {
+	removedEntries: number;
+	removedBytes: number;
+	/** Entries kept because an open session uses them. */
+	keptInUse: number;
+	/** `-tmp-` entries kept because they were written to recently. */
+	keptRecentTemp: number;
+	/** Entries that could not be removed. */
+	failed: number;
+}
+
+/** Size of a path in bytes. Symlinks count for themselves and are never followed. */
+async function sizeOf(target: string): Promise<number> {
+	let stat: fs.Stats;
+	try {
+		stat = await fs.promises.lstat(target);
+	} catch {
+		return 0;
+	}
+	if (!stat.isDirectory()) return stat.size;
+
+	let names: string[];
+	try {
+		names = await fs.promises.readdir(target);
+	} catch {
+		return 0;
+	}
+	let total = 0;
+	for (const name of names) total += await sizeOf(path.join(target, name));
+	return total;
+}
+
+async function listEntries(baseDir: string): Promise<string[]> {
+	try {
+		return await fs.promises.readdir(baseDir);
+	} catch {
+		return []; // cache dir doesn't exist yet
+	}
+}
+
+/** Entry count and disk usage of the cache. Never creates the directory. */
+export async function getCacheInfo(options: { baseDir?: string } = {}): Promise<CacheInfo> {
+	const baseDir = options.baseDir ?? CACHE_BASE;
+	const entries = await listEntries(baseDir);
+	let totalBytes = 0;
+	for (const entry of entries) {
+		totalBytes += await sizeOf(path.join(baseDir, entry));
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+	return { path: baseDir, entryCount: entries.length, totalBytes };
+}
+
+/**
+ * Remove cache entries except those in use. `inUse` is called before each
+ * removal, so entries opened while the clear is running are still kept.
+ * With `dryRun`, nothing is deleted and the result shows what would be.
+ */
+export async function clearCache(options: {
+	baseDir?: string;
+	inUse: () => ReadonlySet<string>;
+	dryRun?: boolean;
+}): Promise<CacheClearResult> {
+	const baseDir = options.baseDir ?? CACHE_BASE;
+	const result: CacheClearResult = {
+		removedEntries: 0,
+		removedBytes: 0,
+		keptInUse: 0,
+		keptRecentTemp: 0,
+		failed: 0
+	};
+
+	for (const entry of await listEntries(baseDir)) {
+		const entryPath = path.join(baseDir, entry);
+		if (options.inUse().has(path.resolve(entryPath))) {
+			result.keptInUse++;
+			continue;
+		}
+		if (entry.includes("-tmp-")) {
+			try {
+				const stat = await fs.promises.lstat(entryPath);
+				if (Date.now() - stat.mtimeMs < TEMP_GRACE_MS) {
+					result.keptRecentTemp++;
+					continue;
+				}
+			} catch {
+				continue; // already gone
+			}
+		}
+
+		const bytes = await sizeOf(entryPath);
+		try {
+			if (!options.dryRun) await fs.promises.rm(entryPath, { recursive: true, force: true });
+			result.removedEntries++;
+			result.removedBytes += bytes;
+		} catch {
+			result.failed++;
+		}
+		await new Promise((resolve) => setImmediate(resolve));
+	}
+	return result;
+}

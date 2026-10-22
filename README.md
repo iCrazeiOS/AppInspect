@@ -51,7 +51,7 @@ File type is detected automatically by magic bytes.
 - **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
 - **Drag-and-drop** — drop files or folders onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
-- **Settings** — configurable options including multi-binary scanning
+- **Settings** — configurable options including multi-binary scanning, plus cache size and a **Clear cache** button (entries used by open files are kept)
 - **Keyboard navigation** — Ctrl/Cmd+F for search, Ctrl+Tab to cycle file tabs, Alt+1-9 for section tabs, arrow keys in sidebar and lists
 - **Copy on double-click** — double-click a table cell, JSON tree value, or key/value row to copy it; Classes buttons copy on click. Every copy shows a confirmation toast
 

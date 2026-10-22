@@ -39,7 +39,7 @@ Each parser is a self-contained module: `macho.ts`, `load-commands.ts`, `symbols
 
 ### Caching
 
-Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mtime). Cache mtime is touched on access for LRU-style pruning (7-day expiry).
+Extracted containers cached in `~/.appinspect/cache/` keyed by MD5(path+size+mtime). Cache mtime is touched on access for LRU-style pruning (7-day expiry). The Settings panel can clear the cache on demand; entries used by open sessions and fresh `-tmp-` dirs are kept.
 
 ## Code style
 

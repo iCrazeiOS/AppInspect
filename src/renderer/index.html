@@ -40,6 +40,13 @@
               <span>Max single file size (MB)</span>
               <input type="number" id="opt-max-file-size" class="settings-number" min="1" max="500" step="5" />
             </label>
+            <div class="settings-cache">
+              <div class="settings-cache-info">
+                <span class="settings-cache-label">Cache</span>
+                <span id="cache-size" class="settings-cache-size">Calculating…</span>
+              </div>
+              <button id="btn-clear-cache" class="btn-clear-cache" type="button">Clear cache</button>
+            </div>
           </div>
           <button id="btn-open-ipa" class="btn-open-ipa">Open File</button>
           <button id="btn-open-folder" class="btn-open-folder">Open Folder</button>

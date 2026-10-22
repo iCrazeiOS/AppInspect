@@ -77,6 +77,9 @@ function getSession(filePath?: string): AnalysisSession {
 	if (!key) throw new Error("No file loaded. Call analyse_file first.");
 	const session = sessions.get(key);
 	if (!session) throw new Error(`No session for ${key}. Call analyse_file first.`);
+	if (!session.isExtractionPresent()) {
+		throw new Error(`Cached extraction for ${key} was removed. Call analyse_file again.`);
+	}
 	return session;
 }
 

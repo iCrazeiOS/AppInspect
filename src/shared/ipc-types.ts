@@ -193,6 +193,29 @@ export type InvokeChannelMap = {
 		params: AppSettings;
 		result: undefined;
 	};
+	"get-cache-info": {
+		params: undefined;
+		result: {
+			path: string;
+			entryCount: number;
+			totalBytes: number;
+			/** Entries a clear would remove right now. */
+			clearableEntries: number;
+			keptInUse: number;
+		};
+	};
+	"clear-cache": {
+		params: undefined;
+		result: {
+			cleared: boolean;
+			entryCount: number;
+			removedEntries: number;
+			removedBytes: number;
+			keptInUse: number;
+			keptRecentTemp: number;
+			failed: number;
+		};
+	};
 	"read-hex": {
 		params: { sessionId: string; offset: number; length: number };
 		result: { offset: number; length: number; data: number[]; fileSize: number } | null;
