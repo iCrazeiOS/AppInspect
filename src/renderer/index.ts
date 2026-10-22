@@ -322,7 +322,9 @@ const SCROLL_SELECTORS: string[] = [
 	".cls-scroll",
 	".cls-method-scroll",
 	".cls-proto-list",
-	".hv-content"
+	".hv-content",
+	// The file browser scrolls its tree internally, not the tab panel.
+	".fb-tree"
 ];
 
 function scrollerFor(panel: HTMLElement, selector: string): HTMLElement | null {

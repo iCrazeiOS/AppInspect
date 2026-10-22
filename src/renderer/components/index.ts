@@ -2,6 +2,12 @@ export type { Column } from "./data-table";
 export { DataTable } from "./data-table";
 export type { EmptyStateOptions } from "./empty-state";
 export { EmptyState } from "./empty-state";
+export type {
+	FileBrowserOptions,
+	FileContextMenuEntry,
+	FilePreviewProvider
+} from "./file-browser";
+export { FileBrowser } from "./file-browser";
 export type { HexViewerOptions } from "./hex-viewer";
 export { HexViewer } from "./hex-viewer";
 export { JsonTree } from "./json-tree";

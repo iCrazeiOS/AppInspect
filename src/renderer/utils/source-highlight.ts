@@ -1,10 +1,10 @@
 /** Syntax highlighting for source previews, backed by highlight.js. */
 
 import hljs from "highlight.js/lib/common";
-import { ASAR_PREVIEW_BYTES } from "../../shared/asar-preview";
+import { FILE_PREVIEW_BYTES } from "../../shared/file-preview";
 
 /** Preview text up to this size is highlighted without asking. */
-export const HIGHLIGHT_AUTO_BYTES = ASAR_PREVIEW_BYTES;
+export const HIGHLIGHT_AUTO_BYTES = FILE_PREVIEW_BYTES;
 
 const EXTENSIONS: Record<string, string> = {
 	js: "javascript",

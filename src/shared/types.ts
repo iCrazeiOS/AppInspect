@@ -554,16 +554,16 @@ export interface ElectronInfo {
 	nativeAddons: string[];
 }
 
-/** How an ASAR entry can be previewed. */
-export type AsarPreviewKind = "text" | "image" | "binary";
+/** How a file can be previewed. */
+export type FilePreviewKind = "text" | "image" | "binary";
 
-export interface AsarFileContent {
+export interface FilePreviewContent {
 	path: string;
-	/** Full uncompressed size of the entry. */
+	/** Full uncompressed size of the file. */
 	size: number;
-	/** True when the returned data is only a prefix of the entry. */
+	/** True when the returned data is only a prefix of the file. */
 	truncated: boolean;
-	kind: AsarPreviewKind;
+	kind: FilePreviewKind;
 	/** Present only for `kind: "text"`. */
 	text?: string;
 	/** Data URL for `kind: "image"`; omitted when the image exceeds the preview cap. */

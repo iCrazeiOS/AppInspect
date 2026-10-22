@@ -1,4 +1,4 @@
-/** Source formatting helpers for the ASAR preview pane. */
+/** Source formatting helpers for the file preview pane. */
 
 import type { Plugin } from "prettier";
 import * as babel from "prettier/plugins/babel";

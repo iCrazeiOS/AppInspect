@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { imageMimeType } from "../asar-preview";
+import { imageMimeType } from "../file-preview";
 
 describe("imageMimeType", () => {
 	it("maps raster image extensions to MIME types", () => {

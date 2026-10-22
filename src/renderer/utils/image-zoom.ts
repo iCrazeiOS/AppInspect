@@ -1,9 +1,9 @@
-/** Zoom limits and math for the ASAR image preview. */
+/** Zoom limits and math for the image preview. */
 
 export const IMAGE_ZOOM_MIN = 0.02;
 export const IMAGE_ZOOM_MAX = 16;
 
-/** Padding around a fitted image, matching `.el-image-stage`. */
+/** Padding around a fitted image, matching `.fb-image-stage`. */
 export const IMAGE_STAGE_PADDING = 16;
 
 /** Trackpad pinch sensitivity; higher zooms faster for the same wheel delta. */

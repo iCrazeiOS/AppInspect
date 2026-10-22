@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ASAR_PREVIEW_BYTES } from "../../../shared/asar-preview";
+import { FILE_PREVIEW_BYTES } from "../../../shared/file-preview";
 import { HIGHLIGHT_AUTO_BYTES, highlightLanguage, highlightSource } from "../source-highlight";
 
 describe("highlightLanguage", () => {
@@ -20,7 +20,7 @@ describe("highlightLanguage", () => {
 	});
 
 	it("auto-highlights up to the default preview cap", () => {
-		expect(HIGHLIGHT_AUTO_BYTES).toBe(ASAR_PREVIEW_BYTES);
+		expect(HIGHLIGHT_AUTO_BYTES).toBe(FILE_PREVIEW_BYTES);
 	});
 });
 
