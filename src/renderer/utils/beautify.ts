@@ -54,7 +54,7 @@ export function prettyPrintJson(text: string): string | null {
 	const trimmed = text.trimStart();
 	if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
 	try {
-		return JSON.stringify(JSON.parse(text), null, 2);
+		return JSON.stringify(JSON.parse(text), null, 4);
 	} catch {
 		return null;
 	}
@@ -69,7 +69,7 @@ export async function beautifyText(text: string, parser: BeautifyParser): Promis
 		const formatted = await format(text, {
 			parser,
 			plugins: PLUGINS,
-			tabWidth: 2,
+			tabWidth: 4,
 			printWidth: 100,
 			useTabs: false,
 			endOfLine: "lf"
