@@ -243,7 +243,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			const { sessionId } = args;
 			try {
 				const session = getSession(sessionId);
-				return await session.searchAllBinaries(
+				const results = await session.searchAllBinaries(
 					args.query,
 					args.tab,
 					(phase, percent) => {
@@ -257,6 +257,9 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					args.isRegex,
 					args.caseSensitive
 				);
+				// Clears the tab's loading state set by the indexing progress events
+				win.webContents.send("analysis-complete", { sessionId });
+				return results;
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
 				win.webContents.send("analysis-error", { sessionId, message });
