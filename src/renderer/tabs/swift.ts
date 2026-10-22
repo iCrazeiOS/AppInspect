@@ -13,6 +13,7 @@ import type {
 import { EmptyState, SearchBar } from "../components";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
+import { initPanelResize } from "../utils/panel-resize";
 
 const ROW_HEIGHT = 28;
 const BUFFER = 20;
@@ -139,9 +140,36 @@ export function renderSwift(
 	leftPanel.className = "cls-left";
 	wrapper.appendChild(leftPanel);
 
+	const leftHandle = document.createElement("div");
+	leftHandle.className = "cls-resize-handle";
+	wrapper.appendChild(leftHandle);
+
 	const rightPanel = document.createElement("div");
 	rightPanel.className = "cls-right";
 	wrapper.appendChild(rightPanel);
+
+	/** Minimum width the detail panel is allowed to shrink to. */
+	const MIN_DETAIL = 360;
+
+	function leftPanelMax(): number {
+		// ~10px accounts for the resize handles
+		return Math.max(180, wrapper.getBoundingClientRect().width - MIN_DETAIL - 10);
+	}
+
+	initPanelResize(leftHandle, () => leftPanel, {
+		side: "left",
+		max: leftPanelMax,
+		storageKey: "panels:swift:left",
+		activeClass: "cls-resize-handle--active"
+	});
+
+	// Re-clamp the list when the container resizes (e.g. window resize)
+	new ResizeObserver(() => {
+		const max = leftPanelMax();
+		if (leftPanel.getBoundingClientRect().width > max) {
+			leftPanel.style.width = `${max}px`;
+		}
+	}).observe(wrapper);
 
 	// ── Search ──
 	const searchBar = new SearchBar((term, isRegex, caseSensitive) => {
