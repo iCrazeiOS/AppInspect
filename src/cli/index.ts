@@ -22,6 +22,7 @@ const SECTION_NAMES: TabName[] = [
 	"libraries",
 	"symbols",
 	"classes",
+	"swift",
 	"entitlements",
 	"infoPlist",
 	"hooks",
@@ -59,7 +60,7 @@ Options:
   --json                Emit the full analysis as JSON (default)
   --sarif               Emit a SARIF 2.1.0 report of the security findings
   --section <name>      Limit --json output to a section (repeatable):
-                        overview|strings|headers|libraries|symbols|classes|
+                        overview|strings|headers|libraries|symbols|classes|swift|
                         entitlements|infoPlist|hooks|security|files|size
   --binary <index>      Analyse a specific binary index instead of the main one
   --out <path>          Write output to a file (overwrites if it exists; default: stdout)

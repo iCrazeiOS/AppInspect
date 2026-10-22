@@ -16,6 +16,7 @@ const TAB_KEY_MAP: Record<TabName, keyof AnalysisResult> = {
 	libraries: "libraries",
 	symbols: "symbols",
 	classes: "classes",
+	swift: "swift",
 	entitlements: "entitlements",
 	infoPlist: "infoPlist",
 	hooks: "hooks",

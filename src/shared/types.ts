@@ -449,6 +449,59 @@ export interface SizeTreeNode {
 	excluded?: { path: string; size: number }[];
 }
 
+// ── Swift Metadata ──
+
+export type SwiftTypeKind = "class" | "struct" | "enum";
+
+export interface SwiftField {
+	name: string;
+	/** Demangled Swift type (e.g. "Swift.String"), when the mangled name resolves. */
+	type?: string;
+	/** True for heap-boxed enum cases. */
+	indirect?: boolean;
+}
+
+export interface SwiftType {
+	name: string;
+	/** Module-qualified name including any nesting (e.g. "Nationwide.Foo.Bar"). */
+	fullName: string;
+	module: string;
+	kind: SwiftTypeKind;
+	/** Demangled superclass for classes, when resolvable. */
+	superclass?: string;
+	/** Protocols this type conforms to, resolved from __swift5_proto. */
+	protocols: string[];
+	fields: SwiftField[];
+	generic: boolean;
+	/** Number of fields declared in the field descriptor (may exceed fields.length if truncated). */
+	fieldCount: number;
+}
+
+export interface SwiftProtocol {
+	name: string;
+	fullName: string;
+	module: string;
+	/** Number of requirements declared in the protocol descriptor. */
+	requirementCount: number;
+	/** Full names of in-binary types that conform, resolved from __swift5_proto. */
+	conformingTypes: string[];
+}
+
+export interface SwiftConformance {
+	typeName: string;
+	protocolName: string;
+}
+
+export interface SwiftMetadata {
+	types: SwiftType[];
+	protocols: SwiftProtocol[];
+	conformances: SwiftConformance[];
+	/** True when __swift5_types was present. */
+	present: boolean;
+	/** Conformance records whose protocol descriptor lives outside this binary. */
+	unresolvedConformances: number;
+}
+
 // ── Top-level Analysis Result ──
 
 export interface AnalysisResult {
@@ -480,6 +533,7 @@ export interface AnalysisResult {
 	};
 	libraries: LinkedLibrary[];
 	symbols: SymbolEntry[];
+	swift: SwiftMetadata;
 	classes: ObjCClass[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];

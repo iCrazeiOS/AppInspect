@@ -39,6 +39,7 @@ import { renderPlist } from "./tabs/plist";
 import { renderSecurity } from "./tabs/security";
 import { renderSize } from "./tabs/size";
 import { renderStrings } from "./tabs/strings";
+import { renderSwift } from "./tabs/swift";
 import { renderSymbols } from "./tabs/symbols";
 import { CPU_TYPE_NAMES, cpuSubtypeName } from "./utils/macho";
 
@@ -437,6 +438,9 @@ async function loadTabData(tabId: string): Promise<void> {
 					break;
 				case "classes":
 					renderClasses(panel, tabData.data, binCount, sid);
+					break;
+				case "swift":
+					renderSwift(panel, tabData.data, sid);
 					break;
 				case "entitlements":
 					renderEntitlements(panel, tabData.data, sid);

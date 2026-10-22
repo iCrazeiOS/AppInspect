@@ -93,10 +93,19 @@ interface FixupFixtureOpts {
 	segSlots: number[];
 	/** Imports to encode. */
 	imports?: Array<{ lib_ordinal: number; weak: boolean; symbolName: string }>;
+	/** DYLD_CHAINED_IMPORT format: 1 = 4 bytes, 2 = 8 bytes, 3 = 16 bytes. */
+	importsFormat?: 1 | 2 | 3;
 }
 
 function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
-	const { dataOffset, segmentFixups, totalSegCount, segSlots, imports = [] } = opts;
+	const {
+		dataOffset,
+		segmentFixups,
+		totalSegCount,
+		segSlots,
+		imports = [],
+		importsFormat = 1
+	} = opts;
 
 	// We'll allocate a large-enough buffer and fill it in.
 	const bufSize = 32768;
@@ -127,7 +136,8 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
 	// Imports table follows
 	const importsAbsOffset = nextStartsInSeg;
 	const importsRelOffset = importsAbsOffset - dataOffset;
-	const importsTableSize = imports.length * 4;
+	const importEntrySize = importsFormat === 3 ? 16 : importsFormat === 2 ? 8 : 4;
+	const importsTableSize = imports.length * importEntrySize;
 
 	// Symbols table follows imports
 	const symbolsAbsOffset = importsAbsOffset + importsTableSize;
@@ -147,7 +157,7 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
 	view.setUint32(dataOffset + 8, importsRelOffset, le); // imports_offset
 	view.setUint32(dataOffset + 12, symbolsRelOffset, le); // symbols_offset
 	view.setUint32(dataOffset + 16, imports.length, le); // imports_count
-	view.setUint32(dataOffset + 20, 1, le); // imports_format (DYLD_CHAINED_IMPORT)
+	view.setUint32(dataOffset + 20, importsFormat, le); // imports_format
 	view.setUint32(dataOffset + 24, 0, le); // symbols_format
 
 	// ── Write starts_in_image ──
@@ -205,11 +215,23 @@ function buildFixupFixture(opts: FixupFixtureOpts): ArrayBuffer {
 	// ── Write imports table ──
 	for (let i = 0; i < imports.length; i++) {
 		const imp = imports[i]!;
+		const nameOffset = symbolNameOffsets[i]!;
+		const entryOffset = importsAbsOffset + i * importEntrySize;
+
+		if (importsFormat === 3) {
+			const raw =
+				BigInt(imp.lib_ordinal & 0xffff) |
+				(imp.weak ? 1n << 16n : 0n) |
+				(BigInt(nameOffset & 0xffffffff) << 32n);
+			view.setBigUint64(entryOffset, raw, le);
+			view.setBigUint64(entryOffset + 8, 0n, le); // addend
+			continue;
+		}
+
 		const raw =
-			(imp.lib_ordinal & 0xff) |
-			((imp.weak ? 1 : 0) << 8) |
-			((symbolNameOffsets[i]! & 0x7fffff) << 9);
-		view.setUint32(importsAbsOffset + i * 4, raw, le);
+			(imp.lib_ordinal & 0xff) | ((imp.weak ? 1 : 0) << 8) | ((nameOffset & 0x7fffff) << 9);
+		view.setUint32(entryOffset, raw, le);
+		if (importsFormat === 2) view.setInt32(entryOffset + 4, 0, le); // addend
 	}
 
 	// ── Write symbols table ──
@@ -399,6 +421,68 @@ describe("chained-fixups", () => {
 			expect(bind.ordinal).toBe(1);
 			expect(bind.symbolName).toBe("_bar");
 			expect(bind.addend).toBe(11n);
+		});
+
+		it("parses 8-byte addend imports (format 2)", () => {
+			const segOffset = 4096;
+			const pageSize = 4096;
+			const bindEntry = encodeBind(1, 0n, 0);
+
+			const buf = buildFixupFixture({
+				dataOffset: 256,
+				segmentFixups: [
+					{
+						segmentOffset: segOffset,
+						pageSize,
+						pages: [{ startOffset: 0, entries: [bindEntry] }]
+					}
+				],
+				totalSegCount: 1,
+				segSlots: [0],
+				importsFormat: 2,
+				imports: [
+					{ lib_ordinal: 1, weak: false, symbolName: "_foo" },
+					{ lib_ordinal: 2, weak: true, symbolName: "_bar" }
+				]
+			});
+
+			const segments = [dummySegment("__DATA", BigInt(segOffset))];
+			const result = buildFixupMap(buf, 256, 512, segments, true);
+
+			const bind = result.bindMap.get(segOffset)!;
+			expect(bind.ordinal).toBe(1);
+			expect(bind.symbolName).toBe("_bar");
+		});
+
+		it("parses 16-byte addend64 imports (format 3)", () => {
+			const segOffset = 4096;
+			const pageSize = 4096;
+			const bindEntry = encodeBind(1, 0n, 0);
+
+			const buf = buildFixupFixture({
+				dataOffset: 256,
+				segmentFixups: [
+					{
+						segmentOffset: segOffset,
+						pageSize,
+						pages: [{ startOffset: 0, entries: [bindEntry] }]
+					}
+				],
+				totalSegCount: 1,
+				segSlots: [0],
+				importsFormat: 3,
+				imports: [
+					{ lib_ordinal: 1, weak: false, symbolName: "_foo" },
+					{ lib_ordinal: 2, weak: true, symbolName: "_bar" }
+				]
+			});
+
+			const segments = [dummySegment("__DATA", BigInt(segOffset))];
+			const result = buildFixupMap(buf, 256, 512, segments, true);
+
+			const bind = result.bindMap.get(segOffset)!;
+			expect(bind.ordinal).toBe(1);
+			expect(bind.symbolName).toBe("_bar");
 		});
 
 		it("skips pages with DYLD_CHAINED_PTR_START_NONE", () => {

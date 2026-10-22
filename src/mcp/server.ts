@@ -30,7 +30,7 @@ import { z } from "zod";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
-import type { AnalysisResult, SizeTreeNode } from "../shared/types";
+import type { AnalysisResult, SizeTreeNode, SwiftMetadata } from "../shared/types";
 
 // Keep stdout clean for MCP protocol — redirect console to stderr
 console.log = console.error;
@@ -99,6 +99,7 @@ const SECTION_NAMES = [
 	"libraries",
 	"symbols",
 	"classes",
+	"swift",
 	"entitlements",
 	"infoPlist",
 	"security",
@@ -110,7 +111,13 @@ const SECTION_NAMES = [
 type SectionName = (typeof SECTION_NAMES)[number];
 
 /** Sections that return filterable/paginatable arrays */
-const PAGINATED_SECTIONS = new Set<SectionName>(["strings", "symbols", "classes", "libraries"]);
+const PAGINATED_SECTIONS = new Set<SectionName>([
+	"strings",
+	"symbols",
+	"classes",
+	"swift",
+	"libraries"
+]);
 
 const pathParam = z
 	.string()
@@ -142,6 +149,8 @@ function getSectionData(cached: AnalysisResult, section: SectionName): unknown {
 			return cached.symbols;
 		case "classes":
 			return { classes: cached.classes, protocols: cached.protocols ?? [] };
+		case "swift":
+			return cached.swift;
 		case "entitlements": {
 			// Null prototype: keys come from an untrusted plist inside the
 			// analysed binary, so "__proto__" must not be the setter.
@@ -183,6 +192,33 @@ function buildPaginatedResult(
 	offset = 0,
 	limit = DEFAULT_LIMIT
 ): unknown {
+	if (section === "swift") {
+		const swift = data as SwiftMetadata;
+		const lower = filter?.toLowerCase();
+		const types = lower
+			? swift.types.filter((t) => t.fullName.toLowerCase().includes(lower))
+			: swift.types;
+		const total = types.length;
+		const sliced = sanitize(types.slice(offset, offset + limit));
+		const returnedNames = new Set(sliced.map((t) => t.fullName));
+		const conformances = sanitize(
+			swift.conformances.filter((c) => returnedNames.has(c.typeName)).slice(0, 5000)
+		);
+		return {
+			total,
+			offset,
+			limit,
+			returned: sliced.length,
+			types: sliced,
+			protocols: sanitize(swift.protocols.slice(0, 2000)),
+			protocolTotal: swift.protocols.length,
+			conformances,
+			conformanceTotal: swift.conformances.length,
+			unresolvedConformances: swift.unresolvedConformances,
+			present: swift.present
+		};
+	}
+
 	const array = getArray(data, section);
 
 	let filtered = array;
@@ -277,7 +313,9 @@ server.registerTool(
 			"Sections: strings (embedded binary strings + localisation), " +
 			"headers (Mach-O header + load commands), libraries (linked dylibs/" +
 			"frameworks), symbols (exported/imported/local), classes (ObjC classes " +
-			"+ methods + protocols), entitlements (code signing), infoPlist " +
+			"+ methods + protocols), swift (Swift nominal types with stored " +
+			"properties, superclasses, protocols, and protocol conformances), " +
+			"entitlements (code signing), infoPlist " +
 			"(Info.plist), security (findings + hardening), files (bundle file " +
 			"tree), hooks (jailbreak hook detection), size (bytes per " +
 			"segment/section and per module — Swift module, C++ namespace, ObjC " +
@@ -289,7 +327,8 @@ server.registerTool(
 				.optional()
 				.describe(
 					"Case-insensitive substring filter on primary field: " +
-						"value (strings), name (symbols/classes/libraries)"
+						"value (strings), name (symbols/classes/libraries), " +
+						"fullName (swift types)"
 				),
 			offset: z
 				.number()
