@@ -3,7 +3,13 @@
  * conformances parsed from the binary's Swift metadata sections.
  */
 
-import type { SwiftMetadata, SwiftProtocol, SwiftType, SwiftTypeKind } from "../../shared/types";
+import type {
+	BinaryInfo,
+	SwiftMetadata,
+	SwiftProtocol,
+	SwiftType,
+	SwiftTypeKind
+} from "../../shared/types";
 import { EmptyState, SearchBar } from "../components";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
@@ -55,7 +61,8 @@ function countByKind(types: SwiftType[], kind: SwiftTypeKind): number {
 export function renderSwift(
 	container: HTMLElement,
 	data: SwiftMetadata | null,
-	sessionId: string
+	sessionId: string,
+	binary?: BinaryInfo
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container", "swift-container");
@@ -73,6 +80,10 @@ export function renderSwift(
 
 	const allTypes = data.types;
 	const allConformances = data.conformances;
+	const mainModuleName =
+		binary?.type === "main"
+			? binary.name.replace(/\.(?:dylib|so|app|framework|bundle)$/i, "")
+			: "";
 	const conformanceByType = new Map<string, SwiftType>();
 	for (const type of allTypes) conformanceByType.set(type.fullName, type);
 
@@ -174,7 +185,11 @@ export function renderSwift(
 		const option = document.createElement("option");
 		option.value = module;
 		const label = module || "(no module)";
-		option.textContent = `${label} (${typesByModule.get(module) ?? 0})`;
+		const isMain =
+			mainModuleName !== "" && module.toLowerCase() === mainModuleName.toLowerCase();
+		option.textContent = `${label} (${typesByModule.get(module) ?? 0})${
+			isMain ? "\u00A0\u00A0[Main]" : ""
+		}`;
 		moduleSelect.appendChild(option);
 	}
 	const prefixToggle = document.createElement("button");
