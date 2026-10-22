@@ -35,6 +35,11 @@ function createWindow(): BrowserWindow {
 
 	win.loadFile(path.join(APP_ROOT, "src/renderer/index.html"));
 
+	win.webContents.setVisualZoomLevelLimits(1, 1);
+	win.webContents.on("zoom-changed", (event, direction) => {
+		event.preventDefault();
+		stepZoom(win, direction === "in" ? ZOOM_STEP : -ZOOM_STEP);
+	});
 	win.webContents.on("will-navigate", (event, url) => {
 		if (url !== win.webContents.getURL()) event.preventDefault();
 	});
@@ -60,14 +65,34 @@ function createWindow(): BrowserWindow {
 
 const isDev = !app.isPackaged;
 
+// Zoom levels are logarithmic (factor 1.2^level): -2..+3 is roughly 70%..170%
+const MIN_ZOOM_LEVEL = -2;
+const MAX_ZOOM_LEVEL = 3;
+const ZOOM_STEP = 0.5;
+
+function stepZoom(win: Electron.BaseWindow | undefined, delta: number): void {
+	if (!(win instanceof BrowserWindow)) return;
+	const { webContents } = win;
+	const level = webContents.getZoomLevel() + delta;
+	webContents.setZoomLevel(Math.min(MAX_ZOOM_LEVEL, Math.max(MIN_ZOOM_LEVEL, level)));
+}
+
 // ── Application menu with Edit shortcuts ──
 const viewSubmenu: Electron.MenuItemConstructorOptions[] = [
 	{ role: "reload" },
 	{ role: "forceReload" },
 	...(isDev ? [{ role: "toggleDevTools" as const }] : []),
 	{ type: "separator" as const },
-	{ role: "zoomIn", accelerator: "CmdOrCtrl+=" },
-	{ role: "zoomOut" as const },
+	{
+		label: "Zoom In",
+		accelerator: "CmdOrCtrl+=",
+		click: (_item, win) => stepZoom(win, ZOOM_STEP)
+	},
+	{
+		label: "Zoom Out",
+		accelerator: "CmdOrCtrl+-",
+		click: (_item, win) => stepZoom(win, -ZOOM_STEP)
+	},
 	{ role: "resetZoom" as const }
 ];
 
