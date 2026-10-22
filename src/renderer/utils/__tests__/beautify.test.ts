@@ -25,9 +25,9 @@ describe("beautifyParser", () => {
 describe("prettyPrintJson", () => {
 	it("indents objects and arrays that parse", () => {
 		expect(prettyPrintJson('{"name":"app","version":"1.0.0"}')).toBe(
-			'{\n  "name": "app",\n  "version": "1.0.0"\n}'
+			'{\n    "name": "app",\n    "version": "1.0.0"\n}'
 		);
-		expect(prettyPrintJson("[1,2]")).toBe("[\n  1,\n  2\n]");
+		expect(prettyPrintJson("[1,2]")).toBe("[\n    1,\n    2\n]");
 	});
 
 	it("returns null for non-JSON text and invalid JSON", () => {
@@ -38,12 +38,12 @@ describe("prettyPrintJson", () => {
 
 describe("beautifyText", () => {
 	it("indents JSON", async () => {
-		expect(await beautifyText('{"a":1}', "json-stringify")).toBe('{\n  "a": 1\n}');
+		expect(await beautifyText('{"a":1}', "json-stringify")).toBe('{\n    "a": 1\n}');
 	});
 
 	it("expands minified JavaScript", async () => {
 		expect(await beautifyText("function f(){return 1;}", "babel")).toBe(
-			"function f() {\n  return 1;\n}"
+			"function f() {\n    return 1;\n}"
 		);
 	});
 
@@ -52,12 +52,12 @@ describe("beautifyText", () => {
 	});
 
 	it("formats CSS", async () => {
-		expect(await beautifyText("a{color:red}", "css")).toBe("a {\n  color: red;\n}");
+		expect(await beautifyText("a{color:red}", "css")).toBe("a {\n    color: red;\n}");
 	});
 
 	it("formats HTML", async () => {
 		expect(await beautifyText("<div><p>hi</p><p>bye</p></div>", "html")).toBe(
-			"<div>\n  <p>hi</p>\n  <p>bye</p>\n</div>"
+			"<div>\n    <p>hi</p>\n    <p>bye</p>\n</div>"
 		);
 	});
 

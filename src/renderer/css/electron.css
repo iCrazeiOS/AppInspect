@@ -459,6 +459,7 @@
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 12px;
   line-height: 1.5;
+  tab-size: 4;
   color: var(--text);
   background-color: var(--surface);
   border: 1px solid var(--border);
