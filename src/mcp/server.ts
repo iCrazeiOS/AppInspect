@@ -15,7 +15,7 @@
  *   set the APPINSPECT_ALLOW_ROOT environment variable (see below).
  *
  * Tools:
- *   analyse_file   — Load and analyse a file (IPA, Mach-O, DEB, .app, .xcframework)
+ *   analyse_file   — Load and analyse a file or folder (IPA, Mach-O, DEB, .app, .xcframework)
  *   get_overview    — Analysis summary (header, hardening, hooks, etc.)
  *   get_section     — Detailed data for a specific section with filtering
  *   search          — Cross-binary search
@@ -265,7 +265,8 @@ server.registerTool(
 	"analyse_file",
 	{
 		description:
-			"Analyse an iOS/macOS binary file (IPA, Mach-O, DEB, .app bundle, or .xcframework). " +
+			"Analyse an iOS/macOS input: an IPA, Mach-O, DEB, .app bundle, .xcframework, " +
+			"or a folder (scanned for Mach-O binaries and .deb packages). " +
 			"Must be called before any other tool. Returns an overview summary " +
 			"including source type, Mach-O header, build version, hardening flags, " +
 			"and available binaries. The result is cached for the session — call " +

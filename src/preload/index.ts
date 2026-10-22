@@ -16,7 +16,9 @@ contextBridge.exposeInMainWorld("api", {
 		ipcRenderer.invoke("save-png", { defaultName, data }),
 	exportJSON: (sessionId: string, tabs?: string[]) =>
 		ipcRenderer.invoke("export-json", { sessionId, tabs }),
-	openFilePicker: () => ipcRenderer.invoke("open-file-picker"),
+	openFilePicker: () => ipcRenderer.invoke("open-file-picker", { mode: "file" }),
+	openFolderPicker: () => ipcRenderer.invoke("open-file-picker", { mode: "folder" }),
+	isDirectory: (filePath: string) => ipcRenderer.invoke("is-directory", { path: filePath }),
 	getSettings: () => ipcRenderer.invoke("get-settings"),
 	setSettings: (settings: AppSettings) => ipcRenderer.invoke("set-settings", settings),
 	searchAllBinaries: (
@@ -73,5 +75,8 @@ contextBridge.exposeInMainWorld("api", {
 	},
 	onOpenFile: (cb: () => void) => {
 		ipcRenderer.on("open-file-menu", () => cb());
+	},
+	onOpenFolder: (cb: () => void) => {
+		ipcRenderer.on("open-folder-menu", () => cb());
 	}
 });

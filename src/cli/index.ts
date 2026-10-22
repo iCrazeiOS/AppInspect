@@ -52,9 +52,10 @@ export interface CliOptions {
 
 export class UsageError extends Error {}
 
-const USAGE = `Usage: appinspect <file> [options]
+const USAGE = `Usage: appinspect <file-or-folder> [options]
 
-Analyse an iOS/macOS binary (IPA, DEB, .app bundle, .xcframework, Mach-O, or dylib).
+Analyse an iOS/macOS binary (IPA, DEB, .app bundle, .xcframework, Mach-O, or dylib),
+or scan a folder for binaries and .deb packages.
 
 Options:
   --json                Emit the full analysis as JSON (default)

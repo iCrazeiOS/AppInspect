@@ -22,6 +22,8 @@ export interface AppInspectAPI {
 	exportJSON(sessionId: string, tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
 	savePNG(defaultName: string, data: Uint8Array): Promise<{ success: boolean; path?: string }>;
 	openFilePicker(): Promise<string | null>;
+	openFolderPicker(): Promise<string | null>;
+	isDirectory(filePath: string): Promise<boolean>;
 	getSettings(): Promise<AppSettings>;
 	setSettings(settings: AppSettings): Promise<void>;
 	searchAllBinaries(
@@ -55,6 +57,7 @@ export interface AppInspectAPI {
 	onError(cb: (data: AnalysisErrorPayload) => void): void;
 	onCloseActiveTab(cb: () => void): void;
 	onOpenFile(cb: () => void): void;
+	onOpenFolder(cb: () => void): void;
 }
 
 declare global {

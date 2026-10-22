@@ -13,13 +13,10 @@ import { MACHO_MAGICS } from "../parser/macho";
 import { isXCFrameworkPath } from "../xcframework/discovery";
 
 export function detectFileType(filePath: string): SourceType {
-	// Handle directories: .app bundles and .xcframeworks are valid, anything else is not
 	if (fs.statSync(filePath).isDirectory()) {
 		if (filePath.endsWith(".app")) return "ipa";
 		if (isXCFrameworkPath(filePath)) return "xcframework";
-		throw new Error(
-			"The selected folder is not a valid .app bundle, .xcframework, or supported file."
-		);
+		return "folder";
 	}
 
 	const fd = fs.openSync(filePath, "r");

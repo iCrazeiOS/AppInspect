@@ -6,6 +6,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
 	AnalysisResult,
 	LibraryGraphData,
@@ -145,7 +146,7 @@ export function buildLibraryGraph(
 
 		for (const lib of libs) {
 			const matchedBinary = binaries.find(
-				(b) => b.name !== bin.name && lib.name.includes(b.name)
+				(b) => b.name !== bin.name && lib.name.includes(path.basename(b.name))
 			);
 
 			if (matchedBinary) {
