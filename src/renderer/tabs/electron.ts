@@ -3,6 +3,7 @@
  * package metadata, fuses and ASAR integrity recorded for the bundle.
  */
 
+import { imageMimeType } from "../../shared/asar-preview";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AsarEntry,
@@ -14,17 +15,40 @@ import type {
 	PlistValue
 } from "../../shared/types";
 import { EmptyState, SearchBar } from "../components";
+import { showToast } from "../components/toast";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
+import {
+	type BeautifyParser,
+	beautifyParser,
+	beautifyText,
+	prettyPrintJson
+} from "../utils/beautify";
 import { copyText } from "../utils/clipboard";
 import { el } from "../utils/dom";
 import { formatCount, formatSize } from "../utils/format";
+import {
+	clampImageZoom,
+	fitImageZoom,
+	IMAGE_ZOOM_MAX,
+	IMAGE_ZOOM_MIN,
+	pinchImageZoom,
+	stepImageZoom
+} from "../utils/image-zoom";
 import { initPanelResize } from "../utils/panel-resize";
 
 /** Archive preview cap, matching the main-process handler's clamp. */
 const PREVIEW_MAX_BYTES = 512 * 1024;
 
 type ElectronView = "files" | "package";
+
+interface ImageZoomState {
+	image: HTMLImageElement;
+	width: number;
+	height: number;
+	fit: number;
+	scale: number;
+}
 
 const FUSE_STATE_CLASS: Record<ElectronFuseState, string> = {
 	enabled: "el-fuse-state--enabled",
@@ -95,15 +119,98 @@ export function collectMatchedPaths(
 	return result;
 }
 
-/** Re-serialise JSON text with indentation, or null when it does not parse. */
-export function prettyPrintJson(text: string): string | null {
-	const trimmed = text.trimStart();
-	if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-	try {
-		return JSON.stringify(JSON.parse(text), null, 2);
-	} catch {
-		return null;
-	}
+const CODE_EXTENSIONS = new Set([
+	"js",
+	"mjs",
+	"cjs",
+	"jsx",
+	"ts",
+	"tsx",
+	"css",
+	"scss",
+	"sass",
+	"less",
+	"html",
+	"htm",
+	"xhtml",
+	"svg",
+	"vue",
+	"svelte",
+	"sh",
+	"py",
+	"rb",
+	"go",
+	"rs",
+	"c",
+	"h",
+	"cpp",
+	"hpp",
+	"java",
+	"kt",
+	"swift",
+	"m"
+]);
+
+const DATA_EXTENSIONS = new Set([
+	"json",
+	"map",
+	"json5",
+	"yaml",
+	"yml",
+	"toml",
+	"xml",
+	"csv",
+	"tsv",
+	"plist",
+	"webmanifest"
+]);
+
+const FONT_EXTENSIONS = new Set(["woff", "woff2", "ttf", "otf", "eot"]);
+
+const ARCHIVE_EXTENSIONS = new Set(["zip", "tar", "gz", "tgz", "bz2", "xz", "7z", "rar", "asar"]);
+
+const MEDIA_EXTENSIONS = new Set([
+	"mp3",
+	"wav",
+	"ogg",
+	"flac",
+	"m4a",
+	"aac",
+	"mp4",
+	"webm",
+	"mov",
+	"mkv",
+	"avi"
+]);
+
+const BINARY_EXTENSIONS = new Set([
+	"node",
+	"dll",
+	"dylib",
+	"so",
+	"exe",
+	"wasm",
+	"bin",
+	"dat",
+	"db"
+]);
+
+const DOC_EXTENSIONS = new Set(["md", "markdown", "txt", "log"]);
+
+/** File icon for an archive tree row. */
+export function fileIcon(name: string, isDirectory: boolean): string {
+	if (isDirectory) return "\u{1F4C1}";
+	if (imageMimeType(name)) return "\u{1F5BC}\u{FE0F}";
+	const dot = name.lastIndexOf(".");
+	const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+	if (CODE_EXTENSIONS.has(extension)) return "\u{1F4DC}";
+	if (DATA_EXTENSIONS.has(extension)) return "\u{1F5C2}\u{FE0F}";
+	if (FONT_EXTENSIONS.has(extension)) return "\u{1F524}";
+	if (ARCHIVE_EXTENSIONS.has(extension)) return "\u{1F4E6}";
+	if (MEDIA_EXTENSIONS.has(extension)) return "\u{1F3B5}";
+	if (BINARY_EXTENSIONS.has(extension)) return "\u2699\u{FE0F}";
+	if (DOC_EXTENSIONS.has(extension)) return "\u{1F4DD}";
+	return "\u{1F4C4}";
 }
 
 // ── Value formatting ──
@@ -468,13 +575,30 @@ export function renderElectron(
 		const header = el("div", "el-preview-header");
 		const pathEl = el("span", "el-preview-path", "Select a file to preview");
 		const sizeEl = el("span", "el-preview-size");
-		const copyBtn = el("button", "el-preview-copy", "Copy path");
+		const zoomControls = el("div", "el-zoom-controls");
+		const zoomOutBtn = el("button", "el-preview-btn el-zoom-btn", "\u2212");
+		const zoomLabel = el("button", "el-preview-btn el-zoom-label", "100%");
+		const zoomInBtn = el("button", "el-preview-btn el-zoom-btn", "+");
+		zoomOutBtn.title = "Zoom out";
+		zoomInBtn.title = "Zoom in";
+		zoomLabel.title = "Reset zoom";
+		zoomControls.hidden = true;
+		zoomControls.appendChild(zoomOutBtn);
+		zoomControls.appendChild(zoomLabel);
+		zoomControls.appendChild(zoomInBtn);
+		const beautifyBtn = el("button", "el-preview-btn", "Beautify");
+		beautifyBtn.title = "Beautify code";
+		beautifyBtn.hidden = true;
+		beautifyBtn.disabled = true;
+		const copyBtn = el("button", "el-preview-btn", "Copy path");
 		copyBtn.disabled = true;
 		copyBtn.addEventListener("click", () => {
 			if (previewPath) copyText(previewPath, "Copied path");
 		});
 		header.appendChild(pathEl);
 		header.appendChild(sizeEl);
+		header.appendChild(zoomControls);
+		header.appendChild(beautifyBtn);
 		header.appendChild(copyBtn);
 
 		const notices = el("div", "el-preview-notices");
@@ -484,6 +608,124 @@ export function renderElectron(
 		preview.appendChild(header);
 		preview.appendChild(notices);
 		preview.appendChild(body);
+
+		// ── Beautify state (raw text is kept so toggling is lossless) ──
+		let rawText: string | null = null;
+		let textParser: BeautifyParser | null = null;
+		let beautified = false;
+		let codeEl: HTMLElement | null = null;
+
+		function updateBeautifyButton(): void {
+			const enabled = rawText !== null && textParser !== null;
+			beautifyBtn.hidden = !enabled;
+			beautifyBtn.disabled = !enabled;
+			beautifyBtn.classList.toggle("el-preview-btn--active", beautified);
+		}
+
+		function resetBeautify(): void {
+			rawText = null;
+			textParser = null;
+			beautified = false;
+			codeEl = null;
+			updateBeautifyButton();
+		}
+
+		// ── Image zoom state ──
+		let imageZoom: ImageZoomState | null = null;
+
+		function updateZoomControls(): void {
+			if (!imageZoom) return;
+			zoomLabel.textContent = `${Math.round(imageZoom.scale * 100)}%`;
+			zoomOutBtn.disabled = imageZoom.scale <= IMAGE_ZOOM_MIN;
+			zoomInBtn.disabled = imageZoom.scale >= IMAGE_ZOOM_MAX;
+		}
+
+		/** Resize the image around an anchor point in body coordinates. */
+		function applyImageZoom(scale: number, anchorX?: number, anchorY?: number): void {
+			if (!imageZoom) return;
+			const ax = anchorX ?? body.clientWidth / 2;
+			const ay = anchorY ?? body.clientHeight / 2;
+			const ratioX = (ax + body.scrollLeft) / Math.max(1, body.scrollWidth);
+			const ratioY = (ay + body.scrollTop) / Math.max(1, body.scrollHeight);
+
+			imageZoom.scale = clampImageZoom(scale);
+			imageZoom.image.style.width = `${imageZoom.width * imageZoom.scale}px`;
+			imageZoom.image.style.height = `${imageZoom.height * imageZoom.scale}px`;
+
+			body.scrollLeft = ratioX * body.scrollWidth - ax;
+			body.scrollTop = ratioY * body.scrollHeight - ay;
+			updateZoomControls();
+		}
+
+		function fitImage(): void {
+			if (!imageZoom) return;
+			imageZoom.fit = fitImageZoom(
+				imageZoom.width,
+				imageZoom.height,
+				body.clientWidth,
+				body.clientHeight
+			);
+			applyImageZoom(imageZoom.fit);
+			body.scrollLeft = 0;
+			body.scrollTop = 0;
+		}
+
+		function resetImageZoom(): void {
+			imageZoom = null;
+			zoomControls.hidden = true;
+		}
+
+		zoomOutBtn.addEventListener("click", () => {
+			if (imageZoom) applyImageZoom(stepImageZoom(imageZoom.scale, "out"));
+		});
+		zoomInBtn.addEventListener("click", () => {
+			if (imageZoom) applyImageZoom(stepImageZoom(imageZoom.scale, "in"));
+		});
+		zoomLabel.addEventListener("click", fitImage);
+
+		// Trackpad pinch is reported as a ctrl+wheel event. Without ctrl the
+		// browser keeps its normal scroll behaviour, letting a zoomed image pan.
+		body.addEventListener(
+			"wheel",
+			(event) => {
+				if (!event.ctrlKey || !imageZoom) return;
+				event.preventDefault();
+				const rect = body.getBoundingClientRect();
+				applyImageZoom(
+					pinchImageZoom(imageZoom.scale, event.deltaY),
+					event.clientX - rect.left,
+					event.clientY - rect.top
+				);
+			},
+			{ passive: false }
+		);
+
+		beautifyBtn.addEventListener("click", async () => {
+			if (rawText === null || !textParser || !codeEl) return;
+			if (beautified) {
+				codeEl.textContent = rawText;
+				beautified = false;
+				updateBeautifyButton();
+				return;
+			}
+
+			const text = rawText;
+			const parser = textParser;
+			const target = codeEl;
+			beautifyBtn.disabled = true;
+			// Let the pending label paint before Prettier blocks the thread.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			const formatted = await beautifyText(text, parser);
+			// A different file may have been selected while formatting.
+			if (codeEl !== target || rawText !== text || textParser !== parser) return;
+			if (formatted === null) {
+				showToast("Could not beautify this file");
+			} else {
+				target.textContent = formatted;
+				beautified = true;
+			}
+			updateBeautifyButton();
+		});
 
 		initPanelResize(handle, () => sidebar, {
 			side: "left",
@@ -499,12 +741,59 @@ export function renderElectron(
 			}
 		}
 
-		function renderPreviewContent(result: AsarFileContent): void {
+		function renderPreviewContent(result: AsarFileContent, path: string): void {
 			notices.innerHTML = "";
 			body.innerHTML = "";
+			body.classList.remove("el-preview-body--image");
 			sizeEl.textContent = formatSize(result.size);
+			resetBeautify();
+			resetImageZoom();
 
-			if (result.binary) {
+			if (result.kind === "image") {
+				if (result.image) {
+					body.classList.add("el-preview-body--image");
+					const stage = el("div", "el-image-stage");
+					const image = el("img", "el-image");
+					image.alt = path;
+					image.addEventListener("load", () => {
+						if (!image.isConnected || image.naturalWidth === 0) return;
+						imageZoom = {
+							image,
+							width: image.naturalWidth,
+							height: image.naturalHeight,
+							fit: 1,
+							scale: 1
+						};
+						zoomControls.hidden = false;
+						fitImage();
+						image.classList.add("el-image--ready");
+					});
+					image.addEventListener("error", () => {
+						resetImageZoom();
+						body.classList.remove("el-preview-body--image");
+						body.innerHTML = "";
+						body.appendChild(
+							el("div", "el-preview-empty", "Could not render this image.")
+						);
+					});
+					stage.appendChild(image);
+					body.appendChild(stage);
+					image.src = result.image;
+					return;
+				}
+				notices.appendChild(
+					el(
+						"div",
+						"el-notice el-notice--warn",
+						result.truncated
+							? "Image is too large to preview (limit 4 MB)."
+							: "Image preview unavailable."
+					)
+				);
+				return;
+			}
+
+			if (result.kind === "binary") {
 				notices.appendChild(
 					el(
 						"div",
@@ -527,7 +816,12 @@ export function renderElectron(
 
 			const text = result.text ?? "";
 			const pretty = prettyPrintJson(text);
-			body.appendChild(el("pre", "el-code", pretty ?? text));
+			rawText = text;
+			textParser = beautifyParser(path);
+			beautified = pretty !== null;
+			codeEl = el("pre", "el-code", pretty ?? text);
+			body.appendChild(codeEl);
+			updateBeautifyButton();
 		}
 
 		async function loadPreview(entry: AsarEntry): Promise<void> {
@@ -538,13 +832,17 @@ export function renderElectron(
 			copyBtn.disabled = false;
 			notices.innerHTML = "";
 			body.innerHTML = "";
+			body.classList.remove("el-preview-body--image");
+			resetBeautify();
+			resetImageZoom();
 			body.appendChild(el("div", "el-preview-loading", "Loading\u2026"));
 
 			try {
 				const result = await window.api.readAsarFile(
 					sessionId,
 					entry.path,
-					PREVIEW_MAX_BYTES
+					PREVIEW_MAX_BYTES,
+					true
 				);
 				if (requestId !== previewRequest || !body.isConnected) return;
 				if (!result) {
@@ -554,7 +852,7 @@ export function renderElectron(
 					);
 					return;
 				}
-				renderPreviewContent(result);
+				renderPreviewContent(result, entry.path);
 			} catch (err) {
 				if (requestId !== previewRequest || !body.isConnected) return;
 				body.innerHTML = "";
@@ -588,9 +886,7 @@ export function renderElectron(
 			if (hasChildren) toggle.classList.add("el-tree-toggle--active");
 			row.appendChild(toggle);
 
-			row.appendChild(
-				el("span", "el-tree-icon", entry.isDirectory ? "\u{1F4C1}" : "\u{1F4C4}")
-			);
+			row.appendChild(el("span", "el-tree-icon", fileIcon(entry.name, entry.isDirectory)));
 			row.appendChild(el("span", "el-tree-name", entry.name));
 
 			if (entry.unpacked) {

@@ -84,6 +84,7 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "bplist-parser": "^0.3.2",
     "plist": "^3.1.0",
+    "prettier": "^3.9.10",
     "swift-demangle-wasm": "^1.0.2",
     "zod": "^4.3.6"
   }

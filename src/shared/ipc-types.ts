@@ -230,7 +230,7 @@ export type InvokeChannelMap = {
 		result: { offset: number; length: number; data: number[]; fileSize: number } | null;
 	};
 	"read-asar-file": {
-		params: { sessionId: string; path: string; maxBytes?: number };
+		params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
 		result: AsarFileContent | null;
 	};
 	"search-hex": {

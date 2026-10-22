@@ -108,12 +108,12 @@ export interface AsarFileContent {
 
 ```ts
 "read-asar-file": {
-	params: { sessionId: string; path: string; maxBytes?: number };
+	params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
 	result: AsarFileContent | null;
 };
 ```
 
-- `AppInspectAPI` gains `readAsarFile(sessionId, path, maxBytes?)`.
+- `AppInspectAPI` gains `readAsarFile(sessionId, path, maxBytes?, includeImage?)`.
 
 ## Main-process modules
 
@@ -243,7 +243,7 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 - `AnalysisSession` stores `electron: ElectronInfo | null` and the parsed
   `AsarArchive`, and exposes:
   - `getAsarTree(): AsarEntry[]`
-  - `readAsarFile(entryPath, maxBytes): AsarFileContent | null`
+  - `readAsarFile(entryPath, maxBytes, includeImage?): AsarFileContent | null`
 - `analyseApp`: after framework detection, `detectElectron`; then asar text
   scan; merge findings; pass `electron` into `buildAnalysisResult`.
   Progress: `"Scanning Electron bundle..."` around 82%.
@@ -254,7 +254,8 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
   unchanged when there are no packed files.
 - `getSizeTree` passes the archive path + tree.
 - `getTabData("electron")` returns `{ info, files }`.
-- `read-asar-file` handler: clamp `maxBytes` to 1..512 KB, return
+- `read-asar-file` handler: clamp text reads to 1..512 KB; image reads cap at
+  4 MB and embed a data URL only when `includeImage` is true. Return
   `AsarFileContent` or `null`.
 - Export map adds `electron: "electron"`.
 - No cache changes: the header read is cheap and reads are by offset.
@@ -288,9 +289,16 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
     - Tree rows mirror the Files tab: toggle, dir/file icon, name, size,
       badges for `unpacked`/`link`/`executable`.
     - Selection + expansions persist in `tab-state` under `electron`.
-    - Preview: `readAsarFile(..., 512 KB)`; stale responses ignored with a
-      request counter; monospace `<pre>`; pretty-print JSON when it parses;
-      truncation and binary notices.
+    - Preview: `readAsarFile(..., 512 KB, true)`; stale responses ignored with a
+      request counter; monospace `<pre>` with a Beautify/Raw toggle
+      (Prettier standalone); pretty-print JSON when it parses; truncated text
+      and binary notices. Raster images render from a data URL and fall back to
+      a notice when larger than 4 MB or undecodable. Images open fitted to the
+      viewport with zoom out / reset / zoom in header buttons, trackpad pinch
+      (ctrl+wheel) anchored under the cursor, and normal two-finger scrolling to
+      pan once zoomed.
+    - Tree icons classify directories, images, code, data, fonts, archives,
+      media, binaries and docs.
   - Package view: package.json facts, dependencies, fuses with state badges,
     integrity card, source maps and native addons lists.
   - Use `EmptyState`, `el`, `formatCount`, `formatSize`, `plural`,
@@ -328,6 +336,9 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
   scan budgets, `.map` skipped.
 - `size-tree.test.ts`: asar split, unpacked exclusion, overhead child, no
   packed files falls back to a file leaf.
+- `asar-preview.test.ts`: raster MIME detection and unsupported extensions.
+- `beautify.test.ts`: parser detection, JSON/JS/TS/CSS/HTML formatting and
+  invalid input.
 - Existing tests must keep passing.
 
 ## Acceptance

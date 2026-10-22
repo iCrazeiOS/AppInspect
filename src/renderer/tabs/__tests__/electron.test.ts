@@ -1,11 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AsarEntry } from "../../../shared/types";
-import {
-	ancestorPaths,
-	collectMatchedPaths,
-	compilePathMatcher,
-	prettyPrintJson
-} from "../electron";
+import { ancestorPaths, collectMatchedPaths, compilePathMatcher, fileIcon } from "../electron";
 
 const file = (path: string): AsarEntry => ({
 	name: path.split("/").pop() ?? path,
@@ -82,16 +77,33 @@ describe("collectMatchedPaths", () => {
 	});
 });
 
-describe("prettyPrintJson", () => {
-	it("indents objects and arrays that parse", () => {
-		expect(prettyPrintJson('{"name":"app","version":"1.0.0"}')).toBe(
-			'{\n  "name": "app",\n  "version": "1.0.0"\n}'
-		);
-		expect(prettyPrintJson("[1,2]")).toBe("[\n  1,\n  2\n]");
+describe("fileIcon", () => {
+	it("uses a folder icon for directories", () => {
+		expect(fileIcon("dist", true)).toBe("\u{1F4C1}");
 	});
 
-	it("returns null for non-JSON text and invalid JSON", () => {
-		expect(prettyPrintJson("const x = 1;")).toBeNull();
-		expect(prettyPrintJson('{"broken":')).toBeNull();
+	it("classifies images by MIME type", () => {
+		expect(fileIcon("icon.png", false)).toBe("\u{1F5BC}\u{FE0F}");
+		expect(fileIcon("photo.JPEG", false)).toBe("\u{1F5BC}\u{FE0F}");
+	});
+
+	it("classifies code and data files", () => {
+		expect(fileIcon("main.ts", false)).toBe("\u{1F4DC}");
+		expect(fileIcon("Icon.SVG", false)).toBe("\u{1F4DC}");
+		expect(fileIcon("package.json", false)).toBe("\u{1F5C2}\u{FE0F}");
+		expect(fileIcon("info.plist", false)).toBe("\u{1F5C2}\u{FE0F}");
+	});
+
+	it("classifies fonts, archives, media, binaries and docs", () => {
+		expect(fileIcon("font.woff2", false)).toBe("\u{1F524}");
+		expect(fileIcon("app.asar", false)).toBe("\u{1F4E6}");
+		expect(fileIcon("clip.mp4", false)).toBe("\u{1F3B5}");
+		expect(fileIcon("native.node", false)).toBe("\u2699\u{FE0F}");
+		expect(fileIcon("README.md", false)).toBe("\u{1F4DD}");
+	});
+
+	it("falls back to a generic file icon", () => {
+		expect(fileIcon("LICENSE", false)).toBe("\u{1F4C4}");
+		expect(fileIcon("unknown.xyz", false)).toBe("\u{1F4C4}");
 	});
 });

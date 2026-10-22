@@ -340,8 +340,9 @@ server.registerTool(
 	{
 		description:
 			"Read a file from an Electron app.asar archive by archive-relative path " +
-			"(from list_asar). Returns its text (up to 512 KB) or, for binary content, " +
-			"metadata with binary: true. Archive contents are never extracted.",
+			"(from list_asar). Text entries return their text (up to maxBytes); image " +
+			'entries return kind: "image" metadata without image bytes, and other ' +
+			"binary entries return metadata only. Archive contents are never extracted.",
 		inputSchema: {
 			file: z.string().describe("Archive-relative path, e.g. from list_asar"),
 			maxBytes: z
