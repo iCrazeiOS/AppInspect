@@ -29,9 +29,14 @@
   transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
 }
 
-.swift-filter-btn:hover {
+.swift-filter-btn:not(:disabled):hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+.swift-filter-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .swift-filter-btn--active {
@@ -40,9 +45,23 @@
   border-color: var(--accent);
 }
 
+.swift-prefix-toggle {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.swift-module-group {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .swift-module-select {
   height: 24px;
-  margin-left: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 0 6px;
   background: var(--bg);
   color: var(--text);
@@ -51,7 +70,6 @@
   font-size: 11px;
   font-family: var(--font-stack);
   cursor: pointer;
-  max-width: 190px;
 }
 
 .swift-row {
