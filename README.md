@@ -10,9 +10,9 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 
 - **IPA** — extracts the app bundle, discovers the main executable plus embedded frameworks and app extensions
 - **macOS .app** — supports macOS app bundles (`.app/Contents/MacOS/` layout), discovers main executable, helper binaries, versioned frameworks, and plugins
-- **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
+- **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
 
 File type is detected automatically by magic bytes.
 
@@ -34,7 +34,7 @@ File type is detected automatically by magic bytes.
 | **Security** | Credential leak scanning, weak crypto, unsafe APIs, dangerous syscalls, jailbreak detection strings, binary hardening assessment (issues only), leaked debug artifacts (DWARF, debug symbols, developer source paths, shipped source maps / Swift module interfaces / symbol maps), bundle file scanning (JS bundles, configs) |
 | **Hex** | Raw hex viewer with virtual scrolling for large binaries. Segment/section region picker, go-to offset, hex/decimal offset toggle. Dual-mode search (hex bytes or text) with match highlighting and navigation |
 | **Files** | Bundle file tree with sizes, context menu (copy path, open file, show in explorer/finder), double-click to open (IPA/DEB) |
-| **Size** | Where the binary's bytes go. **Modules** ranks Swift modules, ObjC class prefixes, C++ namespaces, Kotlin packages, and well-known C libraries (OpenSSL/BoringSSL, SQLite, ...) by size, each expandable to its largest functions. **Sections** breaks each segment down by section, with `__LINKEDIT` split into symbol/string tables, code signature, fixups, and export trie. **Blocks** is a Disk Inventory X-style cushion treemap of every file in the bundle (for XCFrameworks, the active slice's `.framework` as it would be embedded in an app — `Headers`, `PrivateHeaders`, `Modules` and `.tbd` stubs are excluded, as Xcode's Embed Frameworks phase does, and listed above the map), with the active binary split into its modules and binary overhead, and Core ML models (`.mlmodelc`, `.mlpackage`, `.mlmodel`) kept as single blocks; hover for details, click to zoom, breadcrumb to zoom out. **Export PNG** saves the current view as a 6000×4000 image with every block labelled — blocks too small for their name get a number referenced in a key under the map. Attribution is heuristic: it uses the symbol table, export trie, ObjC method lists, and function starts, and assigns stripped code to a module when both neighbouring functions belong to it |
+| **Size** | Where the binary's bytes go, as **Modules** (Swift modules, ObjC prefixes, C++ namespaces, Kotlin packages, well-known C libs, expandable to largest functions), **Sections** (per-segment, `__LINKEDIT` split into tables/signature/fixups/export trie), and **Blocks**, a treemap of every bundle file with the active binary broken into modules and overhead. Export PNG saves the view at 6000×4000 with every block labelled. Attribution is heuristic, based on symbol table, export trie, ObjC methods, and function starts |
 
 ### Other capabilities
 
