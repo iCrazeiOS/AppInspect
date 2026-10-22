@@ -502,9 +502,9 @@ export function renderElectron(
 		)
 	);
 	summary.appendChild(
-		stat(String(info.unpackedCount), plural(info.unpackedCount, "unpacked file"))
+		stat(String(info.unpackedCount), plural(info.unpackedCount, "Unpacked file"))
 	);
-	summary.appendChild(stat(String(sourceMaps.length), plural(sourceMaps.length, "source map")));
+	summary.appendChild(stat(String(sourceMaps.length), plural(sourceMaps.length, "Source map")));
 
 	const badges = el("div", "el-summary-badges");
 	if (info.electronVersion) {
