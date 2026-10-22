@@ -108,6 +108,17 @@ export function nodeKey(ancestors: SizeTreeNode[], node: SizeTreeNode): string {
 /** True when `node` (with its ancestors below the view root) is hidden. */
 export type IsHidden = (ancestors: SizeTreeNode[], node: SizeTreeNode) => boolean;
 
+/**
+ * Deepest group enclosing a clicked leaf: the leaf's immediate parent below the
+ * view root. `ancestors` is the layout path, which starts at the view root, so
+ * its last entry is the parent group. Returns null when the leaf sits directly
+ * under the view root and there is nothing further to zoom into.
+ */
+export function zoomTarget(ancestors: SizeTreeNode[], viewRoot: SizeTreeNode): SizeTreeNode | null {
+	const parent = ancestors[ancestors.length - 1];
+	return parent && parent !== viewRoot ? parent : null;
+}
+
 // ── Squarified layout ──
 
 /** Worst aspect ratio of a row of areas laid along a side of length `side`. */
@@ -640,14 +651,12 @@ export function mountTreemap(
 		tooltip.classList.add("hidden");
 	});
 
-	// Click zooms into the top-level block under the cursor (if it has children)
+	// Click drills into the deepest group under the cursor
 	canvas.addEventListener("click", (event) => {
 		const hit = hitTest(event);
 		if (!hit) return;
-		const target = hit.ancestors[1] ?? (hit.node.children ? hit.node : null);
-		if (target?.children && target !== viewRoot) {
-			zoomTo([...viewChain, viewRoot], target);
-		}
+		const target = zoomTarget(hit.ancestors, viewRoot);
+		if (target) zoomTo([...viewChain, viewRoot], target);
 	});
 
 	// Right click offers to hide the block under the cursor

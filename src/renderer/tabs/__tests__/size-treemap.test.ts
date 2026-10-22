@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { SizeTreeNode } from "../../../shared/types";
-import { layoutAndShade, nodeKey, roleTotals, squarify } from "../size-treemap";
+import { layoutAndShade, nodeKey, roleTotals, squarify, zoomTarget } from "../size-treemap";
 
 const leaf = (size: number): SizeTreeNode => ({ name: String(size), size, kind: "file" });
 
@@ -90,5 +90,34 @@ describe("hidden blocks", () => {
 			(_anc, node) => node === folder
 		);
 		expect(totals.file).toBe(0);
+	});
+});
+
+describe("zoomTarget", () => {
+	const leafNode: SizeTreeNode = { name: "Foo", size: 4, kind: "file" };
+	const deep: SizeTreeNode = {
+		name: "Foo.framework",
+		size: 6,
+		kind: "directory",
+		children: [leafNode, { name: "Info.plist", size: 2, kind: "file" }]
+	};
+	const mid: SizeTreeNode = { name: "Frameworks", size: 6, kind: "directory", children: [deep] };
+	const root: SizeTreeNode = { name: "MyApp.app", size: 6, kind: "directory", children: [mid] };
+	const { leaves } = layoutAndShade(root, { x: 0, y: 0, w: 100, h: 100 }, null);
+
+	it("drills into the immediate parent of the clicked leaf, not the top level", () => {
+		const block = leaves.find((l) => l.node === leafNode)!;
+		expect(zoomTarget(block.ancestors, root)?.name).toBe("Foo.framework");
+	});
+
+	it("returns null for a leaf sitting directly under the view root", () => {
+		const flat: SizeTreeNode = {
+			name: "flat",
+			size: 3,
+			kind: "directory",
+			children: [{ name: "only", size: 3, kind: "file" }]
+		};
+		const layout = layoutAndShade(flat, { x: 0, y: 0, w: 100, h: 100 }, null);
+		expect(zoomTarget(layout.leaves[0]!.ancestors, flat)).toBeNull();
 	});
 });
