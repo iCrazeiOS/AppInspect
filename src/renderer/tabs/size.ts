@@ -182,20 +182,30 @@ async function renderBlocks(container: HTMLElement, sessionId: string): Promise<
 	try {
 		const tree = await window.api.getSizeTree(sessionId);
 		if (!stage.isConnected) return;
-		disposeTreemap = mountTreemap(stage, tree, async (root, chain) => {
-			try {
-				// Let the button repaint before the (synchronous) render blocks the thread
-				await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
-				const png = await renderTreemapPng(root, chain);
-				const saved = await window.api.savePNG(`${root.name}-size`, png);
-				if (saved.success) showToast(`Saved ${saved.path}`, "success");
-			} catch (err) {
-				showToast(
-					`PNG export failed: ${err instanceof Error ? err.message : err}`,
-					"error"
-				);
-			}
-		});
+		const hidden =
+			getTabState<Set<string>>(sessionId, "size", "hiddenBlocks") ?? new Set<string>();
+		setTabState(sessionId, "size", "hiddenBlocks", hidden);
+		disposeTreemap = mountTreemap(
+			stage,
+			tree,
+			async (root, chain, hiddenBlocks) => {
+				try {
+					// Let the button repaint before the (synchronous) render blocks the thread
+					await new Promise((resolve) =>
+						requestAnimationFrame(() => setTimeout(resolve, 0))
+					);
+					const png = await renderTreemapPng(root, chain, hiddenBlocks);
+					const saved = await window.api.savePNG(`${root.name}-size`, png);
+					if (saved.success) showToast(`Saved ${saved.path}`, "success");
+				} catch (err) {
+					showToast(
+						`PNG export failed: ${err instanceof Error ? err.message : err}`,
+						"error"
+					);
+				}
+			},
+			hidden
+		);
 	} catch (err) {
 		stage.innerHTML = "";
 		stage.appendChild(

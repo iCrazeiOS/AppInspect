@@ -96,6 +96,18 @@ export function describe(node: SizeTreeNode): string {
 	}
 }
 
+/**
+ * Stable identity of a node within the size tree: the names from the tree root
+ * down to the node, joined by NUL. Used to remember hidden blocks across the
+ * re-fetch that happens when the Blocks view is re-mounted.
+ */
+export function nodeKey(ancestors: SizeTreeNode[], node: SizeTreeNode): string {
+	return [...ancestors, node].map((n) => n.name).join("\u0000");
+}
+
+/** True when `node` (with its ancestors below the view root) is hidden. */
+export type IsHidden = (ancestors: SizeTreeNode[], node: SizeTreeNode) => boolean;
+
 // ── Squarified layout ──
 
 /** Worst aspect ratio of a row of areas laid along a side of length `side`. */
@@ -256,7 +268,8 @@ export function layoutAndShade(
 	root: SizeTreeNode,
 	rect: Rect,
 	image: ImageData | null,
-	bandHeight = 0
+	bandHeight = 0,
+	isHidden?: IsHidden
 ): TreemapLayout {
 	const leaves: Block[] = [];
 	const groups: Block[] = [];
@@ -285,9 +298,12 @@ export function layoutAndShade(
 			groups.push({ node, rect: r, ancestors });
 		}
 
-		const rects = squarify(node.children, inner);
 		const chain = [...ancestors, node];
-		node.children.forEach((child, i) => {
+		const visible = isHidden
+			? node.children.filter((child) => !isHidden(chain, child))
+			: node.children;
+		const rects = squarify(visible, inner);
+		visible.forEach((child, i) => {
 			visit(child, rects[i]!, depth + 1, s, chain);
 		});
 	};
@@ -306,20 +322,33 @@ export function excludedSummary(tree: SizeTreeNode): string | null {
 	return `As embedded in an app \u2014 not counted (${formatSize(total)}): ${items}`;
 }
 
-export function roleTotals(node: SizeTreeNode, totals: Record<Role, number>): Record<Role, number> {
-	if (!node.children || node.children.length === 0) totals[roleOf(node)] += node.size;
-	else for (const child of node.children) roleTotals(child, totals);
+export function roleTotals(
+	node: SizeTreeNode,
+	totals: Record<Role, number>,
+	isHidden?: IsHidden,
+	ancestors: SizeTreeNode[] = []
+): Record<Role, number> {
+	if (isHidden?.(ancestors, node)) return totals;
+	if (!node.children || node.children.length === 0) {
+		totals[roleOf(node)] += node.size;
+	} else {
+		const chain = [...ancestors, node];
+		for (const child of node.children) roleTotals(child, totals, isHidden, chain);
+	}
 	return totals;
 }
 
 export function mountTreemap(
 	container: HTMLElement,
 	tree: SizeTreeNode,
-	onExport?: (root: SizeTreeNode, chain: SizeTreeNode[]) => Promise<void>
+	onExport?: (root: SizeTreeNode, chain: SizeTreeNode[], hidden: Set<string>) => Promise<void>,
+	hiddenBlocks = new Set<string>()
 ): () => void {
 	container.innerHTML = "";
 	let viewRoot = tree;
 	let viewChain: SizeTreeNode[] = [];
+	/** Keys of hidden blocks, most recent last; Ctrl/Cmd+Z pops one. */
+	const undoStack: string[] = [];
 
 	const header = el("div", "sz-tm-header");
 	const breadcrumb = el("div", "sz-tm-breadcrumb");
@@ -327,6 +356,9 @@ export function mountTreemap(
 	header.appendChild(breadcrumb);
 	const headerRight = el("div", "sz-tm-header-right");
 	headerRight.appendChild(legend);
+	const resetBtn = el("button", "sz-show-all sz-tm-reset", "Reset");
+	resetBtn.title = "Unhide all hidden blocks";
+	headerRight.appendChild(resetBtn);
 	if (onExport) {
 		const exportBtn = el("button", "sz-show-all sz-tm-export", "Export PNG");
 		exportBtn.title = "Save the current view as a full-size, fully labelled PNG";
@@ -334,7 +366,7 @@ export function mountTreemap(
 			exportBtn.disabled = true;
 			exportBtn.textContent = "Rendering\u2026";
 			try {
-				await onExport(viewRoot, viewChain);
+				await onExport(viewRoot, viewChain, hiddenBlocks);
 			} finally {
 				exportBtn.disabled = false;
 				exportBtn.textContent = "Export PNG";
@@ -361,9 +393,17 @@ export function mountTreemap(
 	let hovered: Block | null = null;
 	let dpr = 1;
 
+	/** True when a node is hidden, keyed from the tree's root regardless of zoom. */
+	const isHidden: IsHidden = (ancestors, node) =>
+		hiddenBlocks.has(nodeKey([...viewChain, ...ancestors], node));
+
 	const renderLegend = () => {
 		legend.innerHTML = "";
-		const totals = roleTotals(viewRoot, { code: 0, mlmodel: 0, file: 0, overhead: 0 });
+		const totals = roleTotals(
+			viewRoot,
+			{ code: 0, mlmodel: 0, file: 0, overhead: 0 },
+			isHidden
+		);
 		for (const role of Object.keys(ROLE_LABELS) as Role[]) {
 			if (totals[role] === 0) continue;
 			const item = el("span", "sz-tm-legend-item");
@@ -375,6 +415,83 @@ export function mountTreemap(
 			legend.appendChild(item);
 		}
 	};
+
+	const updateHiddenUi = () => {
+		const count = hiddenBlocks.size;
+		resetBtn.disabled = count === 0;
+		resetBtn.textContent = count > 0 ? `Reset (${count})` : "Reset";
+		resetBtn.title =
+			count > 0
+				? `Unhide ${formatCount(count, "hidden block")} \u2014 Ctrl/Cmd+Z undoes the last one`
+				: "Unhide all hidden blocks";
+		renderLegend();
+	};
+
+	// ── Context menu for hiding blocks ──
+	let menu: HTMLElement | null = null;
+	const closeMenu = () => {
+		if (!menu) return;
+		menu.remove();
+		menu = null;
+		document.removeEventListener("mousedown", dismissMenu, true);
+	};
+	const dismissMenu = (event: MouseEvent) => {
+		if (!menu?.contains(event.target as Node)) closeMenu();
+	};
+	const showBlockMenu = (event: MouseEvent, block: Block) => {
+		closeMenu();
+		const item = el("div", "sz-tm-menu-item", `Hide ${block.node.name}`);
+		item.title = "Hide this block (Ctrl/Cmd+Z to undo)";
+		item.addEventListener("click", () => {
+			closeMenu();
+			hideBlock(block);
+		});
+		const next = el("div", "sz-tm-menu");
+		next.appendChild(item);
+		next.style.left = `${event.clientX}px`;
+		next.style.top = `${event.clientY}px`;
+		document.body.appendChild(next);
+		menu = next;
+		requestAnimationFrame(() => {
+			const bounds = next.getBoundingClientRect();
+			if (bounds.right > window.innerWidth) {
+				next.style.left = `${window.innerWidth - bounds.width - 4}px`;
+			}
+			if (bounds.bottom > window.innerHeight) {
+				next.style.top = `${window.innerHeight - bounds.height - 4}px`;
+			}
+		});
+		setTimeout(() => document.addEventListener("mousedown", dismissMenu, true), 0);
+	};
+
+	/** Key of a block in the tree rooted at `tree`, independent of the current zoom. */
+	const blockKey = (block: Block) => nodeKey([...viewChain, ...block.ancestors], block.node);
+
+	const hideBlock = (block: Block) => {
+		const key = blockKey(block);
+		if (hiddenBlocks.has(key)) return;
+		hiddenBlocks.add(key);
+		undoStack.push(key);
+		updateHiddenUi();
+		render();
+	};
+
+	/** Un-hide the most recently hidden block. Returns false when there is nothing to undo. */
+	const undoHide = () => {
+		const key = undoStack.pop();
+		if (key === undefined || !hiddenBlocks.delete(key)) return false;
+		updateHiddenUi();
+		render();
+		return true;
+	};
+
+	resetBtn.addEventListener("click", () => {
+		if (hiddenBlocks.size === 0) return;
+		hiddenBlocks.clear();
+		undoStack.length = 0;
+		updateHiddenUi();
+		render();
+	});
 
 	const renderBreadcrumb = () => {
 		breadcrumb.innerHTML = "";
@@ -438,7 +555,9 @@ export function mountTreemap(
 		leaves = layoutAndShade(
 			viewRoot,
 			{ x: 0, y: 0, w: canvas.width, h: canvas.height },
-			image
+			image,
+			0,
+			isHidden
 		).leaves;
 		ctx.putImageData(image, 0, 0);
 		drawLabels(ctx);
@@ -447,6 +566,7 @@ export function mountTreemap(
 			`Treemap of ${viewRoot.name}, ${formatSize(viewRoot.size)}, ${formatCount(leaves.length, "block")}`
 		);
 		hovered = null;
+		tooltip.classList.add("hidden");
 		drawHover();
 	};
 
@@ -530,6 +650,40 @@ export function mountTreemap(
 		}
 	});
 
+	// Right click offers to hide the block under the cursor
+	canvas.addEventListener("contextmenu", (event) => {
+		event.preventDefault();
+		const hit = hitTest(event);
+		if (!hit) {
+			closeMenu();
+			return;
+		}
+		hovered = hit;
+		drawHover();
+		showBlockMenu(event, hit);
+	});
+
+	const onKeyDown = (event: KeyboardEvent) => {
+		if (event.key === "Escape") {
+			closeMenu();
+			return;
+		}
+		const mod = event.metaKey || event.ctrlKey;
+		if (!mod || event.shiftKey || event.altKey) return;
+		if (event.key.toLowerCase() !== "z") return;
+		const target = event.target;
+		if (
+			target instanceof HTMLElement &&
+			(target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
+		) {
+			return;
+		}
+		if (undoStack.length === 0) return;
+		event.preventDefault();
+		undoHide();
+	};
+	document.addEventListener("keydown", onKeyDown);
+
 	let frame = 0;
 	const observer = new ResizeObserver(() => {
 		cancelAnimationFrame(frame);
@@ -538,11 +692,13 @@ export function mountTreemap(
 	observer.observe(stage);
 
 	renderBreadcrumb();
-	renderLegend();
+	updateHiddenUi();
 	render();
 
 	return () => {
 		observer.disconnect();
 		cancelAnimationFrame(frame);
+		closeMenu();
+		document.removeEventListener("keydown", onKeyDown);
 	};
 }

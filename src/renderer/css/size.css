@@ -375,11 +375,41 @@
   flex-wrap: wrap;
 }
 
-.sz-tm-export {
+.sz-tm-export,
+.sz-tm-reset {
   margin-top: 0;
 }
 
-.sz-tm-export:disabled {
+.sz-tm-export:disabled,
+.sz-tm-reset:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* ── Treemap block context menu ── */
+
+.sz-tm-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 160px;
+  max-width: 320px;
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.sz-tm-menu-item {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sz-tm-menu-item:hover {
+  background: var(--accent-light);
 }

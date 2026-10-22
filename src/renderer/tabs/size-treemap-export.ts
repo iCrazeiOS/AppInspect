@@ -14,6 +14,7 @@ import {
 	describe,
 	excludedSummary,
 	layoutAndShade,
+	nodeKey,
 	ROLE_COLORS,
 	ROLE_LABELS,
 	type Role,
@@ -83,10 +84,13 @@ function pathOf(block: Block, chain: SizeTreeNode[]): string {
  */
 export async function renderTreemapPng(
 	root: SizeTreeNode,
-	chain: SizeTreeNode[]
+	chain: SizeTreeNode[],
+	hidden: Set<string> = new Set<string>()
 ): Promise<Uint8Array> {
 	// The exclusion list lives on the tree's top node, which is the chain's first entry when zoomed
 	const excludedNote = excludedSummary(chain[0] ?? root);
+	const isHidden = (ancestors: SizeTreeNode[], node: SizeTreeNode) =>
+		hidden.has(nodeKey([...chain, ...ancestors], node));
 	// ── Lay out and shade the map off-screen ──
 	const mapCanvas = document.createElement("canvas");
 	mapCanvas.width = MAP_WIDTH;
@@ -98,7 +102,8 @@ export async function renderTreemapPng(
 		root,
 		{ x: 0, y: 0, w: MAP_WIDTH, h: MAP_HEIGHT },
 		image,
-		BAND_HEIGHT
+		BAND_HEIGHT,
+		isHidden
 	);
 	mapCtx.putImageData(image, 0, 0);
 	mapCtx.textBaseline = "top";
@@ -192,7 +197,7 @@ export async function renderTreemapPng(
 	}
 
 	// Legend, right-aligned with the title
-	const totals = roleTotals(root, { code: 0, mlmodel: 0, file: 0, overhead: 0 });
+	const totals = roleTotals(root, { code: 0, mlmodel: 0, file: 0, overhead: 0 }, isHidden);
 	ctx.font = `22px ${FONT_FAMILY}`;
 	let legendX = width - PADDING;
 	for (const role of (Object.keys(ROLE_LABELS) as Role[]).reverse()) {
