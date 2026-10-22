@@ -32,6 +32,22 @@ const KIND_FILTERS: Array<{ id: KindFilter; label: string }> = [
 	{ id: "enum", label: "Enums" }
 ];
 
+const HIDE_MODULE_PREFIX_KEY = "appinspect:swift:hide-module-prefix";
+
+function loadHideModulePrefix(): boolean {
+	try {
+		return localStorage.getItem(HIDE_MODULE_PREFIX_KEY) === "true";
+	} catch {
+		return false;
+	}
+}
+
+function saveHideModulePrefix(value: boolean): void {
+	try {
+		localStorage.setItem(HIDE_MODULE_PREFIX_KEY, String(value));
+	} catch {}
+}
+
 function countByKind(types: SwiftType[], kind: SwiftTypeKind): number {
 	return types.reduce((total, type) => total + (type.kind === kind ? 1 : 0), 0);
 }
@@ -76,6 +92,7 @@ export function renderSwift(
 
 	let kindFilter: KindFilter = "all";
 	let moduleFilter = "";
+	let hideModulePrefix = loadHideModulePrefix();
 	let filteredTypes = allTypes;
 	let selectedType: SwiftType | null = null;
 	let selectedProtocol: SwiftProtocol | null = null;
@@ -160,11 +177,40 @@ export function renderSwift(
 		option.textContent = `${label} (${typesByModule.get(module) ?? 0})`;
 		moduleSelect.appendChild(option);
 	}
+	const prefixToggle = document.createElement("button");
+	prefixToggle.type = "button";
+	prefixToggle.className = "swift-filter-btn swift-prefix-toggle";
+	prefixToggle.addEventListener("click", () => {
+		if (!moduleFilter) return;
+		hideModulePrefix = !hideModulePrefix;
+		saveHideModulePrefix(hideModulePrefix);
+		updatePrefixToggle();
+		renderVisibleRows();
+	});
+
+	function updatePrefixToggle(): void {
+		const hidePrefix = hideModulePrefix && moduleFilter !== "";
+		prefixToggle.disabled = moduleFilter === "";
+		prefixToggle.textContent = "Hide prefix";
+		prefixToggle.classList.toggle("swift-filter-btn--active", hidePrefix);
+		prefixToggle.title = hidePrefix
+			? "Show the selected module name in type names"
+			: moduleFilter
+				? "Hide the selected module name from type names"
+				: "Select a module to hide its name prefix";
+	}
+
 	moduleSelect.addEventListener("change", () => {
 		moduleFilter = moduleSelect.value;
+		updatePrefixToggle();
 		applyFilters();
 	});
-	filterBar.appendChild(moduleSelect);
+	const moduleGroup = document.createElement("div");
+	moduleGroup.className = "swift-module-group";
+	moduleGroup.appendChild(prefixToggle);
+	moduleGroup.appendChild(moduleSelect);
+	filterBar.appendChild(moduleGroup);
+	updatePrefixToggle();
 
 	// ── Type list ──
 	const scrollContainer = document.createElement("div");
@@ -197,6 +243,12 @@ export function renderSwift(
 		} catch {
 			return null;
 		}
+	}
+
+	function listTypeName(fullName: string): string {
+		if (!hideModulePrefix || !moduleFilter) return fullName;
+		const prefix = `${moduleFilter}.`;
+		return fullName.startsWith(prefix) ? fullName.slice(prefix.length) : fullName;
 	}
 
 	function applyFilters(): void {
@@ -253,7 +305,7 @@ export function renderSwift(
 
 			const name = document.createElement("span");
 			name.className = "swift-row-name";
-			name.textContent = type.fullName;
+			name.textContent = listTypeName(type.fullName);
 			row.appendChild(name);
 
 			const meta = document.createElement("span");
