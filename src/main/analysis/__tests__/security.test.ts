@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { StringEntry, SymbolEntry } from "../../../shared/types";
-import { getBinaryHardening, runSecurityScan, type SecurityScanParams } from "../security";
+import {
+	getBinaryHardening,
+	isScannableExtension,
+	runSecurityScan,
+	type SecurityScanParams
+} from "../security";
 
 // ── Helpers ──
 
@@ -308,5 +313,12 @@ describe("Security Scan Engine", () => {
 		);
 		expect(google.length).toBeGreaterThanOrEqual(1);
 		expect(google[0]!.severity).toBe("warning");
+	});
+});
+
+describe("scannable extensions", () => {
+	it("treats modern module extensions as scannable", () => {
+		expect(isScannableExtension(".mjs")).toBe(true);
+		expect(isScannableExtension(".cjs")).toBe(true);
 	});
 });

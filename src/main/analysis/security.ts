@@ -161,6 +161,8 @@ const SCANNABLE_EXTENSIONS = new Set([
 	".env",
 	".html",
 	".htm",
+	".mjs",
+	".cjs",
 	".txt",
 	".strings",
 	".config",

@@ -35,6 +35,15 @@
   border-radius: 4px;
 }
 
+.sec-finding-vendor {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
 .sec-finding-message {
   font-size: 13px;
   color: var(--text);

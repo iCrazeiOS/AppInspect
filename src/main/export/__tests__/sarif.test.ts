@@ -171,6 +171,27 @@ describe("sarif export", () => {
 		const output = exportSarif(makeResult(FINDINGS));
 		expect(output.includes("undefined")).toBe(false);
 	});
+
+	it("labels Electron categories", () => {
+		const log = JSON.parse(
+			exportSarif(
+				makeResult([
+					{
+						severity: "warning",
+						category: "electron-renderer",
+						message: "Renderer runs with Node.js integration",
+						evidence: "nodeIntegration: true",
+						source: "app.asar/main.js",
+						vendor: true
+					}
+				])
+			)
+		);
+		const [rule] = log.runs[0].tool.driver.rules;
+		expect(rule.id).toBe("appinspect/electron-renderer");
+		expect(rule.shortDescription.text).toBe("Unsafe Electron renderer preference");
+		expect(log.runs[0].results[0].properties.vendor).toBeUndefined();
+	});
 });
 
 describe("findingsAtOrAbove", () => {

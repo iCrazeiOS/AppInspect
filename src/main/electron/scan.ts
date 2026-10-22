@@ -18,64 +18,215 @@ import type { AsarArchive } from "./asar";
 import { readAsarFile } from "./asar";
 
 const MAX_FINDINGS_PER_CATEGORY = 20;
+/** Vendor bundles ship every dependency's defaults; report a sample, not a flood. */
+const MAX_VENDOR_FINDINGS = 5;
+
+type ElectronCategory =
+	| "electron-fuses"
+	| "electron-renderer"
+	| "electron-csp"
+	| "electron-integrity"
+	| "electron-runtime";
 
 /** Fuse states that weaken the Electron runtime sandbox. */
-const RISKY_FUSES: Array<{ name: string; message: string }> = [
+const RISKY_FUSES: Array<{
+	name: string;
+	severity: SecurityFinding["severity"];
+	message: string;
+}> = [
 	{
 		name: "RunAsNode",
+		severity: "warning",
 		message: "RunAsNode is enabled — ELECTRON_RUN_AS_NODE runs the binary as plain Node"
 	},
 	{
 		name: "EnableNodeOptionsEnvironmentVariable",
+		severity: "info",
 		message: "NODE_OPTIONS is honoured — environment variables can inject Node flags"
 	},
 	{
 		name: "EnableNodeCliInspectArguments",
+		severity: "info",
 		message: "Node CLI inspect arguments are honoured — the debugger can attach"
 	}
 ];
 
-/** `webPreferences` settings that weaken an Electron renderer. */
-const WEB_PREFERENCE_PATTERNS: Array<{
-	severity: SecurityFinding["severity"];
+/** Terser/esbuild/swc emit `!0`/`!1` for `true`/`false` in minified output. */
+const TRUE_VALUE = "(?:true|!0)";
+const FALSE_VALUE = "(?:false|!1)";
+/** Rejects longer identifiers such as `!00`. */
+const VALUE_END = "(?![\\w$])";
+
+/** `key: <value>` in an object literal, including quoted keys and minified values. */
+function preferencePattern(name: string, value: string): RegExp {
+	return new RegExp(`["']?\\b${name}["']?\\s*:\\s*${value}${VALUE_END}`);
+}
+
+interface ElectronCheck {
 	name: string;
+	severity: SecurityFinding["severity"];
+	category: ElectronCategory;
+	message: string;
 	pattern: RegExp;
-}> = [
+}
+
+/** `webPreferences` settings that weaken an Electron renderer. */
+const WEB_PREFERENCE_PATTERNS: ElectronCheck[] = [
 	{
-		severity: "warning",
 		name: "nodeIntegration",
-		pattern: /["']?nodeIntegration["']?\s*:\s*true/
+		severity: "warning",
+		category: "electron-renderer",
+		message: "Renderer runs with Node.js integration",
+		pattern: preferencePattern("nodeIntegration", TRUE_VALUE)
 	},
 	{
+		name: "nodeIntegrationInWorker",
 		severity: "warning",
+		category: "electron-renderer",
+		message: "Node.js integration is enabled in web workers",
+		pattern: preferencePattern("nodeIntegrationInWorker", TRUE_VALUE)
+	},
+	{
+		name: "nodeIntegrationInSubFrames",
+		severity: "warning",
+		category: "electron-renderer",
+		message: "Node.js integration is enabled in sub-frames",
+		pattern: preferencePattern("nodeIntegrationInSubFrames", TRUE_VALUE)
+	},
+	{
 		name: "contextIsolation",
-		pattern: /["']?contextIsolation["']?\s*:\s*false/
-	},
-	{
 		severity: "warning",
-		name: "webSecurity",
-		pattern: /["']?webSecurity["']?\s*:\s*false/
+		category: "electron-renderer",
+		message: "Renderer context isolation is disabled",
+		pattern: preferencePattern("contextIsolation", FALSE_VALUE)
 	},
 	{
-		severity: "warning",
-		name: "allowRunningInsecureContent",
-		pattern: /["']?allowRunningInsecureContent["']?\s*:\s*true/
-	},
-	{
-		severity: "info",
 		name: "sandbox",
-		pattern: /["']?sandbox["']?\s*:\s*false/
+		severity: "warning",
+		category: "electron-renderer",
+		message: "Renderer sandbox is disabled",
+		pattern: preferencePattern("sandbox", FALSE_VALUE)
 	},
 	{
+		name: "webSecurity",
+		severity: "warning",
+		category: "electron-renderer",
+		message: "Same-origin policy is disabled",
+		pattern: preferencePattern("webSecurity", FALSE_VALUE)
+	},
+	{
+		name: "allowRunningInsecureContent",
 		severity: "info",
+		category: "electron-renderer",
+		message: "Mixed content is allowed",
+		pattern: preferencePattern("allowRunningInsecureContent", TRUE_VALUE)
+	},
+	{
 		name: "webviewTag",
-		pattern: /["']?webviewTag["']?\s*:\s*true/
+		severity: "info",
+		category: "electron-renderer",
+		message: "<webview> tag is enabled",
+		pattern: preferencePattern("webviewTag", TRUE_VALUE)
+	},
+	{
+		name: "enableRemoteModule",
+		severity: "warning",
+		category: "electron-runtime",
+		message: "Legacy remote module is enabled",
+		pattern: preferencePattern("enableRemoteModule", TRUE_VALUE)
+	},
+	{
+		name: "enableBlinkFeatures",
+		severity: "info",
+		category: "electron-renderer",
+		message: "Extra Blink features are enabled",
+		pattern: /["']?\benableBlinkFeatures["']?\s*:\s*["']([^"']{1,160})["']/
 	}
 ];
 
+/**
+ * `<webview>` markup. Names deliberately match the JS checks so the
+ * nodeIntegration + contextIsolation combo also fires for markup.
+ */
+const WEBVIEW_PATTERNS: ElectronCheck[] = [
+	{
+		name: "nodeIntegration",
+		severity: "warning",
+		category: "electron-renderer",
+		message: "webview guest runs with Node.js integration",
+		pattern:
+			/<webview\b[^>]*\bwebpreferences\s*=\s*["'][^"']*\bnodeIntegration\s*=\s*(?:yes|true)\b/i
+	},
+	{
+		name: "contextIsolation",
+		severity: "warning",
+		category: "electron-renderer",
+		message: "webview guest disables context isolation",
+		pattern:
+			/<webview\b[^>]*\bwebpreferences\s*=\s*["'][^"']*\bcontextIsolation\s*=\s*(?:no|false)\b/i
+	},
+	{
+		name: "sandbox",
+		severity: "warning",
+		category: "electron-renderer",
+		message: "webview guest disables the sandbox",
+		pattern: /<webview\b[^>]*\bwebpreferences\s*=\s*["'][^"']*\bsandbox\s*=\s*(?:no|false)\b/i
+	},
+	{
+		name: "allowpopups",
+		severity: "info",
+		category: "electron-renderer",
+		message: "<webview allowpopups> lets guest content open new windows",
+		pattern: /<webview\b[^>]*\ballowpopups\b/i
+	}
+];
+
+/** Files that can hold renderer configuration; excludes prose and bundled assets. */
+const WEB_PREFERENCE_EXTENSIONS = new Set([
+	".js",
+	".mjs",
+	".cjs",
+	".jsbundle",
+	".json",
+	".html",
+	".htm"
+]);
+
+const VENDOR_SEGMENT = /(^|\/)(node_modules|vendor|third_party|3rdparty)(\/|$)/i;
+
+/** True when the file is the app's own code rather than a bundled dependency. */
+function isFirstParty(relativePath: string, info: ElectronInfo): boolean {
+	const name = info.packageJson?.name;
+	if (typeof name === "string" && relativePath.startsWith(`app.asar/node_modules/${name}/`)) {
+		// electron-builder's two-package layout ships the app itself under node_modules
+		return true;
+	}
+	const main = info.packageJson?.main;
+	if (typeof main === "string") {
+		const mainPath = `app.asar/${main.replace(/^[./]+/, "")}`;
+		if (relativePath === mainPath) return true;
+	}
+	return !VENDOR_SEGMENT.test(relativePath);
+}
+
+/** True when the match is inside an HTML comment or preceded by a comment marker. */
+function isCommented(content: string, index: number): boolean {
+	const htmlOpen = content.lastIndexOf("<!--", index);
+	if (htmlOpen !== -1 && content.lastIndexOf("-->", index) < htmlOpen) return true;
+	const lineStart = content.lastIndexOf("\n", index - 1) + 1;
+	// Bounded window: minified bundles are one huge line, so never slice the whole prefix
+	const prefix = content.slice(Math.max(lineStart, index - 200), index).trimStart();
+	return (
+		prefix.startsWith("//") ||
+		prefix.startsWith("/*") ||
+		prefix.startsWith("*") ||
+		prefix.startsWith("<!--")
+	);
+}
+
 // ── Content-Security-Policy ───────────────────────────────────────────
 
-const CSP_CATEGORY = "electron-csp";
+const CSP_CATEGORY: ElectronCategory = "electron-csp";
 const MAX_CSP_EVIDENCE = 300;
 
 /** Script directives, most specific first. */
@@ -429,24 +580,27 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	const findings: SecurityFinding[] = [];
 	const seen = new Set<string>();
 	const counts = new Map<string, number>();
+	let vendorCount = 0;
 
 	const push = (finding: SecurityFinding): void => {
 		const key = `${finding.category}|${finding.source ?? ""}|${finding.evidence ?? ""}`;
 		if (seen.has(key)) return;
+		if (finding.vendor && vendorCount >= MAX_VENDOR_FINDINGS) return;
 		const count = counts.get(finding.category) ?? 0;
 		if (count >= MAX_FINDINGS_PER_CATEGORY) return;
 		seen.add(key);
 		counts.set(finding.category, count + 1);
+		if (finding.vendor) vendorCount++;
 		findings.push(finding);
 	};
 
 	const fuseStates = new Map(info.fuses.map((fuse) => [fuse.name, fuse.state]));
 
-	for (const { name, message } of RISKY_FUSES) {
+	for (const { name, severity, message } of RISKY_FUSES) {
 		if (fuseStates.get(name) !== "enabled") continue;
 		push({
-			severity: "warning",
-			category: "Electron",
+			severity,
+			category: "electron-fuses",
 			message,
 			evidence: `${name}=enabled`
 		});
@@ -455,7 +609,7 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	if (fuseStates.get("OnlyLoadAppFromAsar") === "disabled") {
 		push({
 			severity: "info",
-			category: "Electron",
+			category: "electron-fuses",
 			message: "OnlyLoadAppFromAsar is disabled — the app can load unpacked app code",
 			evidence: "OnlyLoadAppFromAsar=disabled"
 		});
@@ -464,7 +618,7 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	if (fuseStates.get("EnableEmbeddedAsarIntegrityValidation") === "disabled") {
 		push({
 			severity: "info",
-			category: "Electron",
+			category: "electron-fuses",
 			message:
 				"EnableEmbeddedAsarIntegrityValidation is disabled — app.asar can be modified without detection",
 			evidence: "EnableEmbeddedAsarIntegrityValidation=disabled"
@@ -475,7 +629,7 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	if (integrity && !integrity.valid) {
 		push({
 			severity: "critical",
-			category: "Electron",
+			category: "electron-integrity",
 			message: "app.asar header does not match the ElectronAsarIntegrity hash",
 			evidence: `expected ${integrity.expected}, actual ${integrity.actual}`,
 			source: "app.asar"
@@ -485,23 +639,100 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
 	if (info.sourceMaps.length > 0) {
 		push({
 			severity: "info",
-			category: "Electron",
+			category: "electron-integrity",
 			message: `Shipped source maps (${info.sourceMaps.length}) expose original source`,
 			evidence: info.sourceMaps.slice(0, 3).join(", "),
 			source: "app.asar"
 		});
 	}
 
+	// ── Renderer configuration ──
+	const electronMajor = Number.parseInt(info.electronVersion?.split(".")[0] ?? "", 10);
+	const remoteModuleRetired = Number.isFinite(electronMajor) && electronMajor >= 14;
+
+	type MatchedCheck = ElectronCheck & { evidence: string };
+	const perFile: Array<{ source: string; vendor: boolean; matches: Map<string, MatchedCheck> }> =
+		[];
+
 	for (const file of files) {
-		for (const { severity, name, pattern } of WEB_PREFERENCE_PATTERNS) {
-			const match = pattern.exec(file.content);
-			if (!match) continue;
+		const ext = path.extname(file.relativePath).toLowerCase();
+		if (!WEB_PREFERENCE_EXTENSIONS.has(ext)) continue;
+
+		const matches = new Map<string, MatchedCheck>();
+		for (const check of [...WEB_PREFERENCE_PATTERNS, ...WEBVIEW_PATTERNS]) {
+			const match = check.pattern.exec(file.content);
+			if (!match || isCommented(file.content, match.index)) continue;
+			// First match wins: object prefs and markup rarely coexist in one file
+			if (matches.has(check.name)) continue;
+			matches.set(check.name, { ...check, evidence: match[0].trim() });
+		}
+		if (matches.size === 0) continue;
+		perFile.push({
+			source: file.relativePath,
+			vendor: !isFirstParty(file.relativePath, info),
+			matches
+		});
+	}
+
+	const hasCombo = (matches: Map<string, MatchedCheck>): boolean =>
+		matches.has("nodeIntegration") && matches.has("contextIsolation");
+
+	// The full-RCE combo first, so the per-category cap can never drop it
+	const comboFiles = perFile.filter((file) => hasCombo(file.matches));
+	for (const file of comboFiles) {
+		push({
+			severity: "critical",
+			category: "electron-renderer",
+			message:
+				"nodeIntegration and contextIsolation: false together — renderer content can reach Node.js (full RCE)",
+			evidence: `${file.matches.get("nodeIntegration")!.evidence} + ${
+				file.matches.get("contextIsolation")!.evidence
+			}`,
+			source: file.source,
+			...(file.vendor ? { vendor: true } : {})
+		});
+	}
+
+	if (comboFiles.length === 0) {
+		const nodeFile = perFile.find(
+			(file) => file.matches.has("nodeIntegration") && !file.vendor
+		);
+		const isolationFile = perFile.find(
+			(file) => file.matches.has("contextIsolation") && !file.vendor
+		);
+		if (nodeFile && isolationFile && nodeFile !== isolationFile) {
+			push({
+				severity: "critical",
+				category: "electron-renderer",
+				message:
+					"nodeIntegration and contextIsolation: false are both enabled — renderer content can reach Node.js (full RCE)",
+				evidence: `${nodeFile.source} (nodeIntegration) + ${isolationFile.source} (contextIsolation)`,
+				source: nodeFile.source
+			});
+		}
+	}
+
+	for (const file of perFile) {
+		const combo = hasCombo(file.matches);
+		for (const matched of file.matches.values()) {
+			// Covered by the combo; nodeIntegration also implies sandbox:false
+			if (
+				combo &&
+				["nodeIntegration", "contextIsolation", "sandbox"].includes(matched.name)
+			) {
+				continue;
+			}
+			const retired = matched.name === "enableRemoteModule" && remoteModuleRetired;
+			const severity = file.vendor || retired ? "info" : matched.severity;
 			push({
 				severity,
-				category: "Electron",
-				message: `webPreferences weakens the renderer: ${name}`,
-				evidence: match[0],
-				source: file.relativePath
+				category: matched.category,
+				message: `${matched.message}${file.vendor ? " (vendor code)" : ""}${
+					retired ? " (removed in Electron 14)" : ""
+				}`,
+				evidence: matched.evidence,
+				source: file.source,
+				...(file.vendor ? { vendor: true } : {})
 			});
 		}
 	}

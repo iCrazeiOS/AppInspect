@@ -17,8 +17,8 @@ In scope:
 - Show Electron facts on the Overview tab.
 - Split `app.asar` into its contents in the Size treemap.
 - Feed archive text files into the existing secret scanner.
-- Emit Electron-specific security findings (fuses, integrity, dangerous
-  `webPreferences`, shipped source maps).
+- Emit Electron-specific security findings (fuses, integrity, renderer
+  preferences, shipped source maps, CSP meta tags).
 - Expose the new data through IPC, MCP (`get_section`, `list_asar`,
   `read_asar_file`) and the CLI (`--section electron`).
 
@@ -218,25 +218,48 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 
 ```ts
 export function readAsarTextFiles(archive: AsarArchive): BundleFileEntry[];
+export function readAsarUnpackedHtmlFiles(archive: AsarArchive): BundleFileEntry[];
 export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[];
 ```
 
 - Text extraction: only `isScannableExtension`, skip `.map` (they are huge and
   already reported as shipped source maps), skip files over `maxFileSizeMB`,
   stop at `maxBundleSizeMB`, skip NUL-containing content, prefix
-  `relativePath` with `app.asar/`.
-- Findings (`category: "Electron"`):
-  - `RunAsNode`, `EnableNodeOptionsEnvironmentVariable`,
-    `EnableNodeCliInspectArguments` enabled → **warning**.
-  - `OnlyLoadAppFromAsar` disabled → **info**.
-  - `EnableEmbeddedAsarIntegrityValidation` disabled → **info**.
-  - Integrity mismatch → **critical**, evidence includes expected/actual.
-  - Shipped source maps → **info**, evidence lists up to 3 paths.
-  - `webPreferences` references in text: `nodeIntegration: true`,
-    `contextIsolation: false`, `webSecurity: false`,
-    `allowRunningInsecureContent: true` → **warning**; `sandbox: false`,
-    `webviewTag: true` → **info**. Dedupe by category + source + evidence,
-    cap 20 per category.
+  `relativePath` with `app.asar/`. Unpacked `.html`/`.htm` entries are read
+  from the `.unpacked` sibling with the `app.asar.unpacked/` prefix.
+- Findings are grouped into `electron-*` categories, each with an independent
+  20-finding cap:
+  - `electron-fuses` — `RunAsNode` enabled **warning**;
+    `EnableNodeOptionsEnvironmentVariable` and
+    `EnableNodeCliInspectArguments` enabled **info**; `OnlyLoadAppFromAsar`
+    or `EnableEmbeddedAsarIntegrityValidation` disabled **info**.
+  - `electron-integrity` — ASAR header mismatch **critical** (evidence includes
+    expected/actual); shipped source maps **info** (up to 3 paths).
+  - `electron-renderer` — `nodeIntegration`, `nodeIntegrationInWorker`,
+    `nodeIntegrationInSubFrames`, `contextIsolation: false`, `sandbox: false`
+    and `webSecurity: false` **warning**; `webviewTag: true`,
+    `allowRunningInsecureContent: true`, `enableBlinkFeatures` and
+    `<webview allowpopups>` **info**. `<webview webpreferences="...">` uses the
+    same check names as the JS prefs.
+  - `electron-runtime` — `enableRemoteModule: true` **warning** before Electron
+    14 (or with an unknown version) and **info** on 14+, where the module was
+    removed.
+  - `electron-csp` — missing or weak Content-Security-Policy meta tags in
+    shipped HTML; CSP delivered by HTTP headers or set at runtime
+    (`session.webRequest`) is not visible to static analysis.
+- `webPreferences` values accept `true`/`false` and the minified `!0`/`!1`
+  forms. Checks run only on `.js .mjs .cjs .jsbundle .json .html .htm`, skip
+  matches inside line/block/HTML comments, and report the first match per
+  check per file.
+- Same-file `nodeIntegration: true` + `contextIsolation: false` emits one
+  **critical** full-RCE finding and suppresses the individual
+  `nodeIntegration`/`contextIsolation`/`sandbox` findings for that file. When
+  no same-file combo exists, a cross-file fallback emits one **critical** if
+  both settings appear in different first-party files.
+- Vendor paths (`node_modules`, `vendor`, `third_party`, `3rdparty`, except the
+  app's own package) are downgraded to **info**, tagged `vendor: true`, labelled
+  `(vendor code)` and capped at 5 findings total.
+- Dedupe by category + source + evidence; cap 20 per category.
 
 ### Pipeline integration
 
@@ -335,8 +358,10 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
   missing sentinel, missing file.
 - `detect.test.ts`: temp `.app` layout with framework plist, asar, package.json,
   integrity match/mismatch, source maps, native addons, unreadable asar.
-- `scan.test.ts`: fuse/integrity/source-map findings, webPreferences patterns,
-  scan budgets, `.map` skipped.
+- `scan.test.ts`: fuse/integrity/source-map findings and the category
+  taxonomy, minified `!0`/`!1` values, comment and extension filtering, vendor
+  classification/cap, `<webview>` markup, the combined critical and cross-file
+  fallback, webPreferences patterns, scan budgets, `.map` skipped.
 - `size-tree.test.ts`: asar split, unpacked exclusion, overhead child, no
   packed files falls back to a file leaf.
 - `asar-preview.test.ts`: raster MIME detection and unsupported extensions.
