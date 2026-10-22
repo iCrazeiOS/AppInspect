@@ -13,6 +13,14 @@
  * on the referencing field's virtual address, so targets are resolved through
  * the segment table rather than assumed to be file-offset relative.
  *
+ * Field type names may be symbolic manglings: inline Swift manglings containing
+ * references to context descriptors. A reference is a kind byte followed by a
+ * 4-byte relative or pointer-sized absolute offset; relative offsets are based
+ * on the offset field itself and may contain NUL bytes. Indirect references are
+ * resolved through chained-fixup binds/rebases, then reconstructed into a
+ * nominal mangling and demangled. Accessor (0x09), existential-shape (0x0A/0x0B),
+ * and demangler-unsupported manglings are left untyped rather than guessed.
+ *
  * Collection extractor: malformed entries are skipped best-effort.
  */
 
@@ -49,6 +57,8 @@ const MAX_TYPES = 100_000;
 const MAX_PROTOCOLS = 100_000;
 const MAX_CONFORMANCES = 200_000;
 const MAX_CONTEXT_DEPTH = 8;
+const MAX_SYMBOLIC_BLOB_LENGTH = 8192;
+const MAX_SYMBOLIC_REFERENCES = 64;
 
 interface ContextPath {
 	module: string;
@@ -114,6 +124,9 @@ class SwiftMetadataReader {
 	private readonly typeByFullName = new Map<string, SwiftType>();
 	private readonly protocolByFullName = new Map<string, SwiftProtocol>();
 	private readonly demangleCache = new Map<string, string | null>();
+	private readonly typeBodyCache = new Map<number, string | null>();
+	private readonly contextFragmentCache = new Map<number, string>();
+	private readonly contextResolving = new Set<number>();
 	private fieldBudget = MAX_TOTAL_FIELDS;
 
 	constructor(
@@ -243,6 +256,206 @@ class SwiftMetadataReader {
 		return target === null ? null : this.readStringAt(target);
 	}
 
+	private fileOffsetForVmaddr(vmaddr: bigint): number | null {
+		for (const seg of this.segments) {
+			const filesize = Number(seg.filesize);
+			if (filesize === 0) continue;
+			if (vmaddr < seg.vmaddr || vmaddr >= seg.vmaddr + seg.vmsize) continue;
+			const delta = Number(vmaddr - seg.vmaddr);
+			if (delta >= filesize) return null;
+			const offset = Number(seg.fileoff) + delta;
+			return offset >= 0 && offset < this.view.byteLength ? offset : null;
+		}
+		return null;
+	}
+
+	private typeAtPointer(pointerOffset: number): string | null {
+		const body = this.mangledTypeBodyAtPointer(pointerOffset);
+		return body === null ? null : this.demangleType(body);
+	}
+
+	private mangledTypeBodyAtPointer(pointerOffset: number): string | null {
+		if (pointerOffset < 0 || pointerOffset + 4 > this.view.byteLength) return null;
+		if (this.int32(pointerOffset) === 0) return null;
+
+		const blobOffset = this.relativeTarget(pointerOffset);
+		if (blobOffset === null) return null;
+
+		const cached = this.typeBodyCache.get(blobOffset);
+		if (cached !== undefined) return cached;
+
+		const plain = this.readStringAt(blobOffset);
+		const body =
+			plain && isMangledTypeName(plain) ? plain : this.parseSymbolicMangling(blobOffset);
+		this.typeBodyCache.set(blobOffset, body);
+		return body;
+	}
+
+	/** Expand a symbolic mangling blob into a plain mangling body. */
+	private parseSymbolicMangling(blobOffset: number): string | null {
+		if (blobOffset < 0 || blobOffset >= this.view.byteLength) return null;
+		const limit = Math.min(this.view.byteLength, blobOffset + MAX_SYMBOLIC_BLOB_LENGTH);
+		let body = "";
+		let references = 0;
+
+		for (let offset = blobOffset; offset < limit; ) {
+			const byte = this.view.getUint8(offset);
+			if (byte === 0) return body.length > 0 ? body : null;
+			if (byte === 0xff) {
+				offset++;
+				continue;
+			}
+
+			if (byte >= 0x01 && byte <= 0x17) {
+				if (offset + 5 > limit || ++references > MAX_SYMBOLIC_REFERENCES) return null;
+				const fragment = this.resolveSymbolicReference(byte, offset);
+				if (fragment === null) return null;
+				body += fragment;
+				offset += 5;
+			} else if (byte >= 0x18 && byte <= 0x1f) {
+				const pointerSize = this.is64Bit ? 8 : 4;
+				if (offset + 1 + pointerSize > limit || ++references > MAX_SYMBOLIC_REFERENCES) {
+					return null;
+				}
+				const fragment = this.resolveSymbolicReference(byte, offset);
+				if (fragment === null) return null;
+				body += fragment;
+				offset += 1 + pointerSize;
+			} else {
+				if (byte < 0x20 || byte > 0x7e) return null;
+				body += String.fromCharCode(byte);
+				offset++;
+			}
+
+			if (body.length > MAX_SYMBOLIC_BLOB_LENGTH) return null;
+		}
+
+		return null;
+	}
+
+	private resolveSymbolicReference(kind: number, kindOffset: number): string | null {
+		if (kind === 0x01 || kind === 0x18) {
+			const target = this.symbolicTarget(kind, kindOffset);
+			return target === null ? null : this.contextFragment(target);
+		}
+		if (kind === 0x02 || kind === 0x19) {
+			const slot = this.symbolicTarget(kind, kindOffset);
+			return slot === null ? null : this.indirectContextFragment(slot);
+		}
+		return null;
+	}
+
+	private symbolicTarget(kind: number, kindOffset: number): number | null {
+		if (kind <= 0x17) {
+			const offsetField = kindOffset + 1;
+			if (offsetField + 4 > this.view.byteLength) return null;
+			const base = this.fileOffsetToVmaddr(offsetField);
+			if (base === null) return null;
+			return this.fileOffsetForVmaddr(base + BigInt(this.int32(offsetField)));
+		}
+
+		const pointerSize = this.is64Bit ? 8 : 4;
+		if (kindOffset + 1 + pointerSize > this.view.byteLength) return null;
+		return this.fileOffsetForVmaddr(this.readPointer(kindOffset + 1));
+	}
+
+	private indirectContextFragment(slotOffset: number): string | null {
+		const bind = this.bindMap.get(slotOffset);
+		if (bind) return this.bindSymbolToMangling(bind.symbolName);
+
+		const rebased = this.rebaseMap.get(slotOffset);
+		if (rebased !== undefined) {
+			const target = this.fileOffsetForVmaddr(rebased);
+			return target === null ? null : this.contextFragment(target);
+		}
+
+		const pointerSize = this.is64Bit ? 8 : 4;
+		if (slotOffset + pointerSize > this.view.byteLength) return null;
+		const pointer = this.readPointer(slotOffset);
+		if (pointer === 0n) return null;
+		const target = this.fileOffsetForVmaddr(pointer);
+		return target === null ? null : this.contextFragment(target);
+	}
+
+	private bindSymbolToMangling(symbol: string): string | null {
+		let mangled = symbol.startsWith("_") ? symbol.slice(1) : symbol;
+		if (mangled.startsWith("$s")) mangled = mangled.slice(2);
+		else if (mangled.startsWith("$S")) mangled = mangled.slice(2);
+		else return null;
+
+		if (mangled.endsWith("Mn")) {
+			const body = mangled.slice(0, -2);
+			return body.length > 0 ? body : null;
+		}
+		if (mangled.endsWith("Mp")) {
+			const body = mangled.slice(0, -2);
+			return body.length > 0 ? `${body}P` : null;
+		}
+		if (mangled.endsWith("Ma")) {
+			const body = mangled.slice(0, -2);
+			return body.length > 0 ? body : null;
+		}
+		return null;
+	}
+
+	private mangleIdentifier(name: string | null): string | null {
+		if (name === null || name.length === 0 || name.length > MAX_NAME_LENGTH) return null;
+		return `${name.length}${name}`;
+	}
+
+	/** Build the nominal mangling fragment for a context descriptor. */
+	private contextFragment(descriptorOffset: number, depth = 0): string | null {
+		if (
+			depth > MAX_CONTEXT_DEPTH ||
+			descriptorOffset < 0 ||
+			descriptorOffset + 12 > this.view.byteLength ||
+			this.contextResolving.has(descriptorOffset)
+		) {
+			return null;
+		}
+
+		const cached = this.contextFragmentCache.get(descriptorOffset);
+		if (cached !== undefined) return cached;
+
+		this.contextResolving.add(descriptorOffset);
+		const kind = this.descriptorKind(descriptorOffset);
+		let fragment: string | null = null;
+
+		if (kind === CONTEXT_KIND_MODULE) {
+			fragment = this.mangleIdentifier(this.descriptorName(descriptorOffset));
+		} else if (kind === CONTEXT_KIND_EXTENSION) {
+			fragment = this.mangledTypeBodyAtPointer(descriptorOffset + 8);
+		} else if (kind === CONTEXT_KIND_ANONYMOUS) {
+			const parentOffset = this.relativeTarget(descriptorOffset + 4, true);
+			fragment = parentOffset === null ? null : this.contextFragment(parentOffset, depth + 1);
+		} else if (
+			kind === CONTEXT_KIND_PROTOCOL ||
+			kind === CONTEXT_KIND_CLASS ||
+			kind === CONTEXT_KIND_STRUCT ||
+			kind === CONTEXT_KIND_ENUM
+		) {
+			const name = this.mangleIdentifier(this.descriptorName(descriptorOffset));
+			const parentOffset = this.relativeTarget(descriptorOffset + 4, true);
+			const parent =
+				parentOffset === null ? null : this.contextFragment(parentOffset, depth + 1);
+			if (name !== null && parent !== null) {
+				const suffix =
+					kind === CONTEXT_KIND_PROTOCOL
+						? "P"
+						: kind === CONTEXT_KIND_CLASS
+							? "C"
+							: kind === CONTEXT_KIND_STRUCT
+								? "V"
+								: "O";
+				fragment = `${parent}${name}${suffix}`;
+			}
+		}
+
+		this.contextResolving.delete(descriptorOffset);
+		if (fragment !== null) this.contextFragmentCache.set(descriptorOffset, fragment);
+		return fragment;
+	}
+
 	private descriptorKind(offset: number): number {
 		if (offset < 0 || offset + 4 > this.view.byteLength) return -1;
 		return this.u32(offset) & 0x1f;
@@ -323,9 +536,7 @@ class SwiftMetadataReader {
 				parentOffset === null
 					? { module: "", path: [] }
 					: this.resolveOwner(parentOffset, depth + 1, seen);
-			const mangled = this.relativeString(descriptorOffset + 8);
-			const extended =
-				mangled && isMangledTypeName(mangled) ? this.demangleType(mangled) : null;
+			const extended = this.typeAtPointer(descriptorOffset + 8);
 			if (!extended) return parent;
 
 			const prefix = parent.module ? `${parent.module}.` : "";
@@ -398,8 +609,7 @@ class SwiftMetadataReader {
 			if (!name) continue;
 
 			const flags = this.u32(record);
-			const mangled = this.relativeString(record + 4);
-			const type = mangled && isMangledTypeName(mangled) ? this.demangleType(mangled) : null;
+			const type = this.typeAtPointer(record + 4);
 
 			fields.push({
 				name,
@@ -430,11 +640,7 @@ class SwiftMetadataReader {
 		};
 
 		if (kind === "class") {
-			const superclassMangled = this.relativeString(descriptorOffset + 20);
-			const superclass =
-				superclassMangled && isMangledTypeName(superclassMangled)
-					? this.demangleType(superclassMangled)
-					: null;
+			const superclass = this.typeAtPointer(descriptorOffset + 20);
 			if (superclass) type.superclass = superclass;
 		}
 

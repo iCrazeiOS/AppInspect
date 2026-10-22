@@ -18,6 +18,18 @@ const PERSON_FIELDS = 0x300;
 const ADDRESS_FIELDS = 0x340;
 const NESTED_FIELDS = 0x380;
 const PERSON_CONFORMANCE = 0x400;
+const SYMBOLIC_DESC = 0x1e0;
+const ENV_DESC = 0x220;
+const COLOR_DESC = 0x240;
+const SYMBOLIC_FIELDS = 0x430;
+const SYMBOLIC_COPY_DESC = 0x7c0;
+const SYMBOLIC_TYPES_ENTRY = 0x1018;
+const SLOT_ENV = 0x800;
+const SLOT_COLOR = 0x808;
+const SLOT_URL = 0x810;
+const SLOT_INT8 = 0x818;
+const SLOT_REBASE = 0x828;
+const SLOT_PROTOCOL = 0x830;
 
 function makeSection(segname: string, sectname: string, offset: number, size: number): Section64 {
 	return {
@@ -64,7 +76,17 @@ function writeRelative(buffer: ArrayBuffer, fieldOffset: number, targetOffset: n
 	new DataView(buffer).setInt32(fieldOffset, targetOffset - fieldOffset, true);
 }
 
-function buildFixture(): { buffer: ArrayBuffer; segments: Segment64[] } {
+function writeSymbolicRef(
+	buffer: ArrayBuffer,
+	kindOffset: number,
+	kind: number,
+	targetOffset: number
+): void {
+	new DataView(buffer).setUint8(kindOffset, kind);
+	writeRelative(buffer, kindOffset + 1, targetOffset);
+}
+
+function buildFixture(withSymbolic = false): { buffer: ArrayBuffer; segments: Segment64[] } {
 	const buffer = new ArrayBuffer(0x2000);
 	const view = new DataView(buffer);
 
@@ -141,6 +163,79 @@ function buildFixture(): { buffer: ArrayBuffer; segments: Segment64[] } {
 	view.setUint16(NESTED_FIELDS + 10, 12, true);
 	view.setUint32(NESTED_FIELDS + 12, 0, true);
 
+	if (withSymbolic) {
+		writeCString(buffer, 0x5b0, "Symbolic");
+		writeCString(buffer, 0x5c0, "Environment");
+		writeCString(buffer, 0x5d0, "ColorScheme");
+		writeCString(buffer, 0x5e0, "environment");
+		writeCString(buffer, 0x5f0, "url");
+		writeCString(buffer, 0x600, "pointer");
+		writeCString(buffer, 0x610, "direct");
+		writeCString(buffer, 0x620, "rebased");
+		writeCString(buffer, 0x630, "padded");
+		writeCString(buffer, 0x640, "negative");
+		writeCString(buffer, 0x650, "case");
+		writeCString(buffer, 0x660, "protocol");
+		writeCString(buffer, 0x670, "extended");
+
+		view.setUint32(SYMBOLIC_DESC, 17, true);
+		writeRelative(buffer, SYMBOLIC_DESC + 4, MODULE_DESC);
+		writeRelative(buffer, SYMBOLIC_DESC + 8, 0x5b0);
+		view.setInt32(SYMBOLIC_DESC + 12, 0, true);
+		writeRelative(buffer, SYMBOLIC_DESC + 16, SYMBOLIC_FIELDS);
+
+		view.setUint32(ENV_DESC, 17, true);
+		writeRelative(buffer, ENV_DESC + 4, MODULE_DESC);
+		writeRelative(buffer, ENV_DESC + 8, 0x5c0);
+
+		view.setUint32(COLOR_DESC, 18, true);
+		writeRelative(buffer, COLOR_DESC + 4, MODULE_DESC);
+		writeRelative(buffer, COLOR_DESC + 8, 0x5d0);
+
+		view.setUint32(SYMBOLIC_COPY_DESC, 17, true);
+		writeRelative(buffer, SYMBOLIC_COPY_DESC + 4, MODULE_DESC);
+		writeRelative(buffer, SYMBOLIC_COPY_DESC + 8, 0x5c0);
+
+		view.setUint16(SYMBOLIC_FIELDS + 8, 1, true);
+		view.setUint16(SYMBOLIC_FIELDS + 10, 12, true);
+		view.setUint32(SYMBOLIC_FIELDS + 12, 10, true);
+
+		const fieldNames = [0x5e0, 0x5f0, 0x600, 0x610, 0x620, 0x630, 0x640, 0x660, 0x670, 0x650];
+		const fieldTypes = [0x700, 0x720, 0x740, 0x760, 0x770, 0x790, 0x7a0, 0x7b0, 0x7b8, 0];
+		for (let i = 0; i < fieldNames.length; i++) {
+			const record = SYMBOLIC_FIELDS + 16 + i * 12;
+			const typeOffset = fieldTypes[i]!;
+			if (typeOffset === 0) view.setInt32(record + 4, 0, true);
+			else writeRelative(buffer, record + 4, typeOffset);
+			writeRelative(buffer, record + 8, fieldNames[i]!);
+		}
+
+		writeSymbolicRef(buffer, 0x700, 0x02, SLOT_ENV);
+		view.setUint8(0x705, 0x79);
+		writeSymbolicRef(buffer, 0x706, 0x02, SLOT_COLOR);
+		view.setUint8(0x70b, 0x47);
+
+		writeSymbolicRef(buffer, 0x720, 0x02, SLOT_URL);
+		writeCString(buffer, 0x725, "Sg");
+
+		writeCString(buffer, 0x740, "Spy");
+		writeSymbolicRef(buffer, 0x743, 0x02, SLOT_INT8);
+		writeCString(buffer, 0x748, "GSg");
+
+		writeSymbolicRef(buffer, 0x760, 0x01, PERSON_DESC);
+		writeSymbolicRef(buffer, 0x770, 0x02, SLOT_REBASE);
+
+		view.setUint8(0x790, 0xff);
+		view.setUint8(0x791, 0xff);
+		writeSymbolicRef(buffer, 0x792, 0x01, PERSON_DESC);
+
+		writeSymbolicRef(buffer, 0x7a0, 0x01, SYMBOLIC_COPY_DESC);
+		writeSymbolicRef(buffer, 0x7b0, 0x02, SLOT_PROTOCOL);
+		writeSymbolicRef(buffer, 0x7b8, 0x01, EXTENSION_DESC);
+
+		writeRelative(buffer, SYMBOLIC_TYPES_ENTRY, SYMBOLIC_DESC);
+	}
+
 	// Person : Named conformance
 	writeRelative(buffer, PERSON_CONFORMANCE, NAMED_PROTO);
 	writeRelative(buffer, PERSON_CONFORMANCE + 4, PERSON_DESC);
@@ -161,6 +256,9 @@ function buildFixture(): { buffer: ArrayBuffer; segments: Segment64[] } {
 		makeSection("__TEXT", "__swift5_protos", 0x1010, 4),
 		makeSection("__TEXT", "__swift5_proto", 0x1020, 4)
 	];
+	if (withSymbolic) {
+		sections.push(makeSection("__TEXT", "__swift5_types2", SYMBOLIC_TYPES_ENTRY, 4));
+	}
 
 	return { buffer, segments: [makeSegment(sections)] };
 }
@@ -207,6 +305,36 @@ describe("extractSwiftMetadata", () => {
 		expect(nested).toBeDefined();
 		expect(nested?.module).toBe("Test");
 		expect(nested?.name).toBe("Inner");
+	});
+
+	it("resolves symbolic field type manglings", async () => {
+		await initSwiftDemangler();
+		const { buffer, segments } = buildFixture(true);
+		const bindMap = new Map([
+			[SLOT_ENV, { ordinal: 0, symbolName: "_$s4Test11EnvironmentVMn", addend: 0n }],
+			[SLOT_COLOR, { ordinal: 1, symbolName: "_$s4Test11ColorSchemeOMn", addend: 0n }],
+			[SLOT_URL, { ordinal: 2, symbolName: "_$s10Foundation3URLVMn", addend: 0n }],
+			[SLOT_INT8, { ordinal: 3, symbolName: "_$ss4Int8VMn", addend: 0n }],
+			[SLOT_PROTOCOL, { ordinal: 4, symbolName: "_$s4Test5NamedMp", addend: 0n }]
+		]);
+		const rebaseMap = new Map([[SLOT_REBASE, BASE + BigInt(ADDRESS_DESC)]]);
+
+		const result = extractSwiftMetadata(buffer, segments, true, true, bindMap, rebaseMap);
+		const symbolic = result.types.find((t) => t.fullName === "Test.Symbolic");
+
+		expect(symbolic).toBeDefined();
+		expect(symbolic?.fields).toEqual([
+			{ name: "environment", type: "Test.Environment<Test.ColorScheme>" },
+			{ name: "url", type: "Swift.Optional<Foundation.URL>" },
+			{ name: "pointer", type: "Swift.Optional<Swift.UnsafeMutablePointer<Swift.Int8>>" },
+			{ name: "direct", type: "Test.Person" },
+			{ name: "rebased", type: "Test.Address" },
+			{ name: "padded", type: "Test.Person" },
+			{ name: "negative", type: "Test.Environment" },
+			{ name: "protocol", type: "Test.Named" },
+			{ name: "extended", type: "Test.Person" },
+			{ name: "case" }
+		]);
 	});
 
 	it("resolves an indirect parent through the chained-fixup rebase map", async () => {
