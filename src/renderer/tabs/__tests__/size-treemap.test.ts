@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { SizeTreeNode } from "../../../shared/types";
-import { squarify } from "../size-treemap";
+import { layoutAndShade, nodeKey, roleTotals, squarify } from "../size-treemap";
 
 const leaf = (size: number): SizeTreeNode => ({ name: String(size), size, kind: "file" });
 
@@ -42,5 +42,53 @@ describe("squarify", () => {
 
 	it("returns empty rectangles when there is nothing to lay out", () => {
 		expect(squarify([leaf(0)], rect)).toEqual([{ ...rect, w: 0, h: 0 }]);
+	});
+});
+
+describe("hidden blocks", () => {
+	const rect = { x: 0, y: 0, w: 100, h: 100 };
+	const a: SizeTreeNode = { name: "a", size: 6, kind: "file" };
+	const b: SizeTreeNode = { name: "b", size: 4, kind: "file" };
+	const folder: SizeTreeNode = {
+		name: "folder",
+		size: 10,
+		kind: "directory",
+		children: [a, b]
+	};
+	const root: SizeTreeNode = { name: "root", size: 10, kind: "directory", children: [folder] };
+
+	it("keys nodes by their full path from the tree root", () => {
+		expect(nodeKey([root, folder], a)).toBe("root\u0000folder\u0000a");
+		expect(nodeKey([root, folder], a)).not.toBe(nodeKey([root], folder));
+	});
+
+	it("lays out only visible leaves and reflows them to fill the rect", () => {
+		const { leaves } = layoutAndShade(root, rect, null, 0, (_anc, node) => node === b);
+		expect(leaves).toHaveLength(1);
+		expect(leaves[0]!.node).toBe(a);
+		expect(leaves[0]!.rect.w * leaves[0]!.rect.h).toBeCloseTo(rect.w * rect.h, 6);
+	});
+
+	it("hides the whole subtree when a group is hidden", () => {
+		const { leaves } = layoutAndShade(root, rect, null, 0, (_anc, node) => node === folder);
+		expect(leaves).toHaveLength(0);
+	});
+
+	it("leaves hidden blocks out of role totals", () => {
+		const totals = roleTotals(
+			root,
+			{ code: 0, mlmodel: 0, file: 0, overhead: 0 },
+			(_anc, node) => node === b
+		);
+		expect(totals.file).toBe(6);
+	});
+
+	it("leaves a hidden group's whole subtree out of role totals", () => {
+		const totals = roleTotals(
+			root,
+			{ code: 0, mlmodel: 0, file: 0, overhead: 0 },
+			(_anc, node) => node === folder
+		);
+		expect(totals.file).toBe(0);
 	});
 });
