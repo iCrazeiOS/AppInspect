@@ -5,7 +5,7 @@ import * as path from "node:path";
 
 import type { ElectronInfo, SecurityFinding } from "../../../shared/types";
 import { type AsarArchive, readAsarHeader } from "../asar";
-import { readAsarTextFiles, scanElectron } from "../scan";
+import { readAsarTextFiles, readAsarUnpackedHtmlFiles, scanElectron } from "../scan";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -100,6 +100,12 @@ function makeInfo(overrides: Partial<ElectronInfo> = {}): ElectronInfo {
 
 function summary(finding: SecurityFinding): [string, string, string] {
 	return [finding.severity, finding.category, finding.evidence ?? ""];
+}
+
+function scanCsp(content: string, relativePath = "app.asar/index.html"): SecurityFinding[] {
+	return scanElectron(makeInfo(), [{ relativePath, content }]).filter(
+		(finding) => finding.category === "electron-csp"
+	);
 }
 
 // ── readAsarTextFiles ──────────────────────────────────────────────────
@@ -285,5 +291,223 @@ describe("scanElectron webPreferences", () => {
 			}
 		];
 		expect(scanElectron(makeInfo(), files)).toHaveLength(1);
+	});
+});
+
+// ── Content-Security-Policy ────────────────────────────────────────────
+
+function meta(content: string): string {
+	return `<meta http-equiv="Content-Security-Policy" content="${content}">`;
+}
+
+describe("scanElectron content security policy", () => {
+	it("flags a script-bearing page without a CSP meta tag", () => {
+		const [finding] = scanCsp("<script>1</script>");
+		expect(finding?.severity).toBe("info");
+		expect(finding?.category).toBe("electron-csp");
+		expect(finding?.source).toBe("app.asar/index.html");
+		expect(finding?.message).toContain("meta tag");
+		expect(finding?.evidence).toContain("1 script tag");
+	});
+
+	it("ignores pages without executable script", () => {
+		expect(scanCsp("<p>hello</p>")).toEqual([]);
+		expect(scanCsp(`<script type="application/ld+json">{}</script>`)).toEqual([]);
+		expect(scanCsp(`<script type="text/plain">hello</script>`)).toEqual([]);
+		expect(scanCsp(`<script type="text/x-handlebars-template"><b>x</b></script>`)).toEqual([]);
+	});
+
+	it("flags inline handlers on a page without a CSP meta tag", () => {
+		const [finding] = scanCsp(`<button onclick="go()">go</button>`);
+		expect(finding?.severity).toBe("info");
+		expect(finding?.evidence).toContain("inline event handlers");
+	});
+
+	it("accepts a strong policy", () => {
+		expect(
+			scanCsp(`${meta("default-src 'self'; script-src 'self'")}<script></script>`)
+		).toEqual([]);
+	});
+
+	it("flags an effective 'unsafe-inline' script source", () => {
+		const [finding] = scanCsp(`${meta("script-src 'self' 'unsafe-inline'")}<script></script>`);
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.message).toContain("unsafe-inline");
+	});
+
+	it("treats 'unsafe-inline' as inert next to a nonce", () => {
+		expect(
+			scanCsp(`${meta("script-src 'self' 'unsafe-inline' 'nonce-abc'")}<script></script>`)
+		).toEqual([]);
+	});
+
+	it("treats 'unsafe-inline' as inert next to 'strict-dynamic'", () => {
+		expect(
+			scanCsp(`${meta("script-src 'unsafe-inline' 'strict-dynamic'")}<script></script>`)
+		).toEqual([]);
+	});
+
+	it("ignores style-src 'unsafe-inline'", () => {
+		expect(
+			scanCsp(
+				`${meta("default-src 'self'; script-src 'self'; style-src 'unsafe-inline'")}<script></script>`
+			)
+		).toEqual([]);
+	});
+
+	it("flags a policy that does not govern scripts", () => {
+		const [finding] = scanCsp(`${meta("style-src 'unsafe-inline'")}<script></script>`);
+		expect(finding?.severity).toBe("info");
+		expect(finding?.message).toContain("does not restrict scripts");
+	});
+
+	it("ignores non-script directives with weak sources", () => {
+		expect(scanCsp(`${meta("default-src 'self'; img-src data:")}<script></script>`)).toEqual(
+			[]
+		);
+	});
+
+	it("uses script-src over default-src for script elements", () => {
+		expect(
+			scanCsp(`${meta("script-src 'self'; default-src 'unsafe-inline'")}<script></script>`)
+		).toEqual([]);
+	});
+
+	it("parses uppercase and minified policy attributes", () => {
+		const html = `<META CONTENT="SCRIPT-SRC 'SELF'; STYLE-SRC 'UNSAFE-INLINE'" HTTP-EQUIV="Content-Security-Policy"><SCRIPT></SCRIPT>`;
+		expect(scanCsp(html)).toEqual([]);
+	});
+
+	it("parses multiline meta tags with any attribute order", () => {
+		const html = `<meta
+			content="default-src 'self'"
+			http-equiv="Content-Security-Policy"
+		><script></script>`;
+		expect(scanCsp(html)).toEqual([]);
+	});
+
+	it("treats multiple policies as an intersection", () => {
+		const html = `${meta("script-src 'unsafe-inline'")}${meta(
+			"script-src 'self'"
+		)}<script></script>`;
+		expect(scanCsp(html)).toEqual([]);
+	});
+
+	it("flags multiple policies when every one is weak", () => {
+		const html = `${meta("script-src 'unsafe-inline'")}${meta(
+			"script-src 'unsafe-inline'"
+		)}<script></script>`;
+		const findings = scanCsp(html);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+	});
+
+	it("ignores duplicate directives after the first", () => {
+		expect(
+			scanCsp(`${meta("script-src 'self'; script-src 'unsafe-inline'")}<script></script>`)
+		).toEqual([]);
+	});
+
+	it("flags wildcard and scheme script sources", () => {
+		expect(scanCsp(`${meta("script-src *")}<script></script>`)[0]?.severity).toBe("warning");
+		expect(scanCsp(`${meta("script-src http:")}<script></script>`)[0]?.severity).toBe(
+			"warning"
+		);
+		expect(scanCsp(`${meta("script-src https:")}<script></script>`)[0]?.severity).toBe(
+			"warning"
+		);
+		expect(scanCsp(`${meta("script-src data:")}<script></script>`)[0]?.severity).toBe(
+			"warning"
+		);
+	});
+
+	it("reports lower-risk scheme script sources as info", () => {
+		const [finding] = scanCsp(`${meta("script-src blob:")}<script></script>`);
+		expect(finding?.severity).toBe("info");
+		expect(finding?.message).toContain("blob:");
+	});
+
+	it("flags 'unsafe-eval'", () => {
+		const [finding] = scanCsp(`${meta("script-src 'unsafe-eval'")}<script></script>`);
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.message).toContain("unsafe-eval");
+	});
+
+	it("ignores 'wasm-unsafe-eval'", () => {
+		expect(scanCsp(`${meta("script-src 'wasm-unsafe-eval'")}<script></script>`)).toEqual([]);
+	});
+
+	it("ignores host and scheme sources beside 'strict-dynamic'", () => {
+		expect(scanCsp(`${meta("script-src 'strict-dynamic' https:")}<script></script>`)).toEqual(
+			[]
+		);
+	});
+
+	it("uses script-src-elem for script elements", () => {
+		const html = `${meta("script-src-elem 'self'; script-src 'unsafe-inline'")}<script></script>`;
+		expect(scanCsp(html)).toEqual([]);
+	});
+
+	it("falls back to script-src for inline handlers", () => {
+		const html = `${meta("script-src-elem 'self'; script-src 'unsafe-inline'")}<body onload="go()"></body>`;
+		const [finding] = scanCsp(html);
+		expect(finding?.severity).toBe("warning");
+		expect(finding?.message).toContain("inline event handlers");
+	});
+
+	it("emits one finding per document with the highest severity", () => {
+		const findings = scanCsp(
+			`${meta("script-src 'self' 'unsafe-inline' blob:")}<script></script><script></script>`
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.severity).toBe("warning");
+		expect(findings[0]?.message).toContain("unsafe-inline");
+		expect(findings[0]?.message).toContain("blob:");
+	});
+
+	it("dedupes the same file reported twice", () => {
+		const entry = { relativePath: "app.asar/index.html", content: "<script></script>" };
+		expect(scanElectron(makeInfo(), [entry, entry])).toHaveLength(1);
+	});
+
+	it("caps findings per category", () => {
+		const files = Array.from({ length: 25 }, (_, index) => ({
+			relativePath: `app.asar/page-${index}.html`,
+			content: "<script></script>"
+		}));
+		const findings = scanElectron(makeInfo(), files).filter(
+			(finding) => finding.category === "electron-csp"
+		);
+		expect(findings).toHaveLength(20);
+	});
+
+	it("ignores commented-out CSP meta tags", () => {
+		const [finding] = scanCsp(`<!-- ${meta("script-src 'self'")} --><script></script>`);
+		expect(finding?.severity).toBe("info");
+		expect(finding?.message).toContain("No Content-Security-Policy meta tag");
+	});
+
+	it("reads .htm and unpacked HTML from the archive fixture", () => {
+		const filePath = writeFixture("csp.asar", {
+			"index.htm": { data: "<script></script>" },
+			"unpacked.html": { data: "<script></script>", unpacked: true }
+		});
+		const unpackedDir = `${filePath}.unpacked`;
+		mkdirSync(unpackedDir, { recursive: true });
+		writeFileSync(path.join(unpackedDir, "unpacked.html"), "<script></script>");
+
+		const archive = parse(filePath);
+		const packed = readAsarTextFiles(archive, LIMITS);
+		const unpacked = readAsarUnpackedHtmlFiles(archive, LIMITS);
+
+		expect(unpacked).toEqual([
+			{ relativePath: "app.asar.unpacked/unpacked.html", content: "<script></script>" }
+		]);
+		const sources = scanElectron(makeInfo(), [...packed, ...unpacked]).map(
+			(finding) => finding.source
+		);
+		expect(new Set(sources)).toEqual(
+			new Set(["app.asar/index.htm", "app.asar.unpacked/unpacked.html"])
+		);
 	});
 });

@@ -33,7 +33,7 @@ import { extractDEB } from "../deb/extractor";
 import type { AsarArchive } from "../electron/asar";
 import { readAsarFile as readAsarArchiveFile, readAsarHeader } from "../electron/asar";
 import { detectElectron } from "../electron/detect";
-import { readAsarTextFiles, scanElectron } from "../electron/scan";
+import { readAsarTextFiles, readAsarUnpackedHtmlFiles, scanElectron } from "../electron/scan";
 import type { BinaryInfo } from "../ipa/extractor";
 import {
 	discoverAppBundle,
@@ -874,9 +874,10 @@ export class AnalysisSession {
 			}
 			this.asarArchive = parsed.data;
 			const files = readAsarTextFiles(parsed.data);
+			const unpackedHtml = readAsarUnpackedHtmlFiles(parsed.data);
 			this.electronFindings = [
 				...scanBundleFileContents(files),
-				...scanElectron(info, files)
+				...scanElectron(info, [...files, ...unpackedHtml])
 			];
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
