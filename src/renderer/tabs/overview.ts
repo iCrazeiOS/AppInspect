@@ -118,12 +118,8 @@ export function renderOverview(container: HTMLElement, data: OverviewData | null
 				debItems.push(buildKV("Maintainer", String(debControl.maintainer)));
 			if (debControl.section) debItems.push(buildKV("Section", String(debControl.section)));
 			if (debControl.depends) debItems.push(buildKV("Depends", String(debControl.depends)));
-			if (debControl.description) {
-				const descRow = el("div", "ov-kv");
-				descRow.appendChild(el("span", "ov-kv-label", "Description"));
-				descRow.appendChild(el("span", "ov-kv-value", String(debControl.description)));
-				debItems.push(descRow);
-			}
+			if (debControl.description)
+				debItems.push(buildKV("Description", String(debControl.description)));
 			if (debControl.installedSize) {
 				const kb = Number(debControl.installedSize);
 				const sizeStr = kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${kb} KB`;

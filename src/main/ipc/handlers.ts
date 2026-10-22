@@ -489,13 +489,13 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				{
 					name: "Supported Files",
 					extensions: isMac
-						? ["ipa", "deb", "dylib", "app", "xcframework", "zip"]
-						: ["ipa", "deb", "dylib", "zip"]
+						? ["ipa", "tipa", "deb", "dylib", "app", "xcframework", "zip"]
+						: ["ipa", "tipa", "deb", "dylib", "zip"]
 				},
 				...(isMac ? [{ name: "App Bundles", extensions: ["app"] }] : []),
 				...(isMac ? [{ name: "XCFrameworks", extensions: ["xcframework"] }] : []),
 				{ name: "Zipped XCFrameworks", extensions: ["zip"] },
-				{ name: "IPA Files", extensions: ["ipa"] },
+				{ name: "IPA Files", extensions: ["ipa", "tipa"] },
 				{ name: "DEB Packages", extensions: ["deb"] },
 				{ name: "Mach-O Binaries", extensions: ["dylib"] },
 				{ name: "All Files", extensions: ["*"] }

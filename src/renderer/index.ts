@@ -943,6 +943,7 @@ document.addEventListener("drop", async (e: DragEvent) => {
 	const lowerPath = filePath.toLowerCase();
 	const supported =
 		lowerPath.endsWith(".ipa") ||
+		lowerPath.endsWith(".tipa") ||
 		lowerPath.endsWith(".deb") ||
 		lowerPath.endsWith(".dylib") ||
 		lowerPath.endsWith(".app") ||
