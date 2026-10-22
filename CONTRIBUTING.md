@@ -4,19 +4,21 @@ Thanks for your interest in contributing to AppInspect! This document outlines h
 
 ## Development Setup
 
-1. **Clone the repository**
+1. **Install prerequisites** — [Bun](https://bun.sh) v1.0+ and Node.js v18+ (required by Electron)
+
+2. **Clone the repository**
    ```bash
    git clone https://github.com/iCrazeiOS/AppInspect.git
    cd AppInspect
    ```
 
-2. **Install dependencies**
+3. **Install dependencies**
    ```bash
    bun install
    ```
    This also sets up Husky git hooks via the `prepare` script.
 
-3. **Run the app**
+4. **Run the app**
    ```bash
    bun run start
    ```
@@ -40,10 +42,15 @@ We use [Biome](https://biomejs.dev) for linting and formatting. The configuratio
 ### Commands
 
 ```bash
+bun run build       # Build all targets (main, preload, renderer, css, mcp, cli)
+bun run typecheck   # TypeScript type check
 bun run check       # Lint + format check
 bun run check:fix   # Auto-fix lint/format issues
 bun run format      # Format files in place
 bun run lint        # Lint only
+bun run dist        # Build + package with electron-builder
+bun run mcp         # Run the built MCP server
+bun run cli         # Run the built CLI
 ```
 
 ### VS Code
@@ -70,11 +77,7 @@ Tests use `bun:test`. Run all tests with:
 bun test
 ```
 
-Test files live in `__tests__/` directories next to the code they test:
-
-- `src/main/parser/__tests__/` — parser unit tests
-- `src/main/analysis/__tests__/` — security scan tests
-- `src/main/ipa/__tests__/` — IPA extraction tests
+Test files live in `__tests__/` directories next to the code they test — under `src/main/`, `src/renderer/`, `src/shared/`, and `src/cli/`.
 
 When adding new features or fixing bugs, add or update corresponding tests.
 
@@ -84,7 +87,7 @@ When adding new features or fixing bugs, add or update corresponding tests.
 2. **Keep changes focused** — one feature or fix per PR
 3. **Write clear commit messages** — describe what and why
 4. **Add tests** for new functionality
-5. **Update documentation** if adding user-facing features (README.md, CLAUDE.md)
+5. **Update documentation** if adding user-facing features (README.md, AGENTS.md)
 6. **Ensure all checks pass** — the pre-commit hook runs automatically
 
 ## Architecture Overview
@@ -98,9 +101,10 @@ AppInspect is an Electron app with three processes:
 Additionally:
 
 - **MCP** (`src/mcp/`) — standalone MCP server for AI agents
+- **CLI** (`src/cli/`) — headless entry point that emits JSON or SARIF
 - **Shared** (`src/shared/`) — types shared across processes
 
-See `CLAUDE.md` for detailed architecture documentation.
+See `AGENTS.md` for detailed architecture documentation.
 
 ## Reporting Issues
 
