@@ -83,6 +83,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1",
     "bplist-parser": "^0.3.2",
+    "highlight.js": "^11.12.0",
     "plist": "^3.1.0",
     "prettier": "^3.9.10",
     "swift-demangle-wasm": "^1.0.2",

@@ -394,7 +394,7 @@
   color: #f85149;
 }
 
-.el-notice--truncated {
+.el-notice--inline {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -495,6 +495,95 @@
   border-radius: 6px;
   white-space: pre;
   user-select: text;
+}
+
+/* Highlight.js tokens, using GitHub's dark palette. */
+.el-code .hljs-doctag,
+.el-code .hljs-keyword,
+.el-code .hljs-meta .hljs-keyword,
+.el-code .hljs-template-tag,
+.el-code .hljs-template-variable,
+.el-code .hljs-type,
+.el-code .hljs-variable.language_ {
+  color: #ff7b72;
+}
+
+.el-code .hljs-title,
+.el-code .hljs-title.class_,
+.el-code .hljs-title.class_.inherited__,
+.el-code .hljs-title.function_ {
+  color: #d2a8ff;
+}
+
+.el-code .hljs-attr,
+.el-code .hljs-attribute,
+.el-code .hljs-literal,
+.el-code .hljs-meta,
+.el-code .hljs-number,
+.el-code .hljs-operator,
+.el-code .hljs-variable,
+.el-code .hljs-selector-attr,
+.el-code .hljs-selector-class,
+.el-code .hljs-selector-id {
+  color: #79c0ff;
+}
+
+.el-code .hljs-regexp,
+.el-code .hljs-string,
+.el-code .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.el-code .hljs-built_in,
+.el-code .hljs-symbol {
+  color: #ffa657;
+}
+
+.el-code .hljs-comment,
+.el-code .hljs-code,
+.el-code .hljs-formula {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.el-code .hljs-name,
+.el-code .hljs-quote,
+.el-code .hljs-selector-pseudo,
+.el-code .hljs-selector-tag {
+  color: #7ee787;
+}
+
+.el-code .hljs-subst {
+  color: #c9d1d9;
+}
+
+.el-code .hljs-section {
+  color: #1f6feb;
+  font-weight: 600;
+}
+
+.el-code .hljs-bullet {
+  color: #f2cc60;
+}
+
+.el-code .hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+
+.el-code .hljs-strong {
+  color: #c9d1d9;
+  font-weight: 600;
+}
+
+.el-code .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+
+.el-code .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
 }
 
 .el-preview-empty,

@@ -41,6 +41,11 @@ import {
 	stepImageZoom
 } from "../utils/image-zoom";
 import { initPanelResize } from "../utils/panel-resize";
+import {
+	HIGHLIGHT_AUTO_BYTES,
+	highlightLanguage,
+	highlightSource
+} from "../utils/source-highlight";
 
 type ElectronView = "files" | "package";
 
@@ -611,11 +616,14 @@ export function renderElectron(
 		preview.appendChild(notices);
 		preview.appendChild(body);
 
-		// ── Beautify state (raw text is kept so toggling is lossless) ──
+		// ── Preview code state (raw text is kept so toggling is lossless) ──
 		let rawText: string | null = null;
 		let textParser: BeautifyParser | null = null;
 		let beautified = false;
 		let codeEl: HTMLElement | null = null;
+		let sourceLanguage: string | null = null;
+		let highlightEnabled = false;
+		let highlightNotice: HTMLElement | null = null;
 
 		function updateBeautifyButton(): void {
 			const enabled = rawText !== null && textParser !== null;
@@ -624,12 +632,28 @@ export function renderElectron(
 			beautifyBtn.classList.toggle("el-preview-btn--active", beautified);
 		}
 
-		function resetBeautify(): void {
+		function resetCodePreview(): void {
 			rawText = null;
 			textParser = null;
 			beautified = false;
 			codeEl = null;
+			sourceLanguage = null;
+			highlightEnabled = false;
+			highlightNotice = null;
 			updateBeautifyButton();
+		}
+
+		function setCodeContent(text: string): boolean {
+			if (!codeEl) return false;
+			if (highlightEnabled && sourceLanguage) {
+				const html = highlightSource(text, sourceLanguage);
+				if (html !== null) {
+					codeEl.innerHTML = html;
+					return true;
+				}
+			}
+			codeEl.textContent = text;
+			return false;
 		}
 
 		// ── Image zoom state ──
@@ -705,7 +729,7 @@ export function renderElectron(
 		beautifyBtn.addEventListener("click", async () => {
 			if (rawText === null || !textParser || !codeEl) return;
 			if (beautified) {
-				codeEl.textContent = rawText;
+				setCodeContent(rawText);
 				beautified = false;
 				updateBeautifyButton();
 				return;
@@ -723,7 +747,7 @@ export function renderElectron(
 			if (formatted === null) {
 				showToast("Could not beautify this file");
 			} else {
-				target.textContent = formatted;
+				setCodeContent(formatted);
 				beautified = true;
 			}
 			updateBeautifyButton();
@@ -741,6 +765,46 @@ export function renderElectron(
 			for (const [path, row] of rowMap) {
 				row.classList.toggle("el-tree-row--selected", path === selectedPath);
 			}
+		}
+
+		function buildHighlightNotice(size: number): HTMLElement {
+			const notice = el("div", "el-notice el-notice--warn el-notice--inline");
+			notice.appendChild(
+				el(
+					"span",
+					"el-notice-text",
+					`Syntax highlighting is off for this large file (${formatSize(size)}).`
+				)
+			);
+			const button = el("button", "el-notice-action", "Highlight anyway");
+			button.title = "Highlighting may take a moment for large files";
+			button.addEventListener("click", () => {
+				void enableHighlighting(button);
+			});
+			notice.appendChild(button);
+			return notice;
+		}
+
+		async function enableHighlighting(button: HTMLButtonElement): Promise<void> {
+			const target = codeEl;
+			if (!target || !sourceLanguage) return;
+			const requestId = previewRequest;
+			button.disabled = true;
+			button.textContent = "Highlighting\u2026";
+			// Let the pending label paint before highlight.js blocks the thread.
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			if (requestId !== previewRequest || codeEl !== target) return;
+
+			highlightEnabled = true;
+			if (!setCodeContent(target.textContent ?? "")) {
+				highlightEnabled = false;
+				button.disabled = false;
+				button.textContent = "Highlight anyway";
+				showToast("Could not highlight this file");
+				return;
+			}
+			highlightNotice?.remove();
+			highlightNotice = null;
 		}
 
 		async function loadFullContent(path: string, button: HTMLButtonElement): Promise<void> {
@@ -779,7 +843,7 @@ export function renderElectron(
 			path: string,
 			limit: number
 		): HTMLElement {
-			const notice = el("div", "el-notice el-notice--warn el-notice--truncated");
+			const notice = el("div", "el-notice el-notice--warn el-notice--inline");
 			notice.appendChild(
 				el(
 					"span",
@@ -807,7 +871,7 @@ export function renderElectron(
 			body.innerHTML = "";
 			body.classList.remove("el-preview-body--image");
 			sizeEl.textContent = formatSize(result.size);
-			resetBeautify();
+			resetCodePreview();
 			resetImageZoom();
 
 			if (result.kind === "image") {
@@ -874,8 +938,21 @@ export function renderElectron(
 			rawText = text;
 			textParser = result.truncated ? null : beautifyParser(path);
 			beautified = pretty !== null;
-			codeEl = el("pre", "el-code", pretty ?? text);
+			codeEl = el("pre", "el-code");
 			body.appendChild(codeEl);
+			sourceLanguage = highlightLanguage(path);
+			const displayed = pretty ?? text;
+			const autoHighlight =
+				sourceLanguage !== null && displayed.length <= HIGHLIGHT_AUTO_BYTES;
+			highlightEnabled = autoHighlight;
+			if (autoHighlight) highlightEnabled = setCodeContent(displayed);
+			if (!highlightEnabled) {
+				codeEl.textContent = displayed;
+				if (sourceLanguage && !autoHighlight) {
+					highlightNotice = buildHighlightNotice(displayed.length);
+					notices.appendChild(highlightNotice);
+				}
+			}
 			updateBeautifyButton();
 		}
 
@@ -888,7 +965,7 @@ export function renderElectron(
 			notices.innerHTML = "";
 			body.innerHTML = "";
 			body.classList.remove("el-preview-body--image");
-			resetBeautify();
+			resetCodePreview();
 			resetImageZoom();
 			body.appendChild(el("div", "el-preview-loading", "Loading\u2026"));
 
