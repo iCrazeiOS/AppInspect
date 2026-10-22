@@ -355,6 +355,119 @@ function isCommented(content: string, index: number): boolean {
 	);
 }
 
+// ── Dangerous command-line switches ──
+
+/**
+ * Match the forms a Chromium switch takes in app code:
+ *   appendSwitch("name")                    — switch name without leading `--`
+ *   appendArgument("--name[=value]")        — full argument, with leading `--`
+ *   additionalArguments: ["--name[=value]"] — forwarded to renderer argv
+ *
+ * `additionalArguments` is excluded for browser-process switches such as
+ * `remote-debugging-port`, where it would not open a listener.
+ */
+function switchPattern(name: string, includeAdditionalArguments = true): RegExp {
+	const call =
+		`\\bappendSwitch\\s*\\(\\s*["']${name}["'](?:\\s*,\\s*["'][^"']*["'])?\\s*\\)` +
+		`|\\bappendArgument\\s*\\(\\s*["']--${name}(?:=[^"']*)?["']\\s*\\)`;
+	if (!includeAdditionalArguments) return new RegExp(call);
+	return new RegExp(
+		`${call}|\\badditionalArguments\\s*:\\s*\\[[^\\]]{0,500}?` + `["']--${name}(?:=[^"']*)?["']`
+	);
+}
+
+const DANGEROUS_SWITCHES: Array<{
+	id: string;
+	severity: SecurityFinding["severity"];
+	pattern: RegExp;
+	message: string;
+}> = [
+	{
+		id: "disable-web-security",
+		severity: "warning",
+		pattern: switchPattern("disable-web-security"),
+		message: "disable-web-security is set — the renderer skips the same-origin policy"
+	},
+	{
+		id: "ignore-certificate-errors",
+		severity: "warning",
+		pattern: switchPattern("ignore-certificate-errors"),
+		message: "ignore-certificate-errors is set — TLS certificates are not validated"
+	},
+	{
+		id: "allow-running-insecure-content",
+		severity: "warning",
+		pattern: switchPattern("allow-running-insecure-content"),
+		message: "allow-running-insecure-content is set — active mixed content is allowed"
+	},
+	{
+		id: "disable-site-isolation-trials",
+		severity: "warning",
+		pattern: switchPattern("disable-site-isolation-trials"),
+		message: "disable-site-isolation-trials is set — per-site process isolation is disabled"
+	},
+	{
+		id: "inspect",
+		severity: "info",
+		pattern: switchPattern("inspect"),
+		message:
+			"Node inspector flag 'inspect' is referenced — a launch-time argv flag, " +
+			"not a Chromium switch the app can enable at runtime"
+	},
+	{
+		id: "inspect-brk",
+		severity: "info",
+		pattern: switchPattern("inspect-brk"),
+		message:
+			"Node inspector flag 'inspect-brk' is referenced — a launch-time argv flag, " +
+			"not a Chromium switch the app can enable at runtime"
+	}
+];
+
+/** `remote-debugging-port` is handled separately to correlate the bind address. */
+const DEBUG_PORT_PATTERN = switchPattern("remote-debugging-port", false);
+
+/** Value of `remote-debugging-address` in the two browser-process forms. */
+const DEBUG_ADDRESS_PATTERN = new RegExp(
+	`\\bappendSwitch\\s*\\(\\s*["']remote-debugging-address["']\\s*,\\s*["']([^"']+)["']` +
+		`|\\bappendArgument\\s*\\(\\s*["']--remote-debugging-address=([^"']+)["']`
+);
+
+/** A debug flag read from process.argv; the app does not enable it by itself. */
+const ARGV_DEBUG_PATTERN =
+	/\bprocess\.argv[\s\S]{0,120}?["']--(inspect(?:-brk)?|remote-debugging-port|remote-debugging-address)(?:=[^"']*)?["']/;
+
+const MAX_EVIDENCE_LENGTH = 200;
+
+function clip(value: string): string {
+	return value.length > MAX_EVIDENCE_LENGTH
+		? `${value.slice(0, MAX_EVIDENCE_LENGTH - 3)}...`
+		: value;
+}
+
+function isLoopbackHost(host: string): boolean {
+	const value = host.trim().toLowerCase();
+	return (
+		value === "localhost" ||
+		value === "::1" ||
+		value === "[::1]" ||
+		/^127(?:\.\d{1,3}){3}$/.test(value)
+	);
+}
+
+/** Documentation, tests and lockfiles that quote switches without running them. */
+const NON_RUNTIME_PATH =
+	/(^|\/)(?:readme|changelog|license|notice|contributing)(?:\.[^/]*)?$|(^|\/)(?:docs?|documentation|__tests__|__mocks__|tests?|specs?)\/|\.(?:test|spec)\.[^/]+$|(^|\/)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/i;
+
+// ── Cleartext content loading ──
+
+/** `loadURL("http://…")`, `'http://…'`, or a template literal. */
+const CLEARTEXT_LOAD_URL = /\bloadURL\s*\(\s*(["'`])(http:\/\/[^"'`\n]{0,200})\1\s*[,)]/i;
+
+/** Loopback cleartext is local-only; never treat `localhost.evil.com` as loopback. */
+const LOOPBACK_HTTP =
+	/^http:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::[^/?#]*)?(?:[/?#]|$)/i;
+
 // ── Content-Security-Policy ───────────────────────────────────────────
 
 const CSP_CATEGORY: ElectronCategory = "electron-csp";
@@ -938,6 +1051,71 @@ function collectTextFindings(
 				evidence: matched.evidence,
 				source: file.source,
 				...(file.vendor ? { vendor: true } : {})
+			});
+		}
+	}
+
+	// ── Command-line switches and cleartext loading ──
+	for (const file of files) {
+		if (NON_RUNTIME_PATH.test(file.relativePath)) continue;
+
+		const emitSwitches = (
+			severity: SecurityFinding["severity"],
+			message: string,
+			evidence: string
+		): void => {
+			push({
+				severity,
+				category: "electron-switches",
+				message,
+				evidence: clip(evidence),
+				source: file.relativePath
+			});
+		};
+
+		for (const { severity, pattern, message } of DANGEROUS_SWITCHES) {
+			const match = pattern.exec(file.content);
+			if (match) emitSwitches(severity, message, match[0]);
+		}
+
+		// A port on its own is loopback-only. Only a non-loopback address is remote RCE.
+		const port = DEBUG_PORT_PATTERN.exec(file.content);
+		if (port) {
+			const address = DEBUG_ADDRESS_PATTERN.exec(file.content);
+			const host = address?.[1] ?? address?.[2] ?? "";
+			const exposed = host.length > 0 && !isLoopbackHost(host);
+			push({
+				severity: exposed ? "critical" : "warning",
+				category: "electron-switches",
+				message: exposed
+					? `remote-debugging-port is bound to ${host} — the DevTools protocol allows remote code execution`
+					: "remote-debugging-port is enabled — local processes can drive the app through the DevTools protocol",
+				evidence: clip(address ? `${port[0]} ${address[0]}` : port[0]),
+				source: file.relativePath
+			});
+		}
+
+		const argv = ARGV_DEBUG_PATTERN.exec(file.content);
+		if (argv) {
+			emitSwitches(
+				"info",
+				`process.argv is inspected for --${argv[1] ?? ""} — the flag is only effective when passed at launch`,
+				argv[0]
+			);
+		}
+
+		const load = CLEARTEXT_LOAD_URL.exec(file.content);
+		if (load) {
+			const url = load[2] ?? "";
+			const loopback = LOOPBACK_HTTP.test(url);
+			push({
+				severity: loopback ? "info" : "warning",
+				category: "electron-cleartext",
+				message: loopback
+					? "loadURL loads content over cleartext HTTP from loopback — not exposed beyond the local machine"
+					: "loadURL loads remote content over cleartext HTTP — traffic can be read or modified in transit",
+				evidence: clip(load[0]),
+				source: file.relativePath
 			});
 		}
 	}

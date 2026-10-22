@@ -212,6 +212,34 @@ describe("sarif export", () => {
 		expect(rule.id).toBe("appinspect/electron-runtime");
 		expect(rule.shortDescription.text).toBe("Electron runtime API misuse");
 	});
+
+	it("labels Electron switch and cleartext categories", () => {
+		const log = JSON.parse(
+			exportSarif(
+				makeResult([
+					{
+						severity: "critical",
+						category: "electron-switches",
+						message: "Remote debugging exposed",
+						evidence: "appendSwitch(…)"
+					},
+					{
+						severity: "warning",
+						category: "electron-cleartext",
+						message: "Cleartext loadURL",
+						evidence: "loadURL(…)"
+					}
+				])
+			)
+		);
+		const rules = log.runs[0].tool.driver.rules;
+		expect(rules.map((r: { id: string }) => r.id)).toEqual([
+			"appinspect/electron-cleartext",
+			"appinspect/electron-switches"
+		]);
+		expect(rules[1].shortDescription.text).toBe("Dangerous Electron command-line switch");
+		expect(rules[1].defaultConfiguration.level).toBe("error");
+	});
 });
 
 describe("findingsAtOrAbove", () => {

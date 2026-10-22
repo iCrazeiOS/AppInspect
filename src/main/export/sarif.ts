@@ -34,7 +34,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 	"electron-csp": "Electron Content-Security-Policy weakness",
 	"electron-integrity": "Electron bundle integrity issue",
 	"electron-runtime": "Electron runtime API misuse",
-	"electron-version": "Unsupported Electron version"
+	"electron-version": "Unsupported Electron version",
+	"electron-switches": "Dangerous Electron command-line switch",
+	"electron-cleartext": "Cleartext HTTP content loading"
 };
 
 const LEVELS: Record<SecurityFinding["severity"], "error" | "warning" | "note"> = {
