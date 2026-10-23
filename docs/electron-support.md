@@ -258,9 +258,10 @@ export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): Secu
     same check names as the JS prefs.
   - `electron-runtime` — `enableRemoteModule: true` **warning** before Electron
     14 (or with an unknown version) and **info** on 14+, where the module was
-    removed. Preloads forwarding a non-literal `ipcRenderer` channel are
-    **warning** unless a nearby guard validates that channel or a named helper
-    receives only literal channels at every call site.
+    removed. Preloads forwarding a channel that is not provably static are
+    **warning**. A static string, a member of a flat string-only `const` object,
+    a guard-validated channel, and a named helper or fixed-prefix template whose
+    every call site supplies a static channel are not reported.
   - `electron-csp` — missing or weak Content-Security-Policy meta tags in
     shipped HTML; CSP delivered by HTTP headers or set at runtime
     (`session.webRequest`) is not visible to static analysis.
