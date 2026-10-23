@@ -188,6 +188,19 @@ describe("detectElectron", () => {
 		expect(info.integrityIssue).toBeUndefined();
 	});
 
+	it("excludes declaration maps from the source map list", () => {
+		const asar = packAsar({
+			"package.json": { data: "{}" },
+			maps: { files: { "app.js.map": { data: "{}" } } },
+			"types.d.ts.map": { data: "{}" },
+			"types.d.mts.map": { data: "{}" },
+			"types.d.cts.map": { data: "{}" }
+		});
+
+		const info = detectElectron(makeApp("DeclarationMaps.app", { asar: asar.buffer }), true);
+		expect(info?.sourceMaps).toEqual(["maps/app.js.map"]);
+	});
+
 	it("marks a mismatched integrity hash as invalid", () => {
 		const info = detectElectron(
 			makeApp("Mismatch.app", { integrityHash: "00".repeat(32) }),
