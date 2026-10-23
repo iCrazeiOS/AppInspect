@@ -93,24 +93,60 @@ export function checkDebugArtifacts(params: DebugArtifactParams): SecurityFindin
 
 const MAX_BUNDLE_ENTRIES = 20000;
 const MAX_BUNDLE_FINDINGS = 25;
+const MAX_VENDOR_SOURCE_MAPS = 5;
+const DECLARATION_MAP_RE = /\.d\.(?:ts|mts|cts)\.map$/;
+const VENDOR_SEGMENT = /(^|\/)(?:node_modules|vendor|third_party|3rdparty)(\/|$)/i;
+
+/**
+ * Runtime source maps are the only ones worth a warning: declaration maps
+ * (`.d.ts.map`) are build metadata, and CSS maps are not JavaScript.
+ */
+function classifySourceMap(fileName: string): {
+	message: string;
+	severity: SecurityFinding["severity"];
+} | null {
+	const lower = fileName.toLowerCase();
+	if (DECLARATION_MAP_RE.test(lower)) return null;
+	if (lower.endsWith(".css.map")) {
+		return { message: "CSS source map shipped in bundle", severity: "warning" };
+	}
+	if (/\.(?:js|mjs|cjs|jsx|ts|tsx)\.map$/.test(lower)) {
+		return { message: "JavaScript source map shipped in bundle", severity: "warning" };
+	}
+	return { message: "Source map shipped in bundle", severity: "info" };
+}
+
+function isVendorPath(relativePath: string): boolean {
+	return VENDOR_SEGMENT.test(relativePath);
+}
 
 export function findBundleDebugArtifacts(rootPath: string): SecurityFinding[] {
 	const findings: SecurityFinding[] = [];
 	const seen = new Set<string>();
 	let visited = 0;
+	let vendorSourceMaps = 0;
 
 	function add(
 		category: string,
 		severity: SecurityFinding["severity"],
 		message: string,
 		relativePath: string,
-		evidence: string
+		evidence: string,
+		options: { vendor?: boolean } = {}
 	): void {
 		if (findings.length >= MAX_BUNDLE_FINDINGS) return;
 		const key = `${category}|${relativePath}`;
 		if (seen.has(key)) return;
 		seen.add(key);
-		findings.push({ severity, category, message, evidence, source: relativePath });
+		const finding: SecurityFinding = {
+			severity,
+			category,
+			message,
+			evidence,
+			source: relativePath
+		};
+		if (options.vendor) finding.vendor = true;
+		findings.push(finding);
 	}
 
 	function walk(dir: string): void {
@@ -122,6 +158,14 @@ export function findBundleDebugArtifacts(rootPath: string): SecurityFinding[] {
 		} catch {
 			return;
 		}
+
+		// App-owned artifacts first: a deep vendor tree must not consume the
+		// bundle finding cap before the app's own files are reached.
+		entries.sort((a, b) => {
+			const vendorA = VENDOR_SEGMENT.test(a.name) ? 1 : 0;
+			const vendorB = VENDOR_SEGMENT.test(b.name) ? 1 : 0;
+			return vendorA - vendorB || a.name.localeCompare(b.name);
+		});
 
 		for (const entry of entries) {
 			if (visited >= MAX_BUNDLE_ENTRIES || findings.length >= MAX_BUNDLE_FINDINGS) break;
@@ -160,12 +204,20 @@ export function findBundleDebugArtifacts(rootPath: string): SecurityFinding[] {
 			if (!entry.isFile()) continue;
 
 			if (lower.endsWith(".map")) {
+				const classified = classifySourceMap(entry.name);
+				if (!classified) continue;
+				const vendor = isVendorPath(relativePath);
+				if (vendor) {
+					if (vendorSourceMaps >= MAX_VENDOR_SOURCE_MAPS) continue;
+					vendorSourceMaps++;
+				}
 				add(
 					"source-map",
-					"warning",
-					"JavaScript source map shipped in bundle",
+					classified.severity,
+					classified.message,
 					relativePath,
-					entry.name
+					entry.name,
+					{ vendor }
 				);
 			} else if (lower.endsWith(".swiftmodule") || lower.endsWith(".swiftinterface")) {
 				add(

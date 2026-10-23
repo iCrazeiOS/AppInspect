@@ -108,7 +108,97 @@ describe("checkDebugArtifacts", () => {
 
 // ── Bundle-level artifacts ──
 
+function makeBundle(files: Record<string, string>, run: (root: string) => void): void {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "appinspect-bundle-"));
+	try {
+		for (const [relativePath, content] of Object.entries(files)) {
+			const fullPath = path.join(root, relativePath);
+			fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+			fs.writeFileSync(fullPath, content);
+		}
+		run(root);
+	} finally {
+		fs.rmSync(root, { recursive: true, force: true });
+	}
+}
+
 describe("findBundleDebugArtifacts", () => {
+	it("classifies source maps by runtime type", () => {
+		makeBundle(
+			{
+				"main.js.map": "{}",
+				"main.css.map": "{}",
+				"app.ts.map": "{}",
+				"UPPER.JS.MAP": "{}",
+				"types.d.ts.map": "{}",
+				"types.d.mts.map": "{}",
+				"types.d.cts.map": "{}",
+				"data.map": "{}"
+			},
+			(root) => {
+				const findings = findBundleDebugArtifacts(root);
+				const bySource = new Map(findings.map((finding) => [finding.source, finding]));
+				expect([...bySource.keys()].sort()).toEqual([
+					"UPPER.JS.MAP",
+					"app.ts.map",
+					"data.map",
+					"main.css.map",
+					"main.js.map"
+				]);
+
+				for (const source of ["main.js.map", "app.ts.map", "UPPER.JS.MAP"]) {
+					const script = bySource.get(source);
+					expect(script?.severity).toBe("warning");
+					expect(script?.message).toContain("JavaScript source map");
+				}
+
+				const css = bySource.get("main.css.map");
+				expect(css?.severity).toBe("warning");
+				expect(css?.message).toContain("CSS source map");
+
+				const unknown = bySource.get("data.map");
+				expect(unknown?.severity).toBe("info");
+				expect(unknown?.message).toBe("Source map shipped in bundle");
+			}
+		);
+	});
+
+	it("tags vendor maps, caps them at five and keeps app-owned maps", () => {
+		const files: Record<string, string> = { "app.js.map": "{}" };
+		for (let i = 0; i < 6; i++) {
+			files[`node_modules/pkg/map-${i}.js.map`] = "{}";
+		}
+
+		makeBundle(files, (root) => {
+			const maps = findBundleDebugArtifacts(root).filter(
+				(finding) => finding.category === "source-map"
+			);
+			const vendor = maps.filter((finding) => finding.vendor);
+			expect(vendor).toHaveLength(5);
+			expect(vendor[0]?.severity).toBe("warning");
+
+			const appOwned = maps.find((finding) => finding.source === "app.js.map");
+			expect(appOwned).toBeDefined();
+			expect(appOwned?.vendor).toBeUndefined();
+		});
+	});
+
+	it("visits app-owned directories before vendor directories", () => {
+		const files: Record<string, string> = { "zz-app/app.js.map": "{}" };
+		for (let i = 0; i < 26; i++) {
+			files[`vendor/leak-${i}.dSYM/Contents/Info.plist`] = "";
+		}
+
+		makeBundle(files, (root) => {
+			// A filesystem that returns `vendor` first would let the dSYM findings
+			// fill the 25-finding cap before the app's own map is reached.
+			const findings = findBundleDebugArtifacts(root);
+			expect(findings).toHaveLength(25);
+			const maps = findings.filter((finding) => finding.category === "source-map");
+			expect(maps.map((finding) => finding.source)).toEqual(["zz-app/app.js.map"]);
+		});
+	});
+
 	it("finds shipped build artifacts and ignores normal files", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "appinspect-bundle-"));
 		try {

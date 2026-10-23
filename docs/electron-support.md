@@ -222,7 +222,8 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
   A completely absent table is only reported as missing on Electron 30+
   (when ASAR integrity was introduced) and never when the version is unknown;
   a table that exists without an `app.asar` entry is always reported.
-- `sourceMaps` = `.map`; `nativeAddons` = `.node` (archive-relative).
+- `sourceMaps` = runtime `.map` files, excluding `.d.ts.map`/`.d.mts.map`/
+  `.d.cts.map` declaration maps; `nativeAddons` = `.node` (archive-relative).
 - `unpackedCount` from the archive header.
 
 ### `src/main/electron/scan.ts`
@@ -234,8 +235,8 @@ export function readAppDirectoryTextFiles(appDir: string): BundleFileEntry[];
 export function scanElectron(info: ElectronInfo, files: BundleFileEntry[]): SecurityFinding[];
 ```
 
-- Text extraction: only `isScannableExtension`, skip `.map` (they are huge and
-  already reported as shipped source maps), skip files over `maxFileSizeMB`,
+- Text extraction: only `isScannableExtension`, skip `.map` (they are huge;
+  runtime maps are reported separately), skip files over `maxFileSizeMB`,
   stop at `maxBundleSizeMB`, skip NUL-containing content, prefix
   `relativePath` with `app.asar/`. Unpacked `.html`/`.htm` entries are read
   from the `.unpacked` sibling with the `app.asar.unpacked/` prefix.

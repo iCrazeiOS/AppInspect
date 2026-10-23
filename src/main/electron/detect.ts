@@ -238,8 +238,9 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 			for (const record of archive.files.values()) {
 				if (record.link !== undefined) continue;
 				const lower = record.path.toLowerCase();
-				if (lower.endsWith(".map")) info.sourceMaps.push(record.path);
-				else if (lower.endsWith(".node")) info.nativeAddons.push(record.path);
+				if (lower.endsWith(".map") && !/\.d\.(?:ts|mts|cts)\.map$/.test(lower)) {
+					info.sourceMaps.push(record.path);
+				} else if (lower.endsWith(".node")) info.nativeAddons.push(record.path);
 			}
 		}
 	}
