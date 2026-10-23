@@ -702,7 +702,417 @@ describe("scanElectron runtime API checks", () => {
 		).toEqual([]);
 	});
 
-	it("flags a helper that forwards a dynamic channel", () => {
+	it("ignores a channel resolved from a static constant object", () => {
+		const content = [
+			'const CH = Object.freeze({ Error: "autofill.error", Configure: "autofill.configure" });',
+			"ipcRenderer.send(CH.Error, payload);",
+			'ipcRenderer.send(CH["Configure"], payload);'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("ignores a channel resolved from a string constant", () => {
+		expect(
+			scanText(
+				'const CHANNEL = "app:get-state";ipcRenderer.invoke(CHANNEL, payload);',
+				"app.asar/preload.js"
+			)
+		).toEqual([]);
+	});
+
+	it("ignores a helper whose channel is not the first parameter", () => {
+		const content = [
+			'const CH = { Error: "autofill.error" };',
+			"function makeListener(incomingChannel, outgoingChannel) {",
+			"  return ipcRenderer.send(outgoingChannel, incomingChannel);",
+			"}",
+			'makeListener("request", CH.Error);',
+			'makeListener("request2", "autofill.configure");'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("ignores a fixed-prefix template helper called with static names", () => {
+		const content = [
+			"function Oe(e, t = {}) {",
+			"  return ipcRenderer.invoke(`settings:get:$" + "{e}`, t);",
+			"}",
+			'Oe("themeSetting", { setter: false });'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("ignores a template helper whose parts are static constants", () => {
+		const content = [
+			'const SCOPE = "settings";',
+			"function Oe(e) {",
+			"  return ipcRenderer.invoke(`$" + "{SCOPE}:get:$" + "{e}`);",
+			"}",
+			'Oe("themeSetting");'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("ignores a template helper that closes over an outer factory parameter", () => {
+		const content = [
+			"function Oe(e, t = {}) {",
+			"  function get() { return ipcRenderer.invoke(`settings:get:$" + "{e}`); }",
+			"  return { get };",
+			"}",
+			'Oe("themeSetting", { setter: false });'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("ignores a helper call that omits a channel parameter", () => {
+		const content = [
+			'const CH = { Incoming: "autofill.incoming", Outgoing: "autofill.outgoing" };',
+			"function makeListener(incomingChannel, outgoingChannel) {",
+			"  return () => ipcRenderer.send(outgoingChannel, incomingChannel);",
+			"}",
+			"makeListener(CH.Incoming);",
+			"makeListener(CH.Incoming, CH.Outgoing);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("does not treat a computed member write as an array pattern", () => {
+		const content = [
+			"function it(c) { return ipcRenderer.invoke(c); }",
+			'it("lit");',
+			"const handlers = {};",
+			"handlers[it] = true;",
+			"it(userChannel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a helper handed over through a ternary", () => {
+		const content = [
+			"function it(c) { return ipcRenderer.invoke(c); }",
+			'it("lit");',
+			"const h = cond ? it : noop;",
+			"h(userChannel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a helper handed over through await", () => {
+		const content = [
+			"function it(c) { return ipcRenderer.invoke(c); }",
+			'it("lit");',
+			"async function f() { await g(await it); }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by a default containing a paren", () => {
+		const content = [
+			'const channel = "x";',
+			'function f(a = "(", channel) { return ipcRenderer.invoke(channel); }',
+			"f(undefined, userChannel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by a method after a class field", () => {
+		const content = [
+			'const channel = "x";',
+			"class A { x = 1",
+			"  m(channel) { return ipcRenderer.invoke(channel); }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a helper whose omitted channel has a default", () => {
+		const content = [
+			"function E(channel = userChannel) { return ipcRenderer.invoke(channel); }",
+			'E("fixed");',
+			"E();"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a helper called with spread arguments", () => {
+		const content = [
+			"function E(channel) { return ipcRenderer.invoke(channel); }",
+			'E("fixed");',
+			"E(...args);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("ignores a helper whose short name is reused by a later declaration", () => {
+		const content = [
+			"function it(e, t = {}) {",
+			"  function get() { return ipcRenderer.invoke(`settings:get:$" + "{e}`); }",
+			"  return get;",
+			"}",
+			"it(`themeSetting`, { setter: false });",
+			"function it(e) { return e; }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("does not resolve a channel constant shadowed by a parameter", () => {
+		const content = [
+			'const channel = "fixed";',
+			"function forward(channel) { return ipcRenderer.invoke(channel); }",
+			"forward(userChannel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by an anonymous arrow parameter", () => {
+		const content = [
+			'const channel = "app:ready";',
+			'contextBridge.exposeInMainWorld("api", {',
+			"  invoke: (channel, data) => ipcRenderer.invoke(channel, data)",
+			"});"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by an object method parameter", () => {
+		const content = [
+			'const channel = "app:ready";',
+			"const api = { invoke(channel, data) { return ipcRenderer.invoke(channel, data); } };",
+			'contextBridge.exposeInMainWorld("api", api);'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a wrapper argument that shadows a file constant", () => {
+		const content = [
+			'const ch = "static";',
+			"function E(c) { return ipcRenderer.invoke(c); }",
+			"function wrap(ch) { return E(ch); }",
+			'contextBridge.exposeInMainWorld("api", { invoke: wrap });'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve an object constant that is mutated later", () => {
+		const content = [
+			'const CH = { A: "a" };',
+			"CH.A = userChannel;",
+			"ipcRenderer.invoke(CH.A);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+
+		const assigned = [
+			'const CH = { A: "a" };',
+			"Object.assign(CH, { A: userChannel });",
+			"ipcRenderer.invoke(CH.A);"
+		].join("\n");
+		expect(scanText(assigned, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a joined prefix constant", () => {
+		expect(
+			scanText(
+				'const CH = "settings:" + userKey;ipcRenderer.invoke(CH);',
+				"app.asar/preload.js"
+			)
+		).toHaveLength(1);
+	});
+
+	it("still checks a conditional wrapper call site", () => {
+		const content = [
+			"function E(c) { return ipcRenderer.invoke(c); }",
+			'E("fixed");',
+			"cond ? E(userChannel) : null;"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by a method after a class field", () => {
+		const content = [
+			'const channel = "app:x";',
+			"class A { x = 1; m(channel) { return ipcRenderer.invoke(channel); } }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve a constant shadowed by an import binding", () => {
+		const content = [
+			'import channel from "./channels.js";',
+			'function load() { const channel = "app:static"; return channel; }',
+			"ipcRenderer.invoke(channel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not resolve an object constant updated with compound assignment", () => {
+		const content = [
+			'const CH = { A: "a" };',
+			"CH.A ||= userChannel;",
+			"ipcRenderer.invoke(CH.A);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("ignores helper-name prose in strings and comments", () => {
+		const content = [
+			"function it(e) { return ipcRenderer.invoke(e); }",
+			'it("fixed");',
+			'const label = "call it(dynamic) yourself";',
+			"// it(dynamic) is not a call"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("still checks a call after a regex brace inside a nested declaration", () => {
+		const content = [
+			"function it(e) { return ipcRenderer.invoke(e); }",
+			'it("fixed");',
+			"function be() { const R = /}/; function it(t) { return t; } }",
+			"it(window.location.hash);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still checks a call when a parameter uses the helper name as a key", () => {
+		const content = [
+			"function it(ch) { return ipcRenderer.invoke(ch); }",
+			'it("fixed");',
+			"function f({ it: alias }) { return it(userChannel); }",
+			"f({ it: 1 });"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still checks a call when a destructuring key matches the helper name", () => {
+		const content = [
+			"function it(ch) { return ipcRenderer.invoke(ch); }",
+			'it("fixed");',
+			"function read() { let { it: alias } = state; return it(userChannel); }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("does not attribute a call shadowed by a destructured parameter", () => {
+		const content = [
+			"function it(e, t = {}) { return ipcRenderer.invoke(`settings:get:$" + "{e}`, t); }",
+			'it("themeSetting", { setter: false });',
+			"function factory({ onLastSyncTimeChange: it }) {",
+			"  return it(Date.now());",
+			"}"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("does not attribute a call shadowed by a destructured variable", () => {
+		const content = [
+			"function it(e) { return ipcRenderer.invoke(e); }",
+			'it("fixed");',
+			"function read() { let { selfViewExpanded: it } = state; return it(Date.now()); }"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toEqual([]);
+	});
+
+	it("does not resolve a constant shadowed by a destructuring default or nest", () => {
+		const cases = [
+			[
+				'const channel = "x";',
+				"let { a = 1, channel } = state;",
+				"ipcRenderer.invoke(channel);"
+			],
+			[
+				'const channel = "x";',
+				"let { a: { channel } } = state;",
+				"ipcRenderer.invoke(channel);"
+			]
+		];
+		for (const lines of cases) {
+			expect(scanText(lines.join("\n"), "app.asar/preload.js")).toHaveLength(1);
+		}
+	});
+
+	it("does not resolve a constant shadowed by a destructured, catch or loop binding", () => {
+		const cases = [
+			[
+				'const channel = "x";',
+				"ipcRenderer.on(`e`, (_e, { channel }) => ipcRenderer.invoke(channel));"
+			],
+			[
+				'const channel = "x";',
+				"try { run(); } catch (channel) { ipcRenderer.send(channel, 1); }"
+			],
+			[
+				'const channel = "x";',
+				"for (const channel of channels) ipcRenderer.send(channel, 1);"
+			]
+		];
+		for (const lines of cases) {
+			expect(scanText(lines.join("\n"), "app.asar/preload.js")).toHaveLength(1);
+		}
+	});
+
+	it("still checks a call after a nested same-name declaration", () => {
+		const content = [
+			"function it(e) { return ipcRenderer.invoke(e); }",
+			'it("fixed");',
+			"function be(e) { function it(t) { return t; } return it(e); }",
+			"be(1);",
+			"it(window.location.hash);"
+		].join("\n");
+		const findings = scanText(content, "app.asar/preload.js");
+		expect(findings).toHaveLength(1);
+	});
+
+	it("still flags a computed key on an otherwise static object", () => {
+		const content = ['const CH = { A: "a" };', "ipcRenderer.send(CH[userKey], payload);"].join(
+			"\n"
+		);
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a member of a tainted object", () => {
+		const content = [
+			'const CH = { A: "a", B: getB() };',
+			"ipcRenderer.send(CH.A, payload);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a wrapper with any dynamic call site", () => {
+		const content = [
+			"function E(channel) { return ipcRenderer.invoke(channel); }",
+			'E("fixed");',
+			"E(userChannel);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a static object member helper exposed as a value", () => {
+		const content = [
+			'const CH = { Error: "autofill.error" };',
+			"function E(channel) { return ipcRenderer.invoke(channel); }",
+			"E(CH.Error);",
+			'contextBridge.exposeInMainWorld("api", { invoke: E });'
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a template helper called with a dynamic parameter", () => {
+		const content = [
+			"function Oe(e) { return ipcRenderer.invoke(`settings:get:$" + "{e}`); }",
+			"Oe(userSetting);"
+		].join("\n");
+		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+	});
+
+	it("still flags a partial static object spread", () => {
+		expect(
+			scanText(
+				'const CH = { A: "a", ...other };ipcRenderer.send(CH.A, payload);',
+				"app.asar/preload.js"
+			)
+		).toHaveLength(1);
+	});
+
+	it("still flags a helper that forwards a dynamic channel", () => {
 		const findings = scanText(
 			"function E(_,...T){return ipcRenderer.invoke(_,...T)}" +
 				'contextBridge.exposeInMainWorld("api",{invoke:(channel,data)=>E(channel,data)})',
