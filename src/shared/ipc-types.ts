@@ -160,6 +160,10 @@ export type InvokeChannelMap = {
 		params: { sessionId: string; tabs?: TabName[] };
 		result: { success: boolean; path?: string };
 	};
+	"export-headers": {
+		params: { sessionId: string };
+		result: { success: boolean; path?: string; files?: number };
+	};
 	"open-file-picker": {
 		params: { mode?: "file" | "folder" } | undefined;
 		result: string | null;

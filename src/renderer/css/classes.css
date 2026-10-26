@@ -51,6 +51,33 @@
   color: var(--text-muted);
 }
 
+.cls-export-btn {
+  margin-left: auto;
+  height: 28px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-stack);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.cls-export-btn:hover:not(:disabled) {
+  background-color: var(--accent-light);
+  color: var(--accent-hover);
+}
+
+.cls-export-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .cls-panels {
   display: flex;
   gap: 0;

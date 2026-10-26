@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("api", {
 		ipcRenderer.invoke("save-png", { defaultName, data }),
 	exportJSON: (sessionId: string, tabs?: string[]) =>
 		ipcRenderer.invoke("export-json", { sessionId, tabs }),
+	exportHeaders: (sessionId: string) => ipcRenderer.invoke("export-headers", { sessionId }),
 	openFilePicker: () => ipcRenderer.invoke("open-file-picker", { mode: "file" }),
 	openFolderPicker: () => ipcRenderer.invoke("open-file-picker", { mode: "folder" }),
 	isDirectory: (filePath: string) => ipcRenderer.invoke("is-directory", { path: filePath }),

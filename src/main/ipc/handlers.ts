@@ -15,6 +15,7 @@ import type { AppSettings } from "../../shared/types";
 import { clearCache, getCacheInfo } from "../analysis/cache";
 import type { SearchableTab } from "../analysis/orchestrator";
 import { AnalysisSession } from "../analysis/orchestrator";
+import { buildHeaders } from "../export/headers";
 import { exportAnalysis } from "../export/json";
 import { loadSettings, saveSettings } from "../settings";
 import { isInsideAny } from "../util/safe-path";
@@ -411,6 +412,46 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
 			writeFileSync(filePath, jsonString, "utf-8");
 			return { success: true, path: filePath };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			win.webContents.send("analysis-error", { sessionId, message });
+			return { success: false };
+		}
+	});
+
+	// ── export-headers ──
+	ipcMain.handle("export-headers", async (_event, args: { sessionId: string }) => {
+		const { sessionId } = args;
+		try {
+			const session = getSession(sessionId);
+			const cached = session.getResult();
+			if (!cached) {
+				throw new Error("No analysis result available");
+			}
+
+			const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+				title: "Export Headers",
+				buttonLabel: "Export",
+				properties: ["openDirectory", "createDirectory", "promptToCreate"]
+			});
+
+			const outputDir = filePaths[0];
+			if (canceled || !outputDir) {
+				return { success: false };
+			}
+
+			const files = buildHeaders({
+				classes: cached.classes ?? [],
+				protocols: cached.protocols ?? [],
+				protocolDetails: cached.protocolDetails ?? [],
+				binaryName: session.getActiveBinaryName()
+			});
+
+			for (const file of files) {
+				writeFileSync(path.join(outputDir, file.name), file.content, "utf-8");
+			}
+
+			return { success: true, path: outputDir, files: files.length };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			win.webContents.send("analysis-error", { sessionId, message });

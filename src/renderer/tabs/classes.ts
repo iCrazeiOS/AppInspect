@@ -3,6 +3,7 @@
  */
 
 import { EmptyState, SearchBar } from "../components";
+import { showToast } from "../components/toast";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
 import {
@@ -123,6 +124,30 @@ export function renderClasses(
 	const totalMethods = allClasses.reduce((s, c) => s + c.methods.length, 0);
 	stats.textContent = `${formatCount(allClasses.length, "class", "classes")} \u00B7 ${formatCount(totalMethods, "method")} \u00B7 ${formatCount(allProtocols.length, "protocol")}`;
 	statsBar.appendChild(stats);
+
+	const exportBtn = document.createElement("button");
+	exportBtn.type = "button";
+	exportBtn.className = "cls-export-btn";
+	exportBtn.textContent = "Export Headers";
+	exportBtn.title = "Write .h files for every class and protocol in this binary to a folder";
+	exportBtn.addEventListener("click", async () => {
+		exportBtn.disabled = true;
+		try {
+			const result = await window.api.exportHeaders(sessionId);
+			if (result.success) {
+				showToast(
+					`Exported ${formatCount(result.files ?? 0, "header file")} to ${result.path}`,
+					"success"
+				);
+			}
+		} catch (err) {
+			console.error("[AppInspect] Header export failed:", err);
+			showToast("Header export failed", "error");
+		} finally {
+			exportBtn.disabled = false;
+		}
+	});
+	statsBar.appendChild(exportBtn);
 
 	// Navigation functions
 	function updateNavButtons(): void {

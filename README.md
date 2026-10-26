@@ -52,6 +52,7 @@ File type is detected automatically by magic bytes.
 - **Function attribution** — security findings show which function references the flagged string (xref analysis for ARM64, ARM32/THUMB, x86_64, and x86, runs lazily only when needed)
 - **Cross-tab security references** — click a finding's function name, source path, string offset, or Electron fuse to jump to the matching item in Symbols, Files, Strings (falling back to Hex), Electron, or the Overview hardening card; ⌥-click copies the reference instead
 - **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
+- **ObjC header export** — write a `.h` file for every class and protocol in the active binary to a folder of your choice
 - **Drag-and-drop** — drop files or folders onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
 - **Settings** — configurable options including multi-binary scanning, plus cache size and a **Clear cache** button (entries used by open files are kept)
