@@ -442,6 +442,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
 			const { canceled, filePaths } = await dialog.showOpenDialog(win, {
 				title: "Export Headers",
+				message: "Choose a folder for the generated header files. Existing files with the same names are overwritten.",
 				buttonLabel: "Export",
 				properties: ["openDirectory", "createDirectory", "promptToCreate"]
 			});
@@ -463,6 +464,36 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			}
 
 			return { success: true, path: outputDir, files: files.length };
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			win.webContents.send("analysis-error", { sessionId, message });
+			return { success: false };
+		}
+	});
+
+	// ── export-asar ──
+	ipcMain.handle("export-asar", async (_event, args: { sessionId: string }) => {
+		const { sessionId } = args;
+		try {
+			const session = getSession(sessionId);
+			if (!session.hasAsarArchive()) {
+				throw new Error("No readable app.asar archive available");
+			}
+
+			const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+				title: "Export app.asar",
+				message: "Choose a folder to extract app.asar into. Files with the same paths are overwritten.",
+				buttonLabel: "Export",
+				properties: ["openDirectory", "createDirectory", "promptToCreate"]
+			});
+
+			const outputDir = filePaths[0];
+			if (canceled || !outputDir) {
+				return { success: false };
+			}
+
+			const { files, skipped } = session.exportAsar(outputDir);
+			return { success: true, path: outputDir, files, skipped };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			win.webContents.send("analysis-error", { sessionId, message });

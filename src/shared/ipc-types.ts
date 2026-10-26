@@ -164,6 +164,10 @@ export type InvokeChannelMap = {
 		params: { sessionId: string };
 		result: { success: boolean; path?: string; files?: number };
 	};
+	"export-asar": {
+		params: { sessionId: string };
+		result: { success: boolean; path?: string; files?: number; skipped?: number };
+	};
 	"open-file-picker": {
 		params: { mode?: "file" | "folder" } | undefined;
 		result: string | null;

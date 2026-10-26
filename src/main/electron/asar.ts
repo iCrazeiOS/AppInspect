@@ -9,6 +9,7 @@
 
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 import type { AsarEntry } from "../../shared/types";
 import type { Result } from "../parser/result";
@@ -24,6 +25,7 @@ const MAX_ENTRIES = 200_000;
 const MAX_DEPTH = 64;
 const MAX_NAME_LENGTH = 4096;
 const MAX_LINK_HOPS = 8;
+const COPY_CHUNK_SIZE = 1024 * 1024;
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -96,6 +98,79 @@ function resolveLink(entryPath: string, link: string): string | null {
 		}
 	}
 	return segments.length > 0 ? segments.join("/") : null;
+}
+
+/** Follow an entry's link chain to the file that actually holds the data. */
+function resolveFileRecord(archive: AsarArchive, record: AsarFileRecord): AsarFileRecord | null {
+	const visited = new Set<string>();
+	let current = record;
+	let hops = 0;
+	while (current.link !== undefined) {
+		if (visited.has(current.path) || hops++ >= MAX_LINK_HOPS) return null;
+		visited.add(current.path);
+		const target = resolveLink(current.path, current.link);
+		const next = target === null ? undefined : archive.files.get(target);
+		if (!next) return null;
+		current = next;
+	}
+	return current;
+}
+
+/** Resolve an unpacked entry to a real file inside the archive's `.unpacked` root. */
+function resolveUnpackedFile(
+	archive: AsarArchive,
+	entryPath: string
+): Result<{ path: string; size: number }> {
+	const root = `${archive.path}.unpacked`;
+	let realRoot: string;
+	try {
+		realRoot = fs.realpathSync(root);
+	} catch {
+		return { ok: false, error: `Unpacked ASAR directory not found: ${root}` };
+	}
+	const joined = safeJoin(root, entryPath);
+	if (joined === null) {
+		return { ok: false, error: `ASAR path escapes the archive: ${entryPath}` };
+	}
+	let realTarget: string;
+	try {
+		realTarget = fs.realpathSync(joined);
+	} catch {
+		return { ok: false, error: `Unpacked ASAR file not found: ${entryPath}` };
+	}
+	if (!isInside(realRoot, realTarget)) {
+		return { ok: false, error: `Unpacked ASAR file escapes the archive: ${entryPath}` };
+	}
+	try {
+		const stat = fs.statSync(realTarget);
+		if (!stat.isFile()) {
+			return { ok: false, error: `Unpacked ASAR entry is not a file: ${entryPath}` };
+		}
+		return { ok: true, data: { path: realTarget, size: stat.size } };
+	} catch {
+		return { ok: false, error: `Unpacked ASAR file is unreadable: ${entryPath}` };
+	}
+}
+
+/** Copy `size` bytes from an open archive descriptor into a new file. */
+function copyRange(sourceFd: number, offset: number, size: number, target: string): void {
+	const destFd = fs.openSync(target, "w");
+	try {
+		const buffer = Buffer.alloc(Math.min(COPY_CHUNK_SIZE, Math.max(1, size)));
+		let copied = 0;
+		while (copied < size) {
+			const want = Math.min(buffer.length, size - copied);
+			const read = fs.readSync(sourceFd, buffer, 0, want, offset + copied);
+			if (read === 0) throw new Error("Unexpected end of archive while extracting");
+			let written = 0;
+			while (written < read) {
+				written += fs.writeSync(destFd, buffer, written, read - written);
+			}
+			copied += read;
+		}
+	} finally {
+		fs.closeSync(destFd);
+	}
 }
 
 function readAt(filePath: string, offset: number, length: number): Result<Buffer> {
@@ -388,46 +463,15 @@ function readAsarEntry(
 		}
 
 		if (record.unpacked) {
-			const root = `${archive.path}.unpacked`;
-			let realRoot: string;
-			try {
-				realRoot = fs.realpathSync(root);
-			} catch {
-				return { ok: false, error: `Unpacked ASAR directory not found: ${root}` };
-			}
-			const joined = safeJoin(root, record.path);
-			if (joined === null) {
-				return { ok: false, error: `ASAR path escapes the archive: ${record.path}` };
-			}
-			let realTarget: string;
-			try {
-				realTarget = fs.realpathSync(joined);
-			} catch {
-				return { ok: false, error: `Unpacked ASAR file not found: ${record.path}` };
-			}
-			if (!isInside(realRoot, realTarget)) {
-				return {
-					ok: false,
-					error: `Unpacked ASAR file escapes the archive: ${record.path}`
-				};
-			}
-			let size: number;
-			try {
-				const stat = fs.statSync(realTarget);
-				if (!stat.isFile()) {
-					return {
-						ok: false,
-						error: `Unpacked ASAR entry is not a file: ${record.path}`
-					};
-				}
-				size = stat.size;
-			} catch {
-				return { ok: false, error: `Unpacked ASAR file is unreadable: ${record.path}` };
-			}
-			const toRead = Math.min(size, limit);
-			const data = readAt(realTarget, 0, toRead);
+			const unpacked = resolveUnpackedFile(archive, record.path);
+			if (!unpacked.ok) return unpacked;
+			const toRead = Math.min(unpacked.data.size, limit);
+			const data = readAt(unpacked.data.path, 0, toRead);
 			if (!data.ok) return data;
-			return { ok: true, data: { data: data.data, truncated: size > toRead } };
+			return {
+				ok: true,
+				data: { data: data.data, truncated: unpacked.data.size > toRead }
+			};
 		}
 
 		const toRead = Math.min(record.size, limit);
@@ -438,4 +482,88 @@ function readAsarEntry(
 		const message = err instanceof Error ? err.message : String(err);
 		return { ok: false, error: `Failed to read ASAR file: ${message}` };
 	}
+}
+
+export interface AsarExtractSummary {
+	files: number;
+	bytes: number;
+	/** Entries that could not be written (missing target, unsafe path, I/O error). */
+	skipped: number;
+}
+
+/**
+ * Write every file in the archive into `outputDir`, preserving the archive's
+ * directory layout. Packed entries are streamed straight out of the archive,
+ * unpacked entries are copied from the `.unpacked` sibling directory, and links
+ * are written as regular files containing their target's data (matching
+ * `asar extract`, and avoiding symlink privileges on Windows). A failed entry
+ * is counted in `skipped` rather than aborting the whole extraction.
+ */
+export function extractAsarArchive(
+	archive: AsarArchive,
+	outputDir: string
+): Result<AsarExtractSummary> {
+	return withoutAsar(() => extractArchive(archive, outputDir));
+}
+
+function extractArchive(archive: AsarArchive, outputDir: string): Result<AsarExtractSummary> {
+	const root = path.resolve(outputDir);
+	try {
+		fs.mkdirSync(root, { recursive: true });
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return { ok: false, error: `Failed to create output directory: ${message}` };
+	}
+
+	let files = 0;
+	let bytes = 0;
+	let skipped = 0;
+	let sourceFd: number | null = null;
+
+	try {
+		for (const record of archive.files.values()) {
+			const target = safeJoin(root, record.path);
+			const source = resolveFileRecord(archive, record);
+			if (target === null || source === null) {
+				skipped++;
+				continue;
+			}
+
+			try {
+				fs.mkdirSync(path.dirname(target), { recursive: true });
+				if (source.unpacked) {
+					const unpacked = resolveUnpackedFile(archive, source.path);
+					if (!unpacked.ok) {
+						skipped++;
+						continue;
+					}
+					fs.copyFileSync(unpacked.data.path, target);
+				} else {
+					if (sourceFd === null) sourceFd = fs.openSync(archive.path, "r");
+					copyRange(sourceFd, archive.dataOffset + source.offset, source.size, target);
+				}
+				fs.chmodSync(target, source.executable ? 0o755 : 0o644);
+				files++;
+				bytes += source.size;
+			} catch {
+				// Don't leave a half-written file behind for the next attempt.
+				try {
+					fs.rmSync(target, { force: true });
+				} catch {
+					/* best-effort cleanup */
+				}
+				skipped++;
+			}
+		}
+	} finally {
+		if (sourceFd !== null) {
+			try {
+				fs.closeSync(sourceFd);
+			} catch {
+				/* already closed */
+			}
+		}
+	}
+
+	return { ok: true, data: { files, bytes, skipped } };
 }

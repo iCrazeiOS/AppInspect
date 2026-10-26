@@ -28,6 +28,9 @@ export interface AppInspectAPI {
 	getTabData(sessionId: string, tab: TabName): Promise<TabData>;
 	exportJSON(sessionId: string, tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
 	exportHeaders(sessionId: string): Promise<{ success: boolean; path?: string; files?: number }>;
+	exportAsar(
+		sessionId: string
+	): Promise<{ success: boolean; path?: string; files?: number; skipped?: number }>;
 	savePNG(defaultName: string, data: Uint8Array): Promise<{ success: boolean; path?: string }>;
 	openFilePicker(): Promise<string | null>;
 	openFolderPicker(): Promise<string | null>;

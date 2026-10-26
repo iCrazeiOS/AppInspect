@@ -13,6 +13,7 @@ import type {
 	PlistValue
 } from "../../shared/types";
 import { EmptyState, FileBrowser } from "../components";
+import { showToast } from "../components/toast";
 import { announce, takePendingTarget } from "../navigation";
 import { saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
@@ -349,8 +350,35 @@ export function renderElectron(
 	const toggle = el("div", "el-view-toggle");
 	const filesBtn = el("button", "el-toggle-btn", "Files");
 	const packageBtn = el("button", "el-toggle-btn", "Package");
+	const exportBtn = el("button", "el-toggle-btn el-toggle-btn--export", "Export");
+	exportBtn.title = "Extract every file in app.asar to a folder";
+	exportBtn.addEventListener("click", async () => {
+		if (!sessionId || exportBtn.disabled) return;
+		exportBtn.disabled = true;
+		exportBtn.textContent = "Exporting…";
+		try {
+			const result = await window.api.exportAsar(sessionId);
+			if (result.success) {
+				const skipped = result.skipped ?? 0;
+				showToast(
+					`Exported ${formatCount(result.files ?? 0, "file")} to ${result.path}` +
+						(skipped > 0
+							? ` (${formatCount(skipped, "entry", "entries")} skipped)`
+							: ""),
+					skipped > 0 ? "warning" : "success"
+				);
+			}
+		} catch (err) {
+			console.error("[AppInspect] ASAR export failed:", err);
+			showToast("ASAR export failed", "error");
+		} finally {
+			exportBtn.disabled = false;
+			exportBtn.textContent = "Export";
+		}
+	});
 	toggle.appendChild(filesBtn);
 	toggle.appendChild(packageBtn);
+	toggle.appendChild(exportBtn);
 	wrapper.appendChild(toggle);
 
 	const content = el("div", "el-content");

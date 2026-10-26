@@ -1,10 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import { type AsarArchive, readAsarFile, readAsarHeader } from "../asar";
+import { type AsarArchive, extractAsarArchive, readAsarFile, readAsarHeader } from "../asar";
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -319,6 +328,108 @@ describe("readAsarFile", () => {
 	it("returns an error for unknown entries", () => {
 		const archive = parse(writeFixture("unknown.asar", { "a.txt": { data: "a" } }));
 		expect(readAsarFile(archive, "missing.txt", 1024).ok).toBe(false);
+	});
+});
+
+describe("extractAsarArchive", () => {
+	function outputDir(name: string): string {
+		return mkdtempSync(path.join(TMP_DIR, `${name}-`));
+	}
+
+	it("extracts packed files and nested directories", () => {
+		const archive = parse(
+			writeFixture("extract-packed.asar", {
+				"index.js": { data: "main" },
+				assets: { files: { "logo.txt": { data: "png data" } } }
+			})
+		);
+
+		const out = outputDir("extract-packed");
+		const result = extractAsarArchive(archive, out);
+		if (!result.ok) throw new Error(result.error);
+
+		expect(result.data).toEqual({ files: 2, bytes: 12, skipped: 0 });
+		expect(readFileSync(path.join(out, "index.js"), "utf8")).toBe("main");
+		expect(readFileSync(path.join(out, "assets", "logo.txt"), "utf8")).toBe("png data");
+	});
+
+	it("copies unpacked files from the sibling directory", () => {
+		const archivePath = writeFixture("extract-unpacked.asar", {
+			build: { files: { "native.node": { unpacked: true, data: "" } } }
+		});
+		const unpackedDir = path.join(`${archivePath}.unpacked`, "build");
+		mkdirSync(unpackedDir, { recursive: true });
+		writeFileSync(path.join(unpackedDir, "native.node"), "native");
+
+		const out = outputDir("extract-unpacked");
+		const result = extractAsarArchive(parse(archivePath), out);
+		if (!result.ok) throw new Error(result.error);
+
+		expect(result.data.skipped).toBe(0);
+		expect(readFileSync(path.join(out, "build", "native.node"), "utf8")).toBe("native");
+	});
+
+	it("writes links as regular files with their target's data", () => {
+		const archive = parse(
+			writeFixture("extract-links.asar", {
+				a: {
+					files: {
+						"target.txt": { data: "target" },
+						"alias.txt": { link: "target.txt" }
+					}
+				}
+			})
+		);
+
+		const out = outputDir("extract-links");
+		const result = extractAsarArchive(archive, out);
+		if (!result.ok) throw new Error(result.error);
+
+		expect(result.data).toEqual({ files: 2, bytes: 12, skipped: 0 });
+		expect(readFileSync(path.join(out, "a", "alias.txt"), "utf8")).toBe("target");
+		expect(statSync(path.join(out, "a", "alias.txt")).isFile()).toBe(true);
+	});
+
+	it("counts escaping links as skipped without writing them", () => {
+		const archive = parse(
+			writeFixture("extract-escape.asar", {
+				"up.txt": { link: "../../etc/passwd" },
+				"ok.txt": { data: "ok" }
+			})
+		);
+
+		const out = outputDir("extract-escape");
+		const result = extractAsarArchive(archive, out);
+		if (!result.ok) throw new Error(result.error);
+
+		expect(result.data).toMatchObject({ files: 1, skipped: 1 });
+		expect(existsSync(path.join(out, "up.txt"))).toBe(false);
+		expect(readFileSync(path.join(out, "ok.txt"), "utf8")).toBe("ok");
+	});
+
+	it.skipIf(process.platform === "win32")("marks executable entries executable", () => {
+		const archive = parse(
+			writeFixture("extract-exec.asar", {
+				"run.sh": { data: "#!/bin/sh", executable: true },
+				"readme.txt": { data: "hi" }
+			})
+		);
+
+		const out = outputDir("extract-exec");
+		const result = extractAsarArchive(archive, out);
+		if (!result.ok) throw new Error(result.error);
+
+		expect(statSync(path.join(out, "run.sh")).mode & 0o111).not.toBe(0);
+		expect(statSync(path.join(out, "readme.txt")).mode & 0o111).toBe(0);
+	});
+
+	it("returns an error when the output directory cannot be created", () => {
+		const archive = parse(writeFixture("extract-bad-output.asar", { "a.txt": { data: "a" } }));
+		const blocker = path.join(TMP_DIR, "extract-output-blocker");
+		writeFileSync(blocker, "not a directory");
+
+		const result = extractAsarArchive(archive, path.join(blocker, "nested"));
+		expect(result.ok).toBe(false);
 	});
 });
 

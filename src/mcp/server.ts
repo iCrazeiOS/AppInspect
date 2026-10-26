@@ -343,7 +343,8 @@ server.registerTool(
 				FILE_PREVIEW_FULL_BYTES / (1024 * 1024)
 			} MB); image ` +
 			'entries return kind: "image" metadata without image bytes, and other ' +
-			"binary entries return metadata only. Archive contents are never extracted.",
+			"binary entries return metadata only. Use extract_asar to write the whole " +
+			"archive to disk.",
 		inputSchema: {
 			file: z.string().describe("Archive-relative path, e.g. from list_asar"),
 			maxBytes: z
@@ -361,6 +362,31 @@ server.registerTool(
 		const content = getSession(path).readAsarFile(file, maxBytes);
 		if (!content) throw new Error(`Could not read ${file} from app.asar.`);
 		return ok(content);
+	}
+);
+
+server.registerTool(
+	"extract_asar",
+	{
+		description:
+			"Extract every file from an Electron app.asar archive into a directory on " +
+			"disk, preserving the archive's paths. Packed entries are streamed from the " +
+			"archive, unpacked entries are copied from the `.unpacked` sibling directory, " +
+			"and links are written as regular files containing their target's data. " +
+			"Creates the directory as needed and overwrites existing files. Entries that " +
+			"cannot be written are reported in `skipped` rather than aborting.",
+		inputSchema: {
+			outputDir: z.string().describe("Absolute directory to extract the archive into"),
+			path: pathParam
+		}
+	},
+	async ({ outputDir, path }) => {
+		const session = getSession(path);
+		if (!session.hasAsarArchive()) {
+			throw new Error("No readable app.asar archive in the analysed input.");
+		}
+		const result = session.exportAsar(outputDir);
+		return ok({ outputDir, ...result });
 	}
 );
 

@@ -31,8 +31,12 @@ import type {
 } from "../../shared/types";
 import type { DEBBinaryInfo } from "../deb/extractor";
 import { extractDEB } from "../deb/extractor";
-import type { AsarArchive } from "../electron/asar";
-import { readAsarFile as readAsarArchiveFile, readAsarHeader } from "../electron/asar";
+import type { AsarArchive, AsarExtractSummary } from "../electron/asar";
+import {
+	extractAsarArchive,
+	readAsarFile as readAsarArchiveFile,
+	readAsarHeader
+} from "../electron/asar";
 import { detectElectron } from "../electron/detect";
 import {
 	readAppDirectoryTextFiles,
@@ -229,6 +233,21 @@ export class AnalysisSession {
 	/** Archive entries as a tree; empty when the bundle ships no readable app.asar. */
 	getAsarTree(): AsarEntry[] {
 		return this.asarArchive?.entries ?? [];
+	}
+
+	/** True when the bundle ships a readable app.asar that can be extracted. */
+	hasAsarArchive(): boolean {
+		return this.asarArchive !== null;
+	}
+
+	/** Write every entry in app.asar to `outputDir`, preserving archive paths. */
+	exportAsar(outputDir: string): AsarExtractSummary {
+		if (!this.asarArchive) {
+			throw new Error("No readable app.asar archive available");
+		}
+		const result = extractAsarArchive(this.asarArchive, outputDir);
+		if (!result.ok) throw new Error(result.error);
+		return result.data;
 	}
 
 	/**
