@@ -998,7 +998,7 @@ export function renderClasses(
 				li.classList.add("cls-method-active");
 			}
 			li.innerHTML = highlightObjCMethod(sig);
-			li.title = "Click to inspect";
+			li.title = sig;
 			li.addEventListener("click", () => {
 				// In global search, also select the parent class
 				if (searchAllClasses) {

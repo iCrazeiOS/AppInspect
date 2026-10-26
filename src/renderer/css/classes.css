@@ -157,7 +157,7 @@
 
 .cls-method-scroll {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   min-height: 0;
 }
 
@@ -184,7 +184,7 @@
 
 .cls-scroll {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
   position: relative;
   min-height: 0;
 }
@@ -198,7 +198,9 @@
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
+  /* Size to the widest rendered row so long names scroll instead of clipping. */
+  width: max-content;
+  min-width: 100%;
 }
 
 .cls-row {
@@ -325,11 +327,13 @@
 
 .cls-proto-list {
   max-height: 200px;
-  overflow-y: auto;
+  overflow: auto;
   padding-left: 4px;
 }
 
 .cls-proto-item {
+  width: max-content;
+  min-width: 100%;
   font-size: 12px;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   color: var(--text-muted);
@@ -412,6 +416,9 @@
   list-style: none;
   padding: 0;
   margin: 0;
+  /* Size to the widest method signature so long signatures scroll instead of clipping. */
+  width: max-content;
+  min-width: 100%;
 }
 
 .cls-method-item {

@@ -121,6 +121,9 @@
   padding: 3px 8px;
   border-radius: 4px;
   white-space: nowrap;
+  /* Grow to the widest name so long entries scroll instead of clipping. */
+  width: max-content;
+  min-width: 100%;
   transition: background-color 100ms ease;
 }
 
@@ -158,10 +161,7 @@
 }
 
 .fb-tree-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
   color: var(--text);
   font-size: 13px;
 }
