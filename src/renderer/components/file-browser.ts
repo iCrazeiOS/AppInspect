@@ -107,7 +107,13 @@ export class FileBrowser<T extends BrowserTreeNode> {
 		});
 
 		const previewPane = new FilePreviewPane({
-			read: this.options.preview.read
+			read: this.options.preview.read,
+			onOpen: this.options.onOpen
+				? (path) => {
+						const entry = findEntry(entries, path);
+						if (entry && !entry.isDirectory) this.options.onOpen?.(entry);
+					}
+				: undefined
 		});
 		previewPane.mount(previewHost);
 		this.previewPane = previewPane;

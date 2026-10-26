@@ -116,6 +116,7 @@ interface IntegrityRead {
 
 function readIntegrity(
 	appRoot: string,
+	asarName: string,
 	archive: AsarArchive,
 	electronVersion: string | undefined
 ): IntegrityRead {
@@ -141,7 +142,7 @@ function readIntegrity(
 		}
 
 		for (const [key, value] of Object.entries(table)) {
-			if (!key.endsWith("app.asar")) continue;
+			if (!key.endsWith(asarName)) continue;
 			if (typeof value !== "object" || value === null || Array.isArray(value)) {
 				issue ??= { kind: "malformed" };
 				continue;
@@ -173,18 +174,27 @@ function readIntegrity(
 			};
 		}
 
-		// A plist exists but has no entry for app.asar.
+		// A plist exists but has no entry for the archive.
 		issue ??= { kind: "missing" };
 	}
 
 	return issue ? { issue } : {};
 }
 
+/**
+ * Archive names to try, best first. Universal builds (e.g. Slack) ship a tiny
+ * `app.asar` loader that requires `app-<arch>.asar`, which holds the real app.
+ */
+function asarNames(): string[] {
+	const other = process.arch === "arm64" ? "x64" : "arm64";
+	return [`app-${process.arch}.asar`, `app-${other}.asar`, "app.asar"];
+}
+
 export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo | null {
 	const candidates = resourcesDirs(appRoot);
 	if (!isMacOS) candidates.reverse();
 	const asarPath = candidates
-		.map((dir) => path.join(dir, "app.asar"))
+		.flatMap((dir) => asarNames().map((name) => path.join(dir, name)))
 		.find((candidate) => fs.existsSync(candidate));
 	const hasFramework = frameworkRoots(appRoot).some((root) =>
 		fs.existsSync(path.join(root, FRAMEWORK_NAME))
@@ -231,7 +241,12 @@ export function detectElectron(appRoot: string, isMacOS: boolean): ElectronInfo 
 			const packageJson = readPackageJson(archive);
 			if (packageJson) info.packageJson = packageJson;
 
-			const integrity = readIntegrity(appRoot, archive, info.electronVersion);
+			const integrity = readIntegrity(
+				appRoot,
+				path.basename(asarPath),
+				archive,
+				info.electronVersion
+			);
 			if (integrity.integrity) info.integrity = integrity.integrity;
 			if (integrity.issue) info.integrityIssue = integrity.issue;
 

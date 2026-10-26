@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld("api", {
 		ipcRenderer.invoke("read-hex", { sessionId, offset, length }),
 	readAsarFile: (sessionId: string, path: string, maxBytes?: number, includeImage?: boolean) =>
 		ipcRenderer.invoke("read-asar-file", { sessionId, path, maxBytes, includeImage }),
+	openAsarFile: (sessionId: string, path: string) =>
+		ipcRenderer.invoke("open-asar-file", { sessionId, path }),
 	readFilePreview: (sessionId: string, path: string, maxBytes?: number, includeImage?: boolean) =>
 		ipcRenderer.invoke("read-file-preview", { sessionId, path, maxBytes, includeImage }),
 	searchHex: (

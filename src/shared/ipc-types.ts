@@ -237,6 +237,10 @@ export type InvokeChannelMap = {
 		params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
 		result: FilePreviewContent | null;
 	};
+	"open-asar-file": {
+		params: { sessionId: string; path: string };
+		result: undefined;
+	};
 	"read-file-preview": {
 		params: { sessionId: string; path: string; maxBytes?: number; includeImage?: boolean };
 		result: FilePreviewContent | null;

@@ -188,6 +188,43 @@ describe("detectElectron", () => {
 		expect(info.integrityIssue).toBeUndefined();
 	});
 
+	it("prefers the arch-specific archive over a universal loader stub", () => {
+		const stub = packAsar({
+			"index.js": { data: "require('./app-' + process.arch + '.asar')" }
+		});
+		const root = makeApp("Universal.app", { asar: stub.buffer, integrityHash: null });
+		const resources = path.join(root, "Contents", "Resources");
+		const archName = `app-${process.arch}.asar`;
+		writeFileSync(path.join(resources, archName), DEFAULT_ASAR.buffer);
+		writeFileSync(
+			path.join(root, "Contents", "Info.plist"),
+			plist.build({
+				ElectronAsarIntegrity: {
+					"Resources/app.asar": { algorithm: "SHA256", hash: stub.headerHash },
+					[`Resources/${archName}`]: {
+						algorithm: "SHA256",
+						hash: DEFAULT_ASAR.headerHash
+					}
+				}
+			})
+		);
+
+		const info = detectElectron(root, true);
+		expect(info?.asarPath).toBe(path.join(resources, archName));
+		expect(info?.packageJson?.name).toBe("demo");
+		expect(info?.integrity?.valid).toBe(true);
+		expect(info?.integrity?.expected).toBe(DEFAULT_ASAR.headerHash);
+	});
+
+	it("falls back to the other arch archive when the host arch one is absent", () => {
+		const root = makeApp("OtherArch.app", { asar: null, integrityHash: null });
+		const other = process.arch === "arm64" ? "x64" : "arm64";
+		const archPath = path.join(root, "Contents", "Resources", `app-${other}.asar`);
+		writeFileSync(archPath, DEFAULT_ASAR.buffer);
+
+		expect(detectElectron(root, true)?.asarPath).toBe(archPath);
+	});
+
 	it("excludes declaration maps from the source map list", () => {
 		const asar = packAsar({
 			"package.json": { data: "{}" },

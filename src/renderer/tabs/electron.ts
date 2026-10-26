@@ -393,6 +393,7 @@ export function renderElectron(
 				read: (path, maxBytes, includeImage) =>
 					window.api.readAsarFile(sessionId, path, maxBytes, includeImage)
 			},
+			onOpen: (entry) => window.api.openAsarFile(sessionId, entry.path),
 			badges: (entry) => {
 				const entryBadges: FileBadge[] = [];
 				if (entry.unpacked) entryBadges.push({ label: "unpacked", tone: "unpacked" });
@@ -408,7 +409,15 @@ export function renderElectron(
 			},
 			contextMenu: (entry) => [
 				{ label: "Copy Path", action: () => copyText(entry.path, "Copied path") },
-				{ label: "Copy Name", action: () => copyText(entry.name, "Copied name") }
+				{ label: "Copy Name", action: () => copyText(entry.name, "Copied name") },
+				...(entry.isDirectory
+					? []
+					: [
+							{
+								label: "Open File",
+								action: () => window.api.openAsarFile(sessionId, entry.path)
+							}
+						])
 			],
 			emptyMessage: "This archive is empty."
 		}).mount(target);

@@ -8,6 +8,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import {
@@ -265,6 +266,22 @@ export class AnalysisSession {
 			truncated,
 			includeImage
 		);
+	}
+
+	/**
+	 * Write one archive entry to a fresh temp directory so it can be opened with
+	 * the system default app. Returns the file path, or null if it cannot be read.
+	 */
+	extractAsarFile(entryPath: string): string | null {
+		const archive = this.asarArchive;
+		const record = archive?.files.get(entryPath);
+		if (!archive || !record) return null;
+		const result = readAsarArchiveFile(archive, entryPath, Math.max(1, record.size));
+		if (!result.ok) return null;
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "appinspect-open-"));
+		const target = path.join(dir, path.basename(entryPath));
+		fs.writeFileSync(target, result.data.data, { mode: 0o600 });
+		return target;
 	}
 
 	/** Read a file from the loaded container for preview, confined to session roots. */

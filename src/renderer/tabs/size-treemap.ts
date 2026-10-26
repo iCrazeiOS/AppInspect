@@ -88,7 +88,7 @@ export function describe(node: SizeTreeNode): string {
 		case "overhead":
 			return "Binary overhead";
 		case "asar":
-			return "app.asar archive";
+			return "ASAR archive";
 		case "directory":
 			return "Folder";
 		default:

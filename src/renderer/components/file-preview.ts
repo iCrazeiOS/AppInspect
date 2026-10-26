@@ -51,6 +51,7 @@ interface PreviewDom {
 	zoomIn: HTMLButtonElement;
 	beautify: HTMLButtonElement;
 	copy: HTMLButtonElement;
+	open: HTMLButtonElement;
 	notices: HTMLElement;
 	body: HTMLElement;
 }
@@ -58,6 +59,8 @@ interface PreviewDom {
 interface FilePreviewPaneOptions {
 	/** Read a file from the active backend for preview. */
 	read: FilePreviewProvider["read"];
+	/** Open the previewed file on disk. Omit for backends with no real file (e.g. ASAR). */
+	onOpen?: (path: string) => void;
 }
 
 export class FilePreviewPane {
@@ -106,7 +109,15 @@ export class FilePreviewPane {
 		copyBtn.addEventListener("click", () => {
 			if (this.currentPath) copyText(this.currentPath, "Copied path");
 		});
+		const openBtn = el("button", "fb-preview-btn", "Open");
+		openBtn.title = "Open with the default application";
+		openBtn.disabled = true;
+		openBtn.hidden = !this.options.onOpen;
+		openBtn.addEventListener("click", () => {
+			if (this.currentPath) this.options.onOpen?.(this.currentPath);
+		});
 		header.appendChild(pathEl);
+		header.appendChild(openBtn);
 		header.appendChild(sizeEl);
 		header.appendChild(zoomControls);
 		header.appendChild(beautifyBtn);
@@ -128,6 +139,7 @@ export class FilePreviewPane {
 			zoomIn: zoomInBtn,
 			beautify: beautifyBtn,
 			copy: copyBtn,
+			open: openBtn,
 			notices,
 			body
 		};
@@ -467,6 +479,7 @@ export class FilePreviewPane {
 		dom.path.textContent = entry.path;
 		dom.size.textContent = formatSize(entry.size);
 		dom.copy.disabled = false;
+		dom.open.disabled = false;
 		dom.notices.innerHTML = "";
 		dom.body.innerHTML = "";
 		dom.body.classList.remove("fb-preview-body--image");

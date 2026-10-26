@@ -298,7 +298,7 @@
 }
 
 .fb-preview-path {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
   font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
   font-size: 12px;
@@ -308,6 +308,7 @@
 
 .fb-preview-size {
   flex-shrink: 0;
+  margin-left: auto;
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;

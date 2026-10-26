@@ -324,6 +324,17 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
+	// ── open-asar-file ──
+	ipcMain.handle("open-asar-file", async (_event, args: { sessionId: string; path: string }) => {
+		try {
+			const target = getSession(args.sessionId).extractAsarFile(args.path);
+			if (target) await shell.openPath(target);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			win.webContents.send("analysis-error", { sessionId: args.sessionId, message });
+		}
+	});
+
 	// ── read-file-preview ──
 	ipcMain.handle(
 		"read-file-preview",
