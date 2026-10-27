@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { FILE_PREVIEW_IMAGE_BYTES } from "../../../shared/file-preview";
+import { buildCgbiPng } from "../../util/__tests__/fixtures";
 import { buildFilePreview, readFilePreview } from "../file-preview";
 
 const TMP_DIR = path.join(import.meta.dir, ".tmp-file-preview");
@@ -123,6 +124,26 @@ describe("buildFilePreview", () => {
 		expect(content.kind).toBe("image");
 		expect(content.image).toBeUndefined();
 		expect(content.size).toBe(FILE_PREVIEW_IMAGE_BYTES + 1);
+	});
+
+	it("transcodes Apple CgBI PNGs before embedding them", () => {
+		const png = buildCgbiPng({
+			width: 1,
+			height: 1,
+			pixels: Buffer.from([64, 32, 16, 128])
+		});
+
+		const content = buildFilePreview("AppIcon60x60@2x.png", png, png.length, false, true);
+		expect(content.kind).toBe("image");
+		expect(content.size).toBe(png.length);
+		if (!content.image) throw new Error("Expected an embedded image");
+
+		const encoded = content.image.slice(content.image.indexOf(",") + 1);
+		const decoded = Buffer.from(encoded, "base64");
+		expect(decoded.subarray(0, 8)).toEqual(
+			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+		);
+		expect(decoded.includes("CgBI")).toBe(false);
 	});
 
 	it("decodes text up to the first NUL-free bytes", () => {

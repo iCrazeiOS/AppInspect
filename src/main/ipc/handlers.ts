@@ -442,7 +442,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
 			const { canceled, filePaths } = await dialog.showOpenDialog(win, {
 				title: "Export Headers",
-				message: "Choose a folder for the generated header files. Existing files with the same names are overwritten.",
+				message:
+					"Choose a folder for the generated header files. Existing files with the same names are overwritten.",
 				buttonLabel: "Export",
 				properties: ["openDirectory", "createDirectory", "promptToCreate"]
 			});
@@ -482,7 +483,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 
 			const { canceled, filePaths } = await dialog.showOpenDialog(win, {
 				title: "Export app.asar",
-				message: "Choose a folder to extract app.asar into. Files with the same paths are overwritten.",
+				message:
+					"Choose a folder to extract app.asar into. Files with the same paths are overwritten.",
 				buttonLabel: "Export",
 				properties: ["openDirectory", "createDirectory", "promptToCreate"]
 			});

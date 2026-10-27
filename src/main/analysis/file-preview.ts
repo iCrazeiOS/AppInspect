@@ -16,6 +16,7 @@ import {
 	imageMimeType
 } from "../../shared/file-preview";
 import type { FilePreviewContent } from "../../shared/types";
+import { convertCgbiPng } from "../util/cgbi-png";
 import { withoutAsar } from "../util/no-asar";
 import { isInsideAny } from "../util/safe-path";
 
@@ -48,7 +49,9 @@ export function buildFilePreview(
 	};
 	if (mime) {
 		if (includeImage && !truncated) {
-			content.image = `data:${mime};base64,${data.toString("base64")}`;
+			// Chromium cannot decode Xcode's CgBI PNG variant; transcode it first.
+			const preview = mime === "image/png" ? (convertCgbiPng(data) ?? data) : data;
+			content.image = `data:${mime};base64,${preview.toString("base64")}`;
 		}
 	} else if (!data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
 		content.kind = "text";
