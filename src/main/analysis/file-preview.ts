@@ -16,6 +16,7 @@ import {
 	imageMimeType
 } from "../../shared/file-preview";
 import type { FilePreviewContent } from "../../shared/types";
+import { binaryPlistToXml } from "../parser/plist";
 import { convertCgbiPng } from "../util/cgbi-png";
 import { withoutAsar } from "../util/no-asar";
 import { isInsideAny } from "../util/safe-path";
@@ -56,6 +57,13 @@ export function buildFilePreview(
 	} else if (!data.subarray(0, BINARY_SNIFF_BYTES).includes(0)) {
 		content.kind = "text";
 		content.text = data.toString("utf8");
+	} else if (!truncated) {
+		// Binary plists are common in iOS bundles; show them as XML, not binary.
+		const xml = binaryPlistToXml(data);
+		if (xml !== null) {
+			content.kind = "text";
+			content.text = xml;
+		}
 	}
 	return content;
 }

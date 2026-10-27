@@ -95,7 +95,7 @@ When adding new features or modifying analysis logic, add or update correspondin
 
 ## README
 
-When adding a significant user-facing feature (new tab, new MCP tool, new file format, major capability), update `README.md` to document it.
+When adding a significant user-facing feature (new tab, new MCP tool, major capability), update `README.md` to document it. Small additions that most users wouldn't care about should not be in the README just for the sake of it.
 
 ## Pre-commit hook
 

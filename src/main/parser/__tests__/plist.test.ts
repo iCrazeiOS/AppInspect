@@ -2,7 +2,8 @@ import { afterAll, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { parseInfoPlist, parseMobileprovision } from "../plist";
+import { binaryPlistToXml, isBinaryPlist, parseInfoPlist, parseMobileprovision } from "../plist";
+import { BINARY_INFO_PLIST } from "./plist-fixtures";
 
 // ── Test Helpers ──────────────────────────────────────────────────────
 
@@ -106,6 +107,30 @@ const MOBILEPROVISION_XML = `<?xml version="1.0" encoding="UTF-8"?>
   </array>
 </dict>
 </plist>`;
+
+// ── Tests: binary plist previews ──────────────────────────────────────
+
+describe("binaryPlistToXml", () => {
+	it("detects and renders binary plists as XML", () => {
+		expect(isBinaryPlist(BINARY_INFO_PLIST)).toBe(true);
+
+		const xml = binaryPlistToXml(BINARY_INFO_PLIST);
+		expect(xml).toContain("<key>name</key>");
+		expect(xml).toContain("<string>AppInspect</string>");
+		expect(xml).toContain("<key>enabled</key>");
+		expect(xml).toContain("<true/>");
+		expect(xml).toContain("<integer>3</integer>");
+	});
+
+	it("returns null for XML plists and malformed binary data", () => {
+		expect(isBinaryPlist(Buffer.from(XML_INFO_PLIST))).toBe(false);
+		expect(binaryPlistToXml(Buffer.from(XML_INFO_PLIST))).toBeNull();
+
+		const broken = Buffer.from(BINARY_INFO_PLIST);
+		broken[8] = 0xff;
+		expect(binaryPlistToXml(broken)).toBeNull();
+	});
+});
 
 // ── Tests: parseInfoPlist ─────────────────────────────────────────────
 

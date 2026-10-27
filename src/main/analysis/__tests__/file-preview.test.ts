@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { FILE_PREVIEW_IMAGE_BYTES } from "../../../shared/file-preview";
+import { BINARY_INFO_PLIST } from "../../parser/__tests__/plist-fixtures";
 import { buildCgbiPng } from "../../util/__tests__/fixtures";
 import { buildFilePreview, readFilePreview } from "../file-preview";
 
@@ -144,6 +145,26 @@ describe("buildFilePreview", () => {
 			Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 		);
 		expect(decoded.includes("CgBI")).toBe(false);
+	});
+
+	it("renders binary plists as XML instead of binary", () => {
+		const content = buildFilePreview(
+			"Base.lproj/LaunchScreen.storyboardc/Info.plist",
+			BINARY_INFO_PLIST,
+			BINARY_INFO_PLIST.length,
+			false,
+			false
+		);
+		expect(content.kind).toBe("text");
+		expect(content.size).toBe(BINARY_INFO_PLIST.length);
+		expect(content.text).toContain("<key>name</key>");
+		expect(content.text).toContain("<string>AppInspect</string>");
+	});
+
+	it("leaves non-plist binary data as binary", () => {
+		const content = buildFilePreview("blob.bin", Buffer.from([0, 1, 2, 3]), 4, false, false);
+		expect(content.kind).toBe("binary");
+		expect(content.text).toBeUndefined();
 	});
 
 	it("decodes text up to the first NUL-free bytes", () => {

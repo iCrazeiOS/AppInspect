@@ -92,6 +92,27 @@ export function parsePlistBuffer(buf: Buffer): Record<string, unknown> {
 	throw new Error("Plist is not a valid dictionary");
 }
 
+/** True when the buffer starts with a binary plist header. */
+export function isBinaryPlist(buf: Buffer): boolean {
+	return buf.length >= 8 && buf.subarray(0, 6).toString("latin1") === "bplist";
+}
+
+/**
+ * Render a binary plist as XML so it can be shown in a text preview.
+ * Returns null when the buffer is not a binary plist or cannot be serialised.
+ */
+export function binaryPlistToXml(buf: Buffer): string | null {
+	if (!isBinaryPlist(buf)) return null;
+	try {
+		const parsed = bplist.parseBuffer(buf) as unknown[];
+		const value = parsed[0];
+		if (value === undefined) return null;
+		return plist.build(value as Parameters<typeof plist.build>[0]);
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Extract privacy usage description strings (NS*UsageDescription keys).
  */
