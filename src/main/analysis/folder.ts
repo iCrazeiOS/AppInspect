@@ -3,14 +3,15 @@
  *
  * Walks a plain directory and collects every Mach-O binary it contains. App
  * and framework bundles are traversed as ordinary directories, so their main
- * executables, embedded dylibs and frameworks all surface. `.deb` archives are
- * extracted to the cache first, then their binaries are added too.
+ * executables, embedded dylibs and frameworks all surface. `.deb` and `.ipa`
+ * archives are extracted to the cache first, then their binaries are added too.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { extractDEB } from "../deb/extractor";
 import type { BinaryInfo } from "../ipa/extractor";
+import { discoverAppBundle, discoverBinaries, extractIPA } from "../ipa/extractor";
 import { isMachOFile } from "../parser/macho";
 import { yieldToEventLoop } from "./binary-pipeline";
 import { extractToCache, getCacheDir } from "./cache";
@@ -76,10 +77,27 @@ async function discoverDebBinaries(debPath: string, root: string): Promise<Binar
 	}));
 }
 
+/** Extract an IPA and return its app-bundle binaries named relative to the archive. */
+async function discoverIpaBinaries(ipaPath: string, root: string): Promise<BinaryInfo[]> {
+	const cacheDir = getCacheDir(ipaPath);
+	const extraction = await extractToCache(cacheDir, (dest) => extractIPA(ipaPath, dest));
+	if (!extraction.cached && !extraction.result.success) return [];
+
+	const appBundlePath = discoverAppBundle(cacheDir);
+	if (!appBundlePath) return [];
+
+	const ipaName = relativeName(root, ipaPath);
+	return discoverBinaries(appBundlePath).map((b) => ({
+		name: `${ipaName}/${b.name}`,
+		path: b.path,
+		type: b.type
+	}));
+}
+
 /**
  * Find every analysable Mach-O binary under `rootPath`, including binaries
- * inside `.deb` archives. Names are paths relative to the folder, so binaries
- * with the same basename remain distinguishable in the selector.
+ * inside `.deb` and `.ipa` archives. Names are paths relative to the folder, so
+ * binaries with the same basename remain distinguishable in the selector.
  */
 export async function discoverFolderBinaries(
 	rootPath: string,
@@ -88,6 +106,7 @@ export async function discoverFolderBinaries(
 	const binaries: BinaryInfo[] = [];
 	const seenRealPaths = new Set<string>();
 	const debPaths: string[] = [];
+	const ipaPaths: string[] = [];
 
 	async function walk(dir: string): Promise<void> {
 		let entries: fs.Dirent[];
@@ -112,6 +131,10 @@ export async function discoverFolderBinaries(
 			const ext = path.extname(entry.name).toLowerCase();
 			if (ext === ".deb") {
 				debPaths.push(fullPath);
+				continue;
+			}
+			if (ext === ".ipa" || ext === ".tipa") {
+				ipaPaths.push(fullPath);
 				continue;
 			}
 			// Mach-O executables are often extensionless; .dylib is the other
@@ -139,6 +162,18 @@ export async function discoverFolderBinaries(
 		);
 		await yieldToEventLoop();
 		for (const binary of await discoverDebBinaries(debPath, rootPath)) {
+			addBinary(binaries, seenRealPaths, binary.name, binary.path, binary.type);
+		}
+	}
+
+	for (let i = 0; i < ipaPaths.length; i++) {
+		const ipaPath = ipaPaths[i]!;
+		progressCallback(
+			`Extracting ${path.basename(ipaPath)}...`,
+			10 + Math.round((i / ipaPaths.length) * 10)
+		);
+		await yieldToEventLoop();
+		for (const binary of await discoverIpaBinaries(ipaPath, rootPath)) {
 			addBinary(binaries, seenRealPaths, binary.name, binary.path, binary.type);
 		}
 	}

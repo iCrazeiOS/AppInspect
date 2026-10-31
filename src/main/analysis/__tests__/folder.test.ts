@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { zipSync } from "fflate";
 import { buildMachHeader64 } from "../../parser/__tests__/fixtures";
 import { getCacheDir } from "../cache";
 import { detectFileType } from "../file-type";
@@ -97,6 +98,28 @@ describe("discoverFolderBinaries", () => {
 			"Tweak.deb/Library/MobileSubstrate/DynamicLibraries/Tweak.dylib"
 		);
 		expect(binaries[0]!.type).toBe("main");
+	});
+
+	it("extracts .ipa archives and names their binaries relative to the archive", async () => {
+		const root = makeTempDir();
+		const infoPlist = Buffer.from(
+			'<?xml version="1.0"?><plist version="1.0"><dict>' +
+				"<key>CFBundleExecutable</key><string>TestApp</string>" +
+				"</dict></plist>"
+		);
+		const ipaData = zipSync({
+			"Payload/TestApp.app/Info.plist": new Uint8Array(infoPlist),
+			"Payload/TestApp.app/TestApp": new Uint8Array(MACHO),
+			"Payload/TestApp.app/Frameworks/Kit.framework/Kit": new Uint8Array(MACHO)
+		});
+		const ipaPath = write(root, "Sample.ipa", Buffer.from(ipaData));
+		cacheDirs.push(getCacheDir(ipaPath));
+
+		const binaries = await discoverFolderBinaries(root, noop);
+		const names = binaries.map((b) => b.name);
+
+		expect(names).toContain("Sample.ipa/TestApp");
+		expect(names).toContain("Sample.ipa/Kit");
 	});
 
 	it("returns an empty list when the folder has no binaries", async () => {
