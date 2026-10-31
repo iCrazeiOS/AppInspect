@@ -127,6 +127,8 @@ export function renderObjC(
 	let selectedProtocol: ObjCProtocol | null = null;
 	let selectedProtoMethod: { method: ObjCMethod; isClassMethod: boolean } | null = null;
 	let selectedCategory: ObjCCategory | null = null;
+	/** Member-group titles (e.g. "Properties") the user has collapsed; persists across re-renders. */
+	const collapsedGroups = new Set<string>();
 
 	/** Stable key for a category (className+name), used for nav + highlighting. */
 	const categoryKey = (c: ObjCCategory): string => `${c.className}+${c.name}`;
@@ -1068,9 +1070,14 @@ export function renderObjC(
 		if (entries.length === 0) return;
 		const groupHeader = document.createElement("li");
 		groupHeader.className = "cls-member-group";
-		groupHeader.textContent = `${title} (${entries.length})`;
+		const setLabel = () => {
+			const arrow = collapsedGroups.has(title) ? "▶" : "▼";
+			groupHeader.textContent = `${arrow} ${title} (${entries.length})`;
+		};
+		setLabel();
 		list.appendChild(groupHeader);
 
+		const items: HTMLLIElement[] = [];
 		for (const entry of entries) {
 			const li = document.createElement("li");
 			li.className = "cls-method-item";
@@ -1079,8 +1086,18 @@ export function renderObjC(
 			else li.textContent = entry.text;
 			li.title = entry.title;
 			li.addEventListener("click", entry.onClick);
+			if (collapsedGroups.has(title)) li.style.display = "none";
+			items.push(li);
 			list.appendChild(li);
 		}
+
+		groupHeader.addEventListener("click", () => {
+			const collapsed = !collapsedGroups.has(title);
+			if (collapsed) collapsedGroups.add(title);
+			else collapsedGroups.delete(title);
+			for (const li of items) li.style.display = collapsed ? "none" : "";
+			setLabel();
+		});
 	}
 
 	/** Render the grouped member list (properties, ivars, methods) for a class. */

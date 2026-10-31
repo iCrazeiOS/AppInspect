@@ -494,6 +494,13 @@
   padding: 12px 8px 4px 8px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 150ms ease;
+}
+
+.cls-member-group:hover {
+  color: var(--text);
 }
 
 .cls-member-group:first-child {
