@@ -57,9 +57,7 @@ function makeResult(findings: SecurityFinding[]): AnalysisResult {
 		headers: { machO: HEADER, fatArchs: [], loadCommands: [] },
 		libraries: [],
 		symbols: [],
-		classes: [],
-		protocols: [],
-		protocolDetails: [],
+		objc: { classes: [], categories: [], protocols: [], protocolDetails: [] },
 		swift: {
 			types: [],
 			protocols: [],

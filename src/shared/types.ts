@@ -246,6 +246,28 @@ export interface ObjCMethod {
 	_isClassMethod?: boolean;
 	/** @internal Implementation address; feeds size attribution, then stripped before results leave the pipeline. */
 	_imp?: bigint;
+	/** @internal Raw shared-cache selector-pool offset; keys selector recovery, then stripped before results leave the pipeline. */
+	_nameOffset?: number;
+}
+
+export interface ObjCIvar {
+	name: string;
+	/** Decoded type, e.g. "NSString *". Empty when the type encoding was unavailable. */
+	type: string;
+	/** Byte offset of the ivar within the instance. */
+	offset: number;
+}
+
+export interface ObjCProperty {
+	name: string;
+	/** Decoded declared type, e.g. "NSString *". */
+	type: string;
+	/** Raw attribute string from the binary, e.g. 'T@"NSString",&,N,V_name'. */
+	attributes: string;
+	/** Decoded attribute keywords in declaration order, e.g. ["copy", "nonatomic"]. */
+	attributeList: string[];
+	/** Backing instance variable name, when declared (V<name> attribute). */
+	ivar?: string;
 }
 
 export interface ObjCClass {
@@ -253,6 +275,17 @@ export interface ObjCClass {
 	superclass?: string;
 	methods: ObjCMethod[];
 	protocols?: string[];
+	properties?: ObjCProperty[];
+	ivars?: ObjCIvar[];
+}
+
+export interface ObjCCategory {
+	name: string;
+	/** Name of the class this category extends. */
+	className: string;
+	methods: ObjCMethod[];
+	properties: ObjCProperty[];
+	protocols: string[];
 }
 
 export interface ObjCProtocol {
@@ -261,6 +294,14 @@ export interface ObjCProtocol {
 	classMethods: ObjCMethod[];
 	optionalInstanceMethods: ObjCMethod[];
 	optionalClassMethods: ObjCMethod[];
+}
+
+/** All Objective-C metadata recovered from a binary — the counterpart to {@link SwiftMetadata}. */
+export interface ObjCMetadata {
+	classes: ObjCClass[];
+	categories: ObjCCategory[];
+	protocols: string[];
+	protocolDetails: ObjCProtocol[];
 }
 
 // ── Entitlements ──
@@ -616,9 +657,7 @@ export interface AnalysisResult {
 	libraries: LinkedLibrary[];
 	symbols: SymbolEntry[];
 	swift: SwiftMetadata;
-	classes: ObjCClass[];
-	protocols: string[];
-	protocolDetails: ObjCProtocol[];
+	objc: ObjCMetadata;
 	entitlements: Entitlement[];
 	infoPlist: { [key: string]: PlistValue };
 	electron: ElectronInfo | null;

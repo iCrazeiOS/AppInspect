@@ -1,6 +1,6 @@
 /**
  * Shared cross-binary search helpers for the "All" toggle in
- * classes, strings, symbols, and libraries tabs.
+ * objc, strings, symbols, and libraries tabs.
  */
 
 import type { CrossBinarySearchResult, SearchableTab } from "../../shared/ipc-types";

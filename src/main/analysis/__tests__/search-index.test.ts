@@ -91,7 +91,7 @@ describe("AnalysisSession.searchAllBinaries swift tab", () => {
 		const session = new AnalysisSession();
 		await session.analyseMachO(TEST_FILE, () => {});
 		const entry: BinarySearchIndex = {
-			classes: [],
+			objc: [],
 			strings: [],
 			symbols: [],
 			symbolTypes: [],

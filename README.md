@@ -27,7 +27,7 @@ File type is detected automatically by magic bytes.
 | **Headers** | Mach-O header fields, fat architecture list, full load command dump |
 | **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags. Interactive force-directed dependency graph view showing inter-binary relationships, with pan/zoom, node dragging, and category filtering |
 | **Symbols** | Exported, imported, and local symbols with addresses. Swift symbols are demangled for display; the raw name stays searchable |
-| **Classes** | ObjC class names and methods with decoded type signatures, syntax-highlighted methods and Logos hooks, protocol conformances per class, protocol detail view (required/optional instance/class methods), Logos hook generation, back/forward navigation history |
+| **Objective-C** | Classes with superclasses, decoded methods (split into instance and class methods), instance variables (type + offset), and properties (decoded type and attributes), plus categories (`__objc_catlist`) resolved to their target class — including categories on external classes named via the import table — and a full protocol detail view (required/optional instance/class methods). Syntax-highlighted signatures, per-member detail sidebar with Logos hook generation for methods and type/attribute/offset facts for properties and ivars, protocol conformances per class, and back/forward navigation history |
 | **Swift** | Swift 5 runtime metadata: nominal types (classes, structs, enums) with their source module and nesting, stored properties and enum cases with demangled types (including symbolic field-type references and generics), superclasses, protocols defined in the binary, and protocol conformances (including Swift-standard-library conformances resolved through chained-fixup binds and rebases). Enum cases without a stored type, accessor-only references, and existential-shape-only references remain untyped. Filter by kind or module, and inspect protocol requirement counts and conforming types |
 | **Entitlements** | Code signature entitlements or provisioning profile fallback |
 | **Localisation** | Localisation strings from `.lproj` bundles with `.strings` file parsing |
@@ -43,7 +43,7 @@ File type is detected automatically by magic bytes.
 
 - **Tabbed multi-file sessions** — open multiple files simultaneously in separate tabs, each with independent analysis state (scroll position, filters, search, and tree expansions are per tab)
 - **Multi-binary switching** — select between main app, frameworks, extensions, multiple dylibs in a DEB, or every binary found in a folder
-- **Cross-binary search** — search classes, strings, symbols, or libraries across all binaries in a container at once
+- **Cross-binary search** — search Objective-C classes, strings, symbols, or libraries across all binaries in a container at once
 - **Fat binary architecture selector** — choose which slice to analyse in universal binaries
 - **Jailbreak tweak detection** — identifies binaries linking hooking frameworks (Substrate, Libhooker, Substitute, ElleKit) and marks them as tweaks in the dependency graph
 - **FairPlay encryption detection** — warns when a binary is still encrypted (App Store builds)
@@ -52,12 +52,12 @@ File type is detected automatically by magic bytes.
 - **Function attribution** — security findings show which function references the flagged string (xref analysis for ARM64, ARM32/THUMB, x86_64, and x86, runs lazily only when needed)
 - **Cross-tab security references** — click a finding's function name, source path, string offset, or Electron fuse to jump to the matching item in Symbols, Files, Strings (falling back to Hex), Electron, or the Overview hardening card; ⌥-click copies the reference instead
 - **JSON export** — export all analysis data or individual tabs, filename derived from the analysed app
-- **ObjC header export** — write a `.h` file for every class and protocol in the active binary to a folder of your choice
+- **ObjC header export** — write a `.h` file for every class, category (`Class+Category.h`), and protocol in the active binary to a folder of your choice, with properties, instance variables, and methods reconstructed
 - **Drag-and-drop** — drop files or folders onto the window to start analysis
 - **Search** — per-tab search with regex support and case-sensitivity toggle (Ctrl+F / Cmd+F)
 - **Settings** — configurable options including multi-binary scanning, plus cache size and a **Clear cache** button (entries used by open files are kept)
 - **Keyboard navigation** — Ctrl/Cmd+F for search, Ctrl+Tab to cycle file tabs, Alt+1-9 for section tabs, arrow keys in sidebar and lists
-- **Copy on double-click** — double-click a table cell, JSON tree value, or key/value row to copy it; Classes buttons copy on click. Every copy shows a confirmation toast
+- **Copy on double-click** — double-click a table cell, JSON tree value, or key/value row to copy it; Objective-C tab buttons copy on click. Every copy shows a confirmation toast
 
 ## Setup & Building
 
@@ -166,13 +166,13 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `list_asar` | List files inside an Electron `app.asar` (flat, sorted by path). Optional `filter`, `offset`, `limit` |
 | `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to `maxBytes`, 512 KB default and 32 MB max; images and other binary content return metadata only). Optional `maxBytes` |
 | `extract_asar` | Extract every file from `app.asar` into an `outputDir`, preserving archive paths (packed, unpacked and linked entries). Returns written/skipped counts |
-| `search` | Cross-binary search across all binaries in the loaded container. `tab`: `classes`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
+| `search` | Cross-binary search across all binaries in the loaded container. `tab`: `objc`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
 | `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
 
-**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `electron`, `security`, `files`, `hooks`, `size`
+**`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `security`, `files`, `hooks`, `size`
 
 All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `search_hex`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
@@ -183,7 +183,7 @@ All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `
 1. Agent calls `analyse_file` with a path to an IPA → gets an overview summary
 2. Agent calls `get_section` with `section: "security"` → sees security findings
 3. Agent calls `get_section` with `section: "strings", filter: "api.example.com"` → finds matching strings
-4. Agent calls `search` with `query: "UIWebView", tab: "classes"` → searches across all binaries
+4. Agent calls `search` with `query: "UIWebView", tab: "objc"` → searches across all binaries
 
 ### Parallel analysis
 
@@ -201,7 +201,7 @@ Subagent B: get_section({ section: "symbols", path: "/tmp/App2.ipa" })
 - All analysis runs locally, offline, with no network requests
 - The app does not need to be open — the MCP server is fully standalone
 - The server reads whatever local path you ask it to analyse, running with your privileges. To confine `analyse_file` to a directory tree, start it with `APPINSPECT_ALLOW_ROOT=/path/to/root`.
-- Large sections (strings, symbols, classes, libraries) support pagination via `offset` and `limit` (default: 200 items) and text filtering via `filter`
+- Large sections (strings, symbols, objc, libraries) support pagination via `offset` and `limit` (default: 200 items) and text filtering via `filter`
 - Symbol entries include a `demangled` field with the readable name for Swift symbols; the original `name` is preserved as-is
 - Extracted IPA/DEB content is cached in `~/.appinspect/cache/` so re-analysing the same file skips extraction
 - Settings are shared with the desktop app (`~/.appinspect/appinspect-settings.json`), with sensible defaults if no settings file exists
@@ -233,7 +233,7 @@ bun run cli -- /path/App.ipa --binary 1 --json        # analyse a specific binar
 |------|-------------|
 | `--json` | Emit the full analysis as JSON (default) |
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
-| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `classes`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
+| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |
 | `--no-clobber` | Refuse to overwrite an existing `--out` file (exits 1) |

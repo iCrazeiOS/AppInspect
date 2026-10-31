@@ -21,7 +21,7 @@ const SECTION_NAMES: TabName[] = [
 	"headers",
 	"libraries",
 	"symbols",
-	"classes",
+	"objc",
 	"swift",
 	"entitlements",
 	"infoPlist",

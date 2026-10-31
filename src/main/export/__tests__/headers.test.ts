@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import type { ObjCClass, ObjCProtocol } from "../../../shared/types";
+import type { ObjCCategory, ObjCClass, ObjCProtocol } from "../../../shared/types";
 import { buildHeaders } from "../headers";
 
 function cls(
@@ -125,6 +125,65 @@ describe("buildHeaders", () => {
 		});
 
 		expect(files.map((f) => f.name)).toEqual(["Weird_Name.h", "Weird_Name-2.h"]);
+	});
+
+	it("emits property declarations and an ivar block inside the interface", () => {
+		const classWithMembers: ObjCClass = {
+			name: "Widget",
+			superclass: "NSObject",
+			methods: [{ selector: "title", signature: "-(id)title" }],
+			properties: [
+				{
+					name: "title",
+					type: "NSString *",
+					attributes: 'T@"NSString",C,N,V_title',
+					attributeList: ["copy", "nonatomic"],
+					ivar: "_title"
+				}
+			],
+			ivars: [
+				{ name: "_title", type: "NSString *", offset: 8 },
+				{ name: "_count", type: "int", offset: 16 }
+			]
+		};
+
+		const files = buildHeaders({
+			classes: [classWithMembers],
+			protocols: [],
+			protocolDetails: []
+		});
+
+		const header = find(files, "Widget.h");
+		expect(header).toContain("@interface Widget : NSObject");
+		expect(header).toContain("{");
+		expect(header).toContain("    NSString *_title;");
+		expect(header).toContain("    int _count;");
+		expect(header).toContain("}");
+		expect(header).toContain("@property (copy, nonatomic) NSString *title;");
+		expect(header).toContain("-(id)title;");
+	});
+
+	it("writes a Class+Category.h header per category", () => {
+		const category: ObjCCategory = {
+			name: "MD5",
+			className: "NSString",
+			methods: [{ selector: "md5", signature: "-(id)md5" }],
+			properties: [],
+			protocols: []
+		};
+
+		const files = buildHeaders({
+			classes: [],
+			categories: [category],
+			protocols: [],
+			protocolDetails: []
+		});
+
+		const header = find(files, "NSString+MD5.h");
+		expect(header).toContain("@class NSString;");
+		expect(header).toContain("@interface NSString (MD5)");
+		expect(header).toContain("-(id)md5;");
+		expect(header).toContain("@end");
 	});
 
 	it("emits empty protocol headers when only the name is known", () => {

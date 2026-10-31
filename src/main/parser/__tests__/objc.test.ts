@@ -5,7 +5,14 @@
 import { describe, expect, it } from "bun:test";
 import { vmaddrToFileOffset } from "../address";
 import type { Section64, Segment64 } from "../load-commands";
-import { extractObjCMetadata, resolvePointer } from "../objc";
+import {
+	describeUnnamedMethod,
+	enrichMethodsFromSymbols,
+	extractObjCMetadata,
+	type ObjCClass,
+	type ObjCProtocol,
+	resolvePointer
+} from "../objc";
 
 // ── Fixture Helpers ──────────────────────────────────────────────────
 
@@ -639,6 +646,245 @@ describe("objc", () => {
 			expect(proto.classMethods[0]!.selector).toBe("sharedInstance");
 			expect(proto.optionalInstanceMethods).toEqual([]);
 			expect(proto.optionalClassMethods).toEqual([]);
+		});
+
+		it("extracts superclass, ivars, and properties from class_ro_t", () => {
+			// Layout:
+			//   0x0000 __objc_classlist (1 pointer → class_t)
+			//   0x1000 class_t (superclass@8 → 0x1800, data@32 → 0x2000)
+			//   0x1800 superclass class_t (data@32 → 0x1900)
+			//   0x1900 superclass class_ro_t (name@24 → 0x1A00 "BaseClass")
+			//   0x2000 class_ro_t (name@24, ivars@48, baseProperties@64)
+			//   0x3000 "MyClass"
+			//   0x4000 ivar_list_t (1 ivar: _count @offset 16, type "i")
+			//   0x5000 property_list_t (1 property: count, attrs "Ti,N,V_count")
+			const buf = new ArrayBuffer(0x6000);
+			const view = new DataView(buf);
+			const le = true;
+			const base = 0x100000000n;
+
+			view.setBigUint64(0, base + 0x1000n, le); // classlist[0]
+
+			// class_t
+			view.setBigUint64(0x1000 + 8, base + 0x1800n, le); // superclass
+			view.setBigUint64(0x1000 + 32, base + 0x2000n, le); // data → ro
+
+			// superclass class_t + ro
+			view.setBigUint64(0x1800 + 32, base + 0x1900n, le); // data → superRo
+			view.setBigUint64(0x1900 + 24, base + 0x1a00n, le); // name
+			writeCString(view, 0x1a00, "BaseClass");
+
+			// class_ro_t
+			view.setBigUint64(0x2000 + 24, base + 0x3000n, le); // name
+			view.setBigUint64(0x2000 + 32, 0n, le); // baseMethods
+			view.setBigUint64(0x2000 + 40, 0n, le); // baseProtocols
+			view.setBigUint64(0x2000 + 48, base + 0x4000n, le); // ivars
+			view.setBigUint64(0x2000 + 64, base + 0x5000n, le); // baseProperties
+			writeCString(view, 0x3000, "MyClass");
+
+			// ivar_list_t
+			view.setUint32(0x4000, 32, le); // entsize
+			view.setUint32(0x4004, 1, le); // count
+			view.setBigUint64(0x4008 + 0, base + 0x4100n, le); // offset_ptr
+			view.setUint32(0x4100, 16, le); // offset value
+			view.setBigUint64(0x4008 + 8, base + 0x4200n, le); // name
+			writeCString(view, 0x4200, "_count");
+			view.setBigUint64(0x4008 + 16, base + 0x4300n, le); // type
+			writeCString(view, 0x4300, "i");
+
+			// property_list_t
+			view.setUint32(0x5000, 16, le); // entsize
+			view.setUint32(0x5004, 1, le); // count
+			view.setBigUint64(0x5008 + 0, base + 0x5200n, le); // name
+			writeCString(view, 0x5200, "count");
+			view.setBigUint64(0x5008 + 8, base + 0x5300n, le); // attributes
+			writeCString(view, 0x5300, "Ti,N,V_count");
+
+			const classlistSection = makeSection("__DATA", "__objc_classlist", base, 8n, 0);
+			const segments = [makeSegment("__DATA", base, 0x6000n, 0n, 0x6000n)];
+			const result = extractObjCMetadata(buf, [classlistSection], segments, new Map(), le);
+
+			expect(result.classes.length).toBe(1);
+			const cls = result.classes[0]!;
+			expect(cls.name).toBe("MyClass");
+			expect(cls.superclass).toBe("BaseClass");
+			expect(cls.ivars).toEqual([{ name: "_count", type: "int", offset: 16 }]);
+			expect(cls.properties).toEqual([
+				{
+					name: "count",
+					type: "int",
+					attributes: "Ti,N,V_count",
+					attributeList: ["nonatomic"],
+					ivar: "_count"
+				}
+			]);
+		});
+
+		it("names an external superclass from the bind map", () => {
+			const buf = new ArrayBuffer(0x4000);
+			const view = new DataView(buf);
+			const le = true;
+			const base = 0x100000000n;
+
+			view.setBigUint64(0, base + 0x1000n, le); // classlist[0]
+			view.setBigUint64(0x1000 + 32, base + 0x2000n, le); // data → ro
+			// superclass@8 is an external bind (raw value irrelevant)
+			view.setBigUint64(0x2000 + 24, base + 0x3000n, le); // name
+			writeCString(view, 0x3000, "MyView");
+
+			const classlistSection = makeSection("__DATA", "__objc_classlist", base, 8n, 0);
+			const segments = [makeSegment("__DATA", base, 0x4000n, 0n, 0x4000n)];
+			const bindMap = new Map([[0x1000 + 8, { symbolName: "_OBJC_CLASS_$_UIView" }]]);
+
+			const result = extractObjCMetadata(
+				buf,
+				[classlistSection],
+				segments,
+				new Map(),
+				le,
+				true,
+				bindMap
+			);
+
+			expect(result.classes[0]!.name).toBe("MyView");
+			expect(result.classes[0]!.superclass).toBe("UIView");
+		});
+
+		it("extracts categories from __objc_catlist with an in-file target class", () => {
+			// 0x0000 __objc_catlist (1 pointer → category_t)
+			//   category_t: name@0, cls@8 → class_t@0x1000, instanceMethods@16 → list@0x4000
+			// 0x1000 class_t (data@32 → ro@0x1100); ro name@24 → "TargetClass"
+			const buf = new ArrayBuffer(0x6000);
+			const view = new DataView(buf);
+			const le = true;
+			const base = 0x100000000n;
+
+			view.setBigUint64(0, base + 0x2000n, le); // catlist[0] → category_t
+
+			// target class_t + ro
+			view.setBigUint64(0x1000 + 32, base + 0x1100n, le); // data → ro
+			view.setBigUint64(0x1100 + 24, base + 0x1200n, le); // name
+			writeCString(view, 0x1200, "TargetClass");
+
+			// category_t @0x2000
+			view.setBigUint64(0x2000 + 0, base + 0x2100n, le); // name
+			writeCString(view, 0x2100, "MyCategory");
+			view.setBigUint64(0x2000 + 8, base + 0x1000n, le); // cls → target class_t
+			view.setBigUint64(0x2000 + 16, base + 0x4000n, le); // instanceMethods
+
+			// method_list_t @0x4000 (absolute, 1 method)
+			view.setUint32(0x4000, 24, le); // entsize
+			view.setUint32(0x4004, 1, le); // count
+			view.setBigUint64(0x4008, base + 0x4100n, le); // name
+			writeCString(view, 0x4100, "extraMethod");
+
+			const catlistSection = makeSection("__DATA", "__objc_catlist", base, 8n, 0);
+			const segments = [makeSegment("__DATA", base, 0x6000n, 0n, 0x6000n)];
+			const result = extractObjCMetadata(buf, [catlistSection], segments, new Map(), le);
+
+			expect(result.categories.length).toBe(1);
+			const cat = result.categories[0]!;
+			expect(cat.name).toBe("MyCategory");
+			expect(cat.className).toBe("TargetClass");
+			expect(cat.methods.map((m) => m.selector)).toEqual(["extraMethod"]);
+		});
+
+		it("names an external category target class from the bind map", () => {
+			const buf = new ArrayBuffer(0x4000);
+			const view = new DataView(buf);
+			const le = true;
+			const base = 0x100000000n;
+
+			view.setBigUint64(0, base + 0x2000n, le); // catlist[0]
+			view.setBigUint64(0x2000 + 0, base + 0x2100n, le); // name
+			writeCString(view, 0x2100, "MD5");
+			// cls@8 is an external bind
+
+			const catlistSection = makeSection("__DATA", "__objc_catlist", base, 8n, 0);
+			const segments = [makeSegment("__DATA", base, 0x4000n, 0n, 0x4000n)];
+			const bindMap = new Map([[0x2000 + 8, { symbolName: "_OBJC_CLASS_$_NSString" }]]);
+
+			const result = extractObjCMetadata(
+				buf,
+				[catlistSection],
+				segments,
+				new Map(),
+				le,
+				true,
+				bindMap
+			);
+
+			expect(result.categories[0]!.name).toBe("MD5");
+			expect(result.categories[0]!.className).toBe("NSString");
+		});
+	});
+
+	describe("describeUnnamedMethod", () => {
+		it("decodes return and argument types with placeholder selector segments", () => {
+			// v24@0:8@16 → void return, one object argument
+			expect(describeUnnamedMethod("v24@0:8@16", true)).toBe("-(void)…:(id)arg0");
+			// Q16@0:8 → NSUInteger return, no arguments (e.g. -hash)
+			expect(describeUnnamedMethod("Q16@0:8", true)).toBe("-(unsigned long long)…");
+			// Class method prefix
+			expect(describeUnnamedMethod("B16@0:8", false)).toBe("+(BOOL)…");
+		});
+
+		it("falls back to an id prototype for an empty encoding", () => {
+			expect(describeUnnamedMethod("", true)).toBe("-(id)…");
+		});
+	});
+
+	describe("enrichMethodsFromSymbols shared-cache selector recovery", () => {
+		/** A relative-method entry left unnamed, carrying its selector-pool offset. */
+		const unnamed = (encoding: string, nameOffset: number, isClassMethod = false) => ({
+			selector: "",
+			signature: encoding,
+			...(isClassMethod && { _isClassMethod: true as const }),
+			_nameOffset: nameOffset
+		});
+
+		it("carries a class-recovered selector to a protocol sharing its name offset", () => {
+			const classes: ObjCClass[] = [{ name: "Foo", methods: [unnamed("v24@0:8@16", 100)] }];
+			const protocols: ObjCProtocol[] = [
+				{
+					name: "Barable",
+					instanceMethods: [unnamed("v24@0:8@16", 100)],
+					classMethods: [],
+					optionalInstanceMethods: [],
+					optionalClassMethods: []
+				}
+			];
+			enrichMethodsFromSymbols(classes, [{ name: "-[Foo doThing:]" }], [], protocols);
+
+			expect(classes[0]!.methods[0]!.selector).toBe("doThing:");
+			expect(protocols[0]!.instanceMethods[0]!.selector).toBe("doThing:");
+			expect(protocols[0]!.instanceMethods[0]!.signature).toBe("-(void)doThing:(id)arg0");
+		});
+
+		it("drops an offset that resolves to conflicting selectors across classes", () => {
+			const classes: ObjCClass[] = [
+				{ name: "A", methods: [unnamed("v24@0:8@16", 100)] },
+				{ name: "B", methods: [unnamed("v24@0:8@16", 100)] }
+			];
+			const protocols: ObjCProtocol[] = [
+				{
+					name: "P",
+					instanceMethods: [unnamed("v24@0:8@16", 100)],
+					classMethods: [],
+					optionalInstanceMethods: [],
+					optionalClassMethods: []
+				}
+			];
+			enrichMethodsFromSymbols(
+				classes,
+				[{ name: "-[A one:]" }, { name: "-[B two:]" }],
+				[],
+				protocols
+			);
+
+			// Offset 100 maps to two different selectors, so it is untrusted: the protocol
+			// method stays unnamed rather than guessing.
+			expect(protocols[0]!.instanceMethods[0]!.selector).toBe("");
 		});
 	});
 });

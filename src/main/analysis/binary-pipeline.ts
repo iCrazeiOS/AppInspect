@@ -21,6 +21,7 @@ import type {
 	LinkedLibrary,
 	LocalisationString,
 	MachOHeader,
+	ObjCCategory,
 	ObjCClass,
 	ObjCProtocol,
 	PlistValue,
@@ -37,7 +38,11 @@ import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { parseLoadCommands } from "../parser/load-commands";
 import type { MachOFile } from "../parser/macho";
 import { CPU_TYPE_ARM64, parseFatHeader, parseMachOHeader } from "../parser/macho";
-import { enrichMethodsFromSymbols, extractObjCMetadata } from "../parser/objc";
+import {
+	describeUnnamedMethod,
+	enrichMethodsFromSymbols,
+	extractObjCMetadata
+} from "../parser/objc";
 import { extractStrings } from "../parser/strings";
 import { extractSwiftMetadata } from "../parser/swift";
 import { demangleSwiftSymbol, initSwiftDemangler } from "../parser/swift-demangle";
@@ -69,6 +74,7 @@ export interface BinaryAnalysisResult {
 	strings: StringEntry[];
 	symbols: SymbolEntry[];
 	classes: ObjCClass[];
+	categories: ObjCCategory[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];
 	swift: SwiftMetadata;
@@ -124,6 +130,7 @@ export async function analyseBinaryFile(
 	let strings: StringEntry[] = [];
 	let symbols: SymbolEntry[] = [];
 	let classes: ObjCClass[] = [];
+	let categories: ObjCCategory[] = [];
 	let protocols: string[] = [];
 	let protocolDetails: ObjCProtocol[] = [];
 	let swift: SwiftMetadata = {
@@ -168,6 +175,7 @@ export async function analyseBinaryFile(
 			strings,
 			symbols,
 			classes,
+			categories,
 			protocols,
 			protocolDetails,
 			swift,
@@ -251,6 +259,7 @@ export async function analyseBinaryFile(
 			strings,
 			symbols,
 			classes,
+			categories,
 			protocols,
 			protocolDetails,
 			swift,
@@ -318,6 +327,7 @@ export async function analyseBinaryFile(
 			strings,
 			symbols,
 			classes,
+			categories,
 			protocols,
 			protocolDetails,
 			swift,
@@ -424,9 +434,11 @@ export async function analyseBinaryFile(
 			lcResult.segments,
 			rebaseMap,
 			machoFile.littleEndian,
-			machoFile.is64Bit
+			machoFile.is64Bit,
+			bindMap
 		);
 		classes = objcMeta.classes;
+		categories = objcMeta.categories;
 		protocols = objcMeta.protocols;
 		protocolDetails = objcMeta.protocolDetails;
 	} catch (err) {
@@ -453,7 +465,9 @@ export async function analyseBinaryFile(
 
 	// Step 10b: Recover method selectors from the symbol table when the method
 	// list left them empty (common with dyld_shared_cache extracted binaries).
-	enrichMethodsFromSymbols(classes, rawSymbols);
+	// Shared-cache protocols and categories carry no symbols; passing them in lets the
+	// selector offsets the recovered class methods resolve flow through to them too.
+	enrichMethodsFromSymbols(classes, rawSymbols, categories, protocolDetails);
 
 	// Step 10c: Size breakdown by segment/section and module
 	if (!options.skipSize) {
@@ -494,8 +508,31 @@ export async function analyseBinaryFile(
 			errors.push(`Size breakdown error: ${msg}`);
 		}
 	}
+	// Give any method whose selector survived unresolved (shared-cache selector pool
+	// absent) a readable prototype decoded from its type encoding, and drop internals.
+	// Class methods are already filtered to named-only by enrichment, so only categories
+	// and protocols still carry unnamed entries.
+	const describeIfUnnamed = (
+		m: (typeof classes)[number]["methods"][number],
+		isInstance: boolean
+	) => {
+		if (m.selector === "") m.signature = describeUnnamedMethod(m.signature, isInstance);
+		delete m._nameOffset;
+	};
 	for (const cls of classes) {
-		for (const m of cls.methods) delete m._imp;
+		for (const m of cls.methods) {
+			delete m._imp;
+			delete m._nameOffset;
+		}
+	}
+	for (const cat of categories) {
+		for (const m of cat.methods) describeIfUnnamed(m, !m._isClassMethod);
+	}
+	for (const proto of protocolDetails) {
+		for (const m of proto.instanceMethods) describeIfUnnamed(m, true);
+		for (const m of proto.classMethods) describeIfUnnamed(m, false);
+		for (const m of proto.optionalInstanceMethods) describeIfUnnamed(m, true);
+		for (const m of proto.optionalClassMethods) describeIfUnnamed(m, false);
 	}
 
 	// Step 11: Parse code signature + entitlements
@@ -622,6 +659,7 @@ export async function analyseBinaryFile(
 		strings,
 		symbols,
 		classes,
+		categories,
 		protocols,
 		protocolDetails,
 		swift,
@@ -680,9 +718,12 @@ export function buildAnalysisResult(
 		},
 		libraries: br.libraries,
 		symbols: br.symbols,
-		classes: br.classes,
-		protocols: br.protocols,
-		protocolDetails: br.protocolDetails,
+		objc: {
+			classes: br.classes,
+			categories: br.categories,
+			protocols: br.protocols,
+			protocolDetails: br.protocolDetails
+		},
 		swift: br.swift,
 		entitlements: opts.entitlements ?? br.entitlements,
 		infoPlist: opts.infoPlist ?? {},

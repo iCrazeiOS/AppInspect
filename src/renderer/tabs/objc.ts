@@ -1,5 +1,7 @@
 /**
- * Classes tab: three-panel layout — class list, method list, method detail sidebar.
+ * Objective-C tab: three-panel layout — class/category/protocol list on the left,
+ * a member list (properties, instance variables, instance + class methods) in the
+ * middle, and a member detail sidebar on the right.
  */
 
 import { EmptyState, SearchBar } from "../components";
@@ -22,12 +24,38 @@ import { initPanelResize } from "../utils/panel-resize";
 interface ObjCMethod {
 	selector: string;
 	signature: string;
+	_isClassMethod?: boolean;
+}
+
+interface ObjCProperty {
+	name: string;
+	type: string;
+	attributes: string;
+	attributeList: string[];
+	ivar?: string;
+}
+
+interface ObjCIvar {
+	name: string;
+	type: string;
+	offset: number;
 }
 
 interface ObjCClass {
 	name: string;
+	superclass?: string;
 	methods: ObjCMethod[];
 	protocols?: string[];
+	properties?: ObjCProperty[];
+	ivars?: ObjCIvar[];
+}
+
+interface ObjCCategory {
+	name: string;
+	className: string;
+	methods: ObjCMethod[];
+	properties: ObjCProperty[];
+	protocols: string[];
 }
 
 interface ObjCProtocol {
@@ -38,11 +66,17 @@ interface ObjCProtocol {
 	optionalClassMethods: ObjCMethod[];
 }
 
-interface ClassesData {
+interface ObjCData {
 	classes: ObjCClass[];
+	categories: ObjCCategory[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];
 }
+
+/** A property or ivar selected in the detail list, shown in the sidebar. */
+type SelectedMember =
+	| { kind: "property"; property: ObjCProperty; owner: string }
+	| { kind: "ivar"; ivar: ObjCIvar; owner: string };
 
 const ROW_HEIGHT = 28;
 const BUFFER = 20;
@@ -52,42 +86,56 @@ let pendingClassSelect: string | null = null;
 
 // ── Main render ──
 
-export function renderClasses(
+export function renderObjC(
 	container: HTMLElement,
-	data: ClassesData | null,
+	data: ObjCData | null,
 	binaryCount: number = 1,
 	sessionId: string = ""
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container");
 
-	const classesData = data;
-	if (!classesData || (!classesData.classes?.length && !classesData.protocols?.length)) {
+	const objcData = data;
+	if (
+		!objcData ||
+		(!objcData.classes?.length && !objcData.categories?.length && !objcData.protocols?.length)
+	) {
 		const empty = new EmptyState({
 			icon: "\u{1F3D7}",
-			message: "No Objective-C classes found in this binary."
+			message:
+				"No Objective-C classes, categories, or protocols defined in this binary. " +
+				"Hook tweaks that only call into existing classes define none of their own."
 		});
 		empty.mount(container);
 		return;
 	}
 
-	const allClasses = [...(classesData.classes ?? [])].sort((a, b) =>
-		a.name.localeCompare(b.name)
+	const allClasses = [...(objcData.classes ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+	const allCategories = [...(objcData.categories ?? [])].sort((a, b) =>
+		`${a.className}+${a.name}`.localeCompare(`${b.className}+${b.name}`)
 	);
-	const allProtocols = [...(classesData.protocols ?? [])].sort((a, b) => a.localeCompare(b));
+	const allProtocols = [...(objcData.protocols ?? [])].sort((a, b) => a.localeCompare(b));
 	const protocolDetailsMap = new Map<string, ObjCProtocol>();
-	for (const p of classesData.protocolDetails ?? []) {
+	for (const p of objcData.protocolDetails ?? []) {
 		protocolDetailsMap.set(p.name, p);
 	}
 	let filteredClasses = allClasses;
 	let selectedClass: ObjCClass | null = null;
 	let selectedMethod: ObjCMethod | null = null;
+	let selectedMember: SelectedMember | null = null;
 	let selectedClassIndex = -1;
 	let selectedProtocol: ObjCProtocol | null = null;
 	let selectedProtoMethod: { method: ObjCMethod; isClassMethod: boolean } | null = null;
+	let selectedCategory: ObjCCategory | null = null;
+
+	/** Stable key for a category (className+name), used for nav + highlighting. */
+	const categoryKey = (c: ObjCCategory): string => `${c.className}+${c.name}`;
 
 	// Navigation history
-	type NavState = { type: "class"; name: string } | { type: "protocol"; name: string };
+	type NavState =
+		| { type: "class"; name: string }
+		| { type: "protocol"; name: string }
+		| { type: "category"; name: string };
 	const navHistory: NavState[] = [];
 	let navIndex = -1;
 	let isNavigating = false; // Prevent history push during back/forward
@@ -122,14 +170,23 @@ export function renderClasses(
 	const stats = document.createElement("div");
 	stats.className = "cls-stats";
 	const totalMethods = allClasses.reduce((s, c) => s + c.methods.length, 0);
-	stats.textContent = `${formatCount(allClasses.length, "class", "classes")} \u00B7 ${formatCount(totalMethods, "method")} \u00B7 ${formatCount(allProtocols.length, "protocol")}`;
+	const statParts = [
+		formatCount(allClasses.length, "class", "classes"),
+		...(allCategories.length > 0
+			? [formatCount(allCategories.length, "category", "categories")]
+			: []),
+		formatCount(totalMethods, "method"),
+		formatCount(allProtocols.length, "protocol")
+	];
+	stats.textContent = statParts.join(" \u00B7 ");
 	statsBar.appendChild(stats);
 
 	const exportBtn = document.createElement("button");
 	exportBtn.type = "button";
 	exportBtn.className = "cls-export-btn";
 	exportBtn.textContent = "Export Headers";
-	exportBtn.title = "Write .h files for every class and protocol in this binary to a folder";
+	exportBtn.title =
+		"Write .h files for every class, category, and protocol in this binary to a folder";
 	exportBtn.addEventListener("click", async () => {
 		exportBtn.disabled = true;
 		try {
@@ -174,13 +231,12 @@ export function renderClasses(
 				const idx = filteredClasses.indexOf(cls);
 				selectedClassIndex = idx >= 0 ? idx : -1;
 				selectedClass = cls;
+				selectedCategory = null;
 				selectedMethod = null;
+				selectedMember = null;
 				selectedProtocol = null;
 				selectedProtoMethod = null;
-				// Clear protocol highlight
-				for (const el of protoItems.values()) {
-					el.classList.remove("cls-proto-item-active");
-				}
+				clearListHighlights();
 				renderList();
 				renderDetail();
 				renderSidebar();
@@ -188,9 +244,18 @@ export function renderClasses(
 			}
 		} else if (state.type === "protocol") {
 			selectProtocol(state.name);
+		} else if (state.type === "category") {
+			const cat = allCategories.find((c) => categoryKey(c) === state.name);
+			if (cat) selectCategory(cat);
 		}
 		isNavigating = false;
 		updateNavButtons();
+	}
+
+	/** Clear active highlighting on protocol and category list items. */
+	function clearListHighlights(): void {
+		for (const el of protoItems.values()) el.classList.remove("cls-proto-item-active");
+		for (const el of categoryItems.values()) el.classList.remove("cls-proto-item-active");
 	}
 
 	function goBack(): void {
@@ -244,7 +309,7 @@ export function renderClasses(
 			doCrossBinarySearch(
 				sessionId,
 				term,
-				"classes",
+				"objc",
 				xbin,
 				() => {
 					searchBar.updateCount(xbin.results.length, xbin.results.length);
@@ -277,12 +342,12 @@ export function renderClasses(
 				return;
 			}
 		}
-		saveSearchState(sessionId, "classes", term, isRegex);
+		saveSearchState(sessionId, "objc", term, isRegex);
 		searchBar.updateCount(filteredClasses.length, allClasses.length);
 		renderList();
 	});
 	searchBar.mount(leftPanel);
-	registerSearchBar(sessionId, "classes", searchBar);
+	registerSearchBar(sessionId, "objc", searchBar);
 	searchBar.updateCount(filteredClasses.length, allClasses.length);
 
 	addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
@@ -348,7 +413,12 @@ export function renderClasses(
 				pushNav({ type: "class", name: cls.name });
 				selectedClassIndex = i;
 				selectedClass = cls;
+				selectedCategory = null;
+				selectedProtocol = null;
+				selectedProtoMethod = null;
 				selectedMethod = null;
+				selectedMember = null;
+				clearListHighlights();
 				scrollContainer.focus();
 				renderVisibleRows();
 				renderDetail();
@@ -380,7 +450,7 @@ export function renderClasses(
 				hint.textContent = "No classes found across binaries.";
 			} else {
 				hint.textContent = "Type a class name to search across all binaries.";
-				const showAll = buildShowAllLink(sessionId, "classes", "classes", xbin, () => {
+				const showAll = buildShowAllLink(sessionId, "classes", "objc", xbin, () => {
 					searchBar.updateCount(xbin.results.length, xbin.results.length);
 					renderList();
 				});
@@ -508,7 +578,12 @@ export function renderClasses(
 			const cls = filteredClasses[index];
 			if (cls) {
 				selectedClass = cls;
+				selectedCategory = null;
+				selectedProtocol = null;
+				selectedProtoMethod = null;
 				selectedMethod = null;
+				selectedMember = null;
+				clearListHighlights();
 				renderDetail();
 				renderSidebar();
 			}
@@ -568,7 +643,12 @@ export function renderClasses(
 					const cls = filteredClasses[selectedClassIndex];
 					if (cls) {
 						selectedClass = cls;
+						selectedCategory = null;
+						selectedProtocol = null;
+						selectedProtoMethod = null;
 						selectedMethod = null;
+						selectedMember = null;
+						clearListHighlights();
 						renderVisibleRows();
 						renderDetail();
 						renderSidebar();
@@ -581,7 +661,7 @@ export function renderClasses(
 	searchBar.onEscape = () => scrollContainer.focus();
 
 	// Restore saved search state (must happen after spacer/rowContainer are created)
-	const savedState = getSearchState(sessionId, "classes");
+	const savedState = getSearchState(sessionId, "objc");
 	if (savedState?.term) {
 		searchBar.setValue(savedState.term, savedState.isRegex);
 	}
@@ -624,11 +704,62 @@ export function renderClasses(
 		leftPanel.appendChild(protoSection);
 	}
 
-	function selectProtocol(name: string): void {
-		// Remove previous highlight
-		for (const el of protoItems.values()) {
-			el.classList.remove("cls-proto-item-active");
+	// Categories collapsible section
+	let catExpanded = false;
+	const categoryItems = new Map<string, HTMLDivElement>();
+
+	if (allCategories.length > 0) {
+		const catSection = document.createElement("div");
+		catSection.className = "cls-proto-section";
+
+		const catHeader = document.createElement("button");
+		catHeader.className = "cls-proto-header";
+		catHeader.textContent = `▶ ${plural(allCategories.length, "Category", "Categories")} (${allCategories.length})`;
+
+		const catList = document.createElement("div");
+		catList.className = "cls-proto-list";
+		catList.style.display = "none";
+
+		for (const cat of allCategories) {
+			const item = document.createElement("div");
+			item.className = "cls-proto-item";
+			item.textContent = `${cat.className} (${cat.name})`;
+			item.title = `${cat.className} (${cat.name})`;
+			item.addEventListener("click", () => selectCategory(cat));
+			catList.appendChild(item);
+			categoryItems.set(categoryKey(cat), item);
 		}
+
+		catHeader.addEventListener("click", () => {
+			catExpanded = !catExpanded;
+			catHeader.textContent = `${catExpanded ? "▼" : "▶"} ${plural(allCategories.length, "Category", "Categories")} (${allCategories.length})`;
+			catList.style.display = catExpanded ? "block" : "none";
+		});
+
+		catSection.appendChild(catHeader);
+		catSection.appendChild(catList);
+		leftPanel.appendChild(catSection);
+	}
+
+	function selectCategory(cat: ObjCCategory): void {
+		clearListHighlights();
+		const item = categoryItems.get(categoryKey(cat));
+		if (item) item.classList.add("cls-proto-item-active");
+
+		pushNav({ type: "category", name: categoryKey(cat) });
+		selectedCategory = cat;
+		selectedClass = null;
+		selectedClassIndex = -1;
+		selectedProtocol = null;
+		selectedProtoMethod = null;
+		selectedMethod = null;
+		selectedMember = null;
+		renderDetail();
+		renderSidebar();
+	}
+
+	function selectProtocol(name: string): void {
+		clearListHighlights();
 
 		// Highlight selected
 		const item = protoItems.get(name);
@@ -643,10 +774,9 @@ export function renderClasses(
 			selectedProtocol = proto;
 			selectedProtoMethod = null;
 			selectedClass = null;
+			selectedCategory = null;
+			selectedMember = null;
 			selectedClassIndex = -1;
-			// Clear class selection UI
-			const activeClassItem = document.querySelector(".cls-item-active");
-			if (activeClassItem) activeClassItem.classList.remove("cls-item-active");
 			renderProtocolDetail();
 			renderSidebar();
 		}
@@ -749,11 +879,17 @@ export function renderClasses(
 	let methodSearchCaseSensitive = true;
 	let searchAllClasses = false;
 
+	/** Re-render whichever detail view is active (protocol, class, category, or global). */
+	function refreshDetail(): void {
+		if (selectedProtocol) renderProtocolDetail();
+		else renderDetail();
+	}
+
 	const methodSearchBar = new SearchBar((term, isRegex, caseSensitive) => {
 		methodSearchTerm = term;
 		methodSearchRegex = isRegex;
 		methodSearchCaseSensitive = caseSensitive;
-		renderMethodList();
+		refreshDetail();
 	});
 	methodSearchBar.mount(methodSearchWrap);
 
@@ -764,8 +900,7 @@ export function renderClasses(
 	scopeToggle.addEventListener("click", () => {
 		searchAllClasses = !searchAllClasses;
 		scopeToggle.classList.toggle("cls-scope-toggle--active", searchAllClasses);
-		scopeToggle.textContent = searchAllClasses ? "All Classes" : "All Classes";
-		renderMethodList();
+		refreshDetail();
 	});
 	methodSearchWrap.appendChild(scopeToggle);
 
@@ -845,162 +980,329 @@ export function renderClasses(
 		}
 	}).observe(wrapper);
 
-	/** Get filtered methods for the current view */
-	function getFilteredMethods(): { className: string; method: ObjCMethod }[] {
-		let matcher: ((s: string) => boolean) | null = null;
-		if (methodSearchTerm) {
-			try {
-				if (methodSearchRegex) {
-					const flags = methodSearchCaseSensitive ? "" : "i";
-					const re = new RegExp(methodSearchTerm, flags);
-					matcher = (s) => re.test(s);
-				} else if (methodSearchCaseSensitive) {
-					matcher = (s) => s.includes(methodSearchTerm);
-				} else {
-					const lower = methodSearchTerm.toLowerCase();
-					matcher = (s) => s.toLowerCase().includes(lower);
-				}
-			} catch {
-				return [];
+	/** Build a matcher for the current method search term, or null (no filter). */
+	function buildSearchMatcher(): ((s: string) => boolean) | null | false {
+		if (!methodSearchTerm) return null;
+		try {
+			if (methodSearchRegex) {
+				const flags = methodSearchCaseSensitive ? "" : "i";
+				const re = new RegExp(methodSearchTerm, flags);
+				return (s) => re.test(s);
 			}
+			if (methodSearchCaseSensitive) return (s) => s.includes(methodSearchTerm);
+			const lower = methodSearchTerm.toLowerCase();
+			return (s) => s.toLowerCase().includes(lower);
+		} catch {
+			return false; // invalid regex — match nothing
 		}
+	}
 
-		if (searchAllClasses && methodSearchTerm) {
-			// Search across all classes
-			const results: { className: string; method: ObjCMethod }[] = [];
-			for (const cls of allClasses) {
-				for (const m of cls.methods) {
-					const sig = typeof m === "string" ? m : m.signature;
-					if (!matcher || matcher(sig)) {
-						results.push({ className: cls.name, method: m });
-					}
+	/** Collect every method across all classes that matches the search term. */
+	function getGlobalMethodMatches(
+		matcher: ((s: string) => boolean) | null
+	): { className: string; method: ObjCMethod }[] {
+		const results: { className: string; method: ObjCMethod }[] = [];
+		for (const cls of allClasses) {
+			for (const m of cls.methods) {
+				if (!matcher || matcher(m.signature)) {
+					results.push({ className: cls.name, method: m });
 				}
 			}
-			return results;
 		}
+		return results;
+	}
 
-		if (!selectedClass) return [];
+	/** `@property (attrs) Type name;` for list display. */
+	function formatProperty(p: ObjCProperty): string {
+		const attrs = p.attributeList.length > 0 ? ` (${p.attributeList.join(", ")})` : "";
+		const type = p.type || "id";
+		const sep = type.endsWith("*") ? "" : " ";
+		return `@property${attrs} ${type}${sep}${p.name};`;
+	}
 
-		const clsName = selectedClass.name;
-		return selectedClass.methods
-			.filter((m) => {
-				if (!matcher) return true;
-				const sig = typeof m === "string" ? m : m.signature;
-				return matcher(sig);
-			})
-			.map((m) => ({ className: clsName, method: m }));
+	/** `Type name;` for ivar list display. */
+	function formatIvar(iv: ObjCIvar): string {
+		const type = iv.type || "id";
+		const sep = type.endsWith("*") ? "" : " ";
+		return `${type}${sep}${iv.name};`;
 	}
 
 	function renderDetail(): void {
-		// Clear protocol selection when showing class detail
-		if (selectedProtocol) {
-			selectedProtocol = null;
-			selectedProtoMethod = null;
-			for (const el of protoItems.values()) {
-				el.classList.remove("cls-proto-item-active");
-			}
-		}
-		detailHeader.innerHTML = "";
-		if (!selectedClass && !(searchAllClasses && methodSearchTerm)) {
-			detailHeader.innerHTML = "";
-			// clear method list too
-			methodListContainer.innerHTML = "";
-			const hint = document.createElement("div");
-			hint.className = "cls-detail-hint";
-			hint.textContent = "Select a class to view its methods";
-			methodListContainer.appendChild(hint);
-			return;
-		}
-		renderMethodList();
-	}
-
-	function renderMethodList(): void {
 		detailHeader.innerHTML = "";
 		methodListContainer.innerHTML = "";
 
-		const filtered = getFilteredMethods();
+		if (selectedCategory) {
+			renderCategoryDetail();
+			return;
+		}
 
 		if (searchAllClasses && methodSearchTerm) {
-			// Show global search results header
-			const heading = document.createElement("h3");
-			heading.className = "cls-detail-name";
-			heading.textContent = "Method Search";
-			detailHeader.appendChild(heading);
+			renderGlobalMethodSearch();
+			return;
+		}
 
-			const countEl = document.createElement("div");
-			countEl.className = "cls-detail-count";
-			countEl.textContent = `${filtered.length.toLocaleString()} ${plural(filtered.length, "result")} across all classes`;
-			detailHeader.appendChild(countEl);
-
-			methodSearchBar.updateCount(filtered.length, totalMethods);
-		} else if (selectedClass) {
-			const heading = document.createElement("h3");
-			heading.className = "cls-detail-name";
-			heading.textContent = selectedClass.name;
-			detailHeader.appendChild(heading);
-
-			const countEl = document.createElement("div");
-			countEl.className = "cls-detail-count";
-			const total = selectedClass.methods.length;
-			if (methodSearchTerm) {
-				countEl.textContent = `${filtered.length} of ${total} ${plural(total, "method")}`;
-			} else {
-				countEl.textContent = `${total} ${plural(total, "method")}`;
-			}
-			detailHeader.appendChild(countEl);
-
-			// Show protocol conformances if present
-			if (selectedClass.protocols && selectedClass.protocols.length > 0) {
-				const protoLine = document.createElement("div");
-				protoLine.className = "cls-detail-protos";
-				const label = document.createElement("span");
-				label.className = "cls-detail-protos-label";
-				label.textContent = "Conforms to:";
-				protoLine.appendChild(label);
-				for (const proto of selectedClass.protocols) {
-					const badge = document.createElement("span");
-					badge.className = "cls-proto-badge";
-					badge.textContent = proto;
-					badge.title = `Click to view ${proto}`;
-					badge.addEventListener("click", () => scrollToProtocol(proto));
-					protoLine.appendChild(badge);
-				}
-				detailHeader.appendChild(protoLine);
-			}
-
-			methodSearchBar.updateCount(filtered.length, total);
-		} else {
+		if (!selectedClass) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
-			hint.textContent = "Select a class to view its methods";
+			hint.textContent = "Select a class to view its members";
 			methodListContainer.appendChild(hint);
 			methodSearchBar.updateCount(0, 0);
 			return;
 		}
 
-		if (filtered.length === 0) {
-			const noMethods = document.createElement("div");
-			noMethods.className = "cls-detail-hint";
-			noMethods.textContent = methodSearchTerm
-				? "No matching methods."
-				: "No methods found for this class.";
-			methodListContainer.appendChild(noMethods);
+		renderClassDetail(selectedClass);
+	}
+
+	/** Append a group header + items for a set of methods, properties, or ivars. */
+	function appendMemberGroup(
+		list: HTMLUListElement,
+		title: string,
+		entries: {
+			text: string;
+			title: string;
+			active: boolean;
+			onClick: () => void;
+			highlight?: boolean;
+		}[]
+	): void {
+		if (entries.length === 0) return;
+		const groupHeader = document.createElement("li");
+		groupHeader.className = "cls-member-group";
+		groupHeader.textContent = `${title} (${entries.length})`;
+		list.appendChild(groupHeader);
+
+		for (const entry of entries) {
+			const li = document.createElement("li");
+			li.className = "cls-method-item";
+			if (entry.active) li.classList.add("cls-method-active");
+			if (entry.highlight !== false) li.innerHTML = highlightObjCMethod(entry.text);
+			else li.textContent = entry.text;
+			li.title = entry.title;
+			li.addEventListener("click", entry.onClick);
+			list.appendChild(li);
+		}
+	}
+
+	/** Render the grouped member list (properties, ivars, methods) for a class. */
+	function renderClassDetail(cls: ObjCClass): void {
+		const heading = document.createElement("h3");
+		heading.className = "cls-detail-name";
+		heading.textContent = cls.superclass ? `${cls.name} : ${cls.superclass}` : cls.name;
+		detailHeader.appendChild(heading);
+
+		const properties = cls.properties ?? [];
+		const ivars = cls.ivars ?? [];
+		const instanceMethods = cls.methods.filter((m) => !m._isClassMethod);
+		const classMethods = cls.methods.filter((m) => m._isClassMethod);
+
+		const matcher = buildSearchMatcher();
+		const total = properties.length + ivars.length + cls.methods.length;
+
+		const countEl = document.createElement("div");
+		countEl.className = "cls-detail-count";
+		countEl.textContent = [
+			formatCount(cls.methods.length, "method"),
+			...(properties.length > 0
+				? [formatCount(properties.length, "property", "properties")]
+				: []),
+			...(ivars.length > 0 ? [formatCount(ivars.length, "ivar")] : [])
+		].join(" · ");
+		detailHeader.appendChild(countEl);
+
+		if (cls.protocols && cls.protocols.length > 0) {
+			detailHeader.appendChild(buildProtocolBadges(cls.protocols));
+		}
+
+		const list = document.createElement("ul");
+		list.className = "cls-method-list";
+
+		const propEntries = properties
+			.filter((p) => !matcher || matcher(formatProperty(p)) || matcher(p.name))
+			.map((p) => ({
+				text: formatProperty(p),
+				title: formatProperty(p),
+				active: selectedMember?.kind === "property" && selectedMember.property === p,
+				onClick: () => {
+					selectedMethod = null;
+					selectedMember = { kind: "property", property: p, owner: cls.name };
+					renderDetail();
+					renderSidebar();
+				}
+			}));
+
+		const ivarEntries = ivars
+			.filter((iv) => !matcher || matcher(formatIvar(iv)) || matcher(iv.name))
+			.map((iv) => ({
+				text: formatIvar(iv),
+				title: `${formatIvar(iv)}  // offset ${iv.offset}`,
+				active: selectedMember?.kind === "ivar" && selectedMember.ivar === iv,
+				onClick: () => {
+					selectedMethod = null;
+					selectedMember = { kind: "ivar", ivar: iv, owner: cls.name };
+					renderDetail();
+					renderSidebar();
+				}
+			}));
+
+		const methodEntry = (m: ObjCMethod) => ({
+			text: m.signature,
+			title: m.signature,
+			active: selectedMethod === m,
+			onClick: () => {
+				selectedMember = null;
+				selectedMethod = m;
+				renderDetail();
+				renderSidebar();
+			}
+		});
+		const instanceEntries = instanceMethods
+			.filter((m) => !matcher || matcher(m.signature))
+			.map(methodEntry);
+		const classEntries = classMethods
+			.filter((m) => !matcher || matcher(m.signature))
+			.map(methodEntry);
+
+		appendMemberGroup(list, "Properties", propEntries);
+		appendMemberGroup(list, "Instance variables", ivarEntries);
+		appendMemberGroup(list, "Instance methods", instanceEntries);
+		appendMemberGroup(list, "Class methods", classEntries);
+
+		const shown =
+			propEntries.length + ivarEntries.length + instanceEntries.length + classEntries.length;
+		methodSearchBar.updateCount(shown, total);
+
+		if (shown === 0) {
+			const hint = document.createElement("div");
+			hint.className = "cls-detail-hint";
+			hint.textContent = methodSearchTerm
+				? "No matching members."
+				: "No members for this class.";
+			methodListContainer.appendChild(hint);
 			return;
 		}
 
-		const methodList = document.createElement("ul");
-		methodList.className = "cls-method-list";
+		methodListContainer.appendChild(list);
+	}
 
+	/** Render a category's members. */
+	function renderCategoryDetail(): void {
+		const cat = selectedCategory;
+		if (!cat) return;
+
+		const heading = document.createElement("h3");
+		heading.className = "cls-detail-name";
+		heading.textContent = `${cat.className} (${cat.name})`;
+		detailHeader.appendChild(heading);
+
+		const countEl = document.createElement("div");
+		countEl.className = "cls-detail-count";
+		countEl.textContent = [
+			formatCount(cat.methods.length, "method"),
+			...(cat.properties.length > 0
+				? [formatCount(cat.properties.length, "property", "properties")]
+				: [])
+		].join(" · ");
+		detailHeader.appendChild(countEl);
+
+		if (cat.protocols.length > 0) {
+			detailHeader.appendChild(buildProtocolBadges(cat.protocols));
+		}
+
+		const matcher = buildSearchMatcher();
+		const instanceMethods = cat.methods.filter((m) => !m._isClassMethod);
+		const classMethods = cat.methods.filter((m) => m._isClassMethod);
+
+		const list = document.createElement("ul");
+		list.className = "cls-method-list";
+
+		const propEntries = cat.properties
+			.filter((p) => !matcher || matcher(formatProperty(p)) || matcher(p.name))
+			.map((p) => ({
+				text: formatProperty(p),
+				title: formatProperty(p),
+				active: selectedMember?.kind === "property" && selectedMember.property === p,
+				onClick: () => {
+					selectedMethod = null;
+					selectedMember = {
+						kind: "property",
+						property: p,
+						owner: `${cat.className} (${cat.name})`
+					};
+					renderDetail();
+					renderSidebar();
+				}
+			}));
+
+		const methodEntry = (m: ObjCMethod) => ({
+			text: m.signature,
+			title: m.signature,
+			active: selectedMethod === m,
+			onClick: () => {
+				selectedMember = null;
+				selectedMethod = m;
+				renderDetail();
+				renderSidebar();
+			}
+		});
+
+		appendMemberGroup(list, "Properties", propEntries);
+		appendMemberGroup(
+			list,
+			"Instance methods",
+			instanceMethods.filter((m) => !matcher || matcher(m.signature)).map(methodEntry)
+		);
+		appendMemberGroup(
+			list,
+			"Class methods",
+			classMethods.filter((m) => !matcher || matcher(m.signature)).map(methodEntry)
+		);
+
+		if (list.childElementCount === 0) {
+			const hint = document.createElement("div");
+			hint.className = "cls-detail-hint";
+			hint.textContent = methodSearchTerm
+				? "No matching members."
+				: "No members in this category.";
+			methodListContainer.appendChild(hint);
+		} else {
+			methodListContainer.appendChild(list);
+		}
+	}
+
+	/** Render the cross-class method search results (All Classes scope). */
+	function renderGlobalMethodSearch(): void {
+		const matcher = buildSearchMatcher();
+		const filtered = matcher === false ? [] : getGlobalMethodMatches(matcher);
+
+		const heading = document.createElement("h3");
+		heading.className = "cls-detail-name";
+		heading.textContent = "Method Search";
+		detailHeader.appendChild(heading);
+
+		const countEl = document.createElement("div");
+		countEl.className = "cls-detail-count";
+		countEl.textContent = `${filtered.length.toLocaleString()} ${plural(filtered.length, "result")} across all classes`;
+		detailHeader.appendChild(countEl);
+		methodSearchBar.updateCount(filtered.length, totalMethods);
+
+		if (filtered.length === 0) {
+			const hint = document.createElement("div");
+			hint.className = "cls-detail-hint";
+			hint.textContent = "No matching methods.";
+			methodListContainer.appendChild(hint);
+			return;
+		}
+
+		const list = document.createElement("ul");
+		list.className = "cls-method-list";
 		let lastClassName = "";
 		for (const { className: clsName, method: m } of filtered) {
-			// In global search, show class name group headers
-			if (searchAllClasses && methodSearchTerm && clsName !== lastClassName) {
+			if (clsName !== lastClassName) {
 				lastClassName = clsName;
 				const groupHeader = document.createElement("li");
 				groupHeader.className = "cls-method-group";
 				groupHeader.textContent = clsName;
 				groupHeader.addEventListener("click", () => {
-					// Click class header to select that class
 					const cls = allClasses.find((c) => c.name === clsName);
 					if (cls) {
 						selectedClass = cls;
@@ -1013,30 +1315,81 @@ export function renderClasses(
 						renderSidebar();
 					}
 				});
-				methodList.appendChild(groupHeader);
+				list.appendChild(groupHeader);
 			}
 
-			const sig = typeof m === "string" ? m : m.signature;
 			const li = document.createElement("li");
 			li.className = "cls-method-item";
-			if (selectedMethod && selectedMethod === m) {
-				li.classList.add("cls-method-active");
-			}
-			li.innerHTML = highlightObjCMethod(sig);
-			li.title = sig;
+			if (selectedMethod === m) li.classList.add("cls-method-active");
+			li.innerHTML = highlightObjCMethod(m.signature);
+			li.title = m.signature;
 			li.addEventListener("click", () => {
-				// In global search, also select the parent class
-				if (searchAllClasses) {
-					const cls = allClasses.find((c) => c.name === clsName);
-					if (cls) selectedClass = cls;
-				}
+				const cls = allClasses.find((c) => c.name === clsName);
+				if (cls) selectedClass = cls;
+				selectedMember = null;
 				selectedMethod = m;
-				renderMethodList();
+				renderDetail();
 				renderSidebar();
 			});
-			methodList.appendChild(li);
+			list.appendChild(li);
 		}
-		methodListContainer.appendChild(methodList);
+		methodListContainer.appendChild(list);
+	}
+
+	/** Build the "Conforms to:" protocol badge row. */
+	function buildProtocolBadges(protocols: string[]): HTMLElement {
+		const protoLine = document.createElement("div");
+		protoLine.className = "cls-detail-protos";
+		const label = document.createElement("span");
+		label.className = "cls-detail-protos-label";
+		label.textContent = "Conforms to:";
+		protoLine.appendChild(label);
+		for (const proto of protocols) {
+			const badge = document.createElement("span");
+			badge.className = "cls-proto-badge";
+			badge.textContent = proto;
+			badge.title = `Click to view ${proto}`;
+			badge.addEventListener("click", () => scrollToProtocol(proto));
+			protoLine.appendChild(badge);
+		}
+		return protoLine;
+	}
+
+	/** Open the sidebar and restore its persisted width. Returns the inner container. */
+	function openSidebar(): HTMLDivElement {
+		sidebar.classList.add("cls-sidebar--open");
+		const saved = loadWidths("panels:classes:sidebar");
+		if (saved?.width) {
+			const max = panelMax("right");
+			const parsed = parseInt(saved.width, 10);
+			const clamped = Number.isFinite(parsed) ? Math.min(parsed, max) : parsed;
+			const w = `${clamped}px`;
+			sidebar.style.width = w;
+			sidebar.style.minWidth = w;
+		}
+		rightHandle.style.display = "";
+		const inner = document.createElement("div");
+		inner.className = "cls-sb-inner";
+		sidebar.appendChild(inner);
+		return inner;
+	}
+
+	/** Close button that clears a selection and re-renders the detail list. */
+	function makeCloseButton(onClose: () => void): HTMLButtonElement {
+		const closeBtn = document.createElement("button");
+		closeBtn.className = "cls-sb-close";
+		closeBtn.textContent = "×";
+		closeBtn.title = "Close";
+		closeBtn.addEventListener("click", () => {
+			onClose();
+			sidebar.classList.remove("cls-sidebar--open");
+			sidebar.style.width = "";
+			sidebar.style.minWidth = "";
+			sidebar.innerHTML = "";
+			rightHandle.style.display = "none";
+			refreshDetail();
+		});
+		return closeBtn;
 	}
 
 	function renderSidebar(): void {
@@ -1048,7 +1401,16 @@ export function renderClasses(
 			return;
 		}
 
-		if (!selectedMethod || !selectedClass) {
+		if (selectedMember) {
+			renderMemberSidebar(selectedMember);
+			return;
+		}
+
+		const hookClassName = selectedClass?.name ?? selectedCategory?.className ?? "";
+		const displayOwner =
+			selectedClass?.name ??
+			(selectedCategory ? `${selectedCategory.className} (${selectedCategory.name})` : "");
+		if (!selectedMethod || !hookClassName) {
 			sidebar.classList.remove("cls-sidebar--open");
 			sidebar.style.width = "";
 			sidebar.style.minWidth = "";
@@ -1056,47 +1418,22 @@ export function renderClasses(
 			return;
 		}
 
-		sidebar.classList.add("cls-sidebar--open");
-		// Restore persisted width when opening, clamped to available space
-		const saved = loadWidths("panels:classes:sidebar");
-		if (saved?.width) {
-			const max = panelMax("right");
-			const parsed = parseInt(saved.width, 10);
-			const clamped = Number.isFinite(parsed) ? Math.min(parsed, max) : parsed;
-			const w = `${clamped}px`;
-			sidebar.style.width = w;
-			sidebar.style.minWidth = w;
-		}
-		rightHandle.style.display = "";
+		const inner = openSidebar();
 
-		const inner = document.createElement("div");
-		inner.className = "cls-sb-inner";
-		sidebar.appendChild(inner);
-
-		const sig = typeof selectedMethod === "string" ? selectedMethod : selectedMethod.signature;
-		const className = selectedClass.name;
+		const sig = selectedMethod.signature;
+		const className = hookClassName;
 		const parsed = parseMethodSignature(sig);
 
-		// Close button
-		const closeBtn = document.createElement("button");
-		closeBtn.className = "cls-sb-close";
-		closeBtn.textContent = "\u00D7";
-		closeBtn.title = "Close";
-		closeBtn.addEventListener("click", () => {
-			selectedMethod = null;
-			sidebar.classList.remove("cls-sidebar--open");
-			sidebar.style.width = "";
-			sidebar.style.minWidth = "";
-			sidebar.innerHTML = "";
-			rightHandle.style.display = "none";
-			renderDetail();
-		});
-		inner.appendChild(closeBtn);
+		inner.appendChild(
+			makeCloseButton(() => {
+				selectedMethod = null;
+			})
+		);
 
-		// Class name
+		// Owner (class or category)
 		const classLabel = document.createElement("div");
 		classLabel.className = "cls-sb-class";
-		classLabel.textContent = className;
+		classLabel.textContent = displayOwner;
 		inner.appendChild(classLabel);
 
 		// Full method signature (wrapping)
@@ -1169,40 +1506,16 @@ export function renderClasses(
 	function renderProtoMethodSidebar(): void {
 		if (!selectedProtoMethod || !selectedProtocol) return;
 
-		sidebar.classList.add("cls-sidebar--open");
-		const saved = loadWidths("panels:classes:sidebar");
-		if (saved?.width) {
-			const max = panelMax("right");
-			const parsed = parseInt(saved.width, 10);
-			const clamped = Number.isFinite(parsed) ? Math.min(parsed, max) : parsed;
-			const w = `${clamped}px`;
-			sidebar.style.width = w;
-			sidebar.style.minWidth = w;
-		}
-		rightHandle.style.display = "";
-
-		const inner = document.createElement("div");
-		inner.className = "cls-sb-inner";
-		sidebar.appendChild(inner);
+		const inner = openSidebar();
 
 		const m = selectedProtoMethod.method;
 		const sig = m.signature || m.selector;
 
-		// Close button
-		const closeBtn = document.createElement("button");
-		closeBtn.className = "cls-sb-close";
-		closeBtn.textContent = "\u00D7";
-		closeBtn.title = "Close";
-		closeBtn.addEventListener("click", () => {
-			selectedProtoMethod = null;
-			sidebar.classList.remove("cls-sidebar--open");
-			sidebar.style.width = "";
-			sidebar.style.minWidth = "";
-			sidebar.innerHTML = "";
-			rightHandle.style.display = "none";
-			renderProtocolDetail();
-		});
-		inner.appendChild(closeBtn);
+		inner.appendChild(
+			makeCloseButton(() => {
+				selectedProtoMethod = null;
+			})
+		);
 
 		// Protocol name
 		const protoLabel = document.createElement("div");
@@ -1243,6 +1556,79 @@ export function renderClasses(
 		copySigBtn.textContent = "Copy Signature";
 		copySigBtn.addEventListener("click", () => copyText(sig, "Copied signature"));
 		actions.appendChild(copySigBtn);
+	}
+
+	/** Sidebar for a selected property or instance variable. */
+	function renderMemberSidebar(member: SelectedMember): void {
+		const inner = openSidebar();
+
+		inner.appendChild(
+			makeCloseButton(() => {
+				selectedMember = null;
+			})
+		);
+
+		const ownerLabel = document.createElement("div");
+		ownerLabel.className = "cls-sb-class";
+		ownerLabel.textContent = member.owner;
+		inner.appendChild(ownerLabel);
+
+		const sigBlock = document.createElement("div");
+		sigBlock.className = "cls-sb-sig";
+		const declaration =
+			member.kind === "property" ? formatProperty(member.property) : formatIvar(member.ivar);
+		sigBlock.textContent = declaration;
+		inner.appendChild(sigBlock);
+
+		// Member facts (type, attributes, offset, backing ivar)
+		const facts = document.createElement("div");
+		facts.className = "cls-sb-facts";
+		const addFact = (label: string, value: string) => {
+			if (!value) return;
+			const row = document.createElement("div");
+			row.className = "cls-sb-fact";
+			const k = document.createElement("span");
+			k.className = "cls-sb-fact-key";
+			k.textContent = label;
+			const v = document.createElement("span");
+			v.className = "cls-sb-fact-value";
+			v.textContent = value;
+			row.appendChild(k);
+			row.appendChild(v);
+			facts.appendChild(row);
+		};
+
+		if (member.kind === "property") {
+			addFact("Type", member.property.type || "id");
+			addFact("Attributes", member.property.attributeList.join(", "));
+			if (member.property.ivar) addFact("Backing ivar", member.property.ivar);
+		} else {
+			addFact("Type", member.ivar.type || "id");
+			addFact("Offset", `${member.ivar.offset} (0x${member.ivar.offset.toString(16)})`);
+		}
+		inner.appendChild(facts);
+
+		const actions = document.createElement("div");
+		actions.className = "cls-sb-actions";
+		inner.appendChild(actions);
+
+		const addCopyBtn = (label: string, text: string, toast: string) => {
+			if (!text) return;
+			const btn = document.createElement("button");
+			btn.className = "cls-sb-btn";
+			btn.textContent = label;
+			btn.addEventListener("click", () => copyText(text, toast));
+			actions.appendChild(btn);
+		};
+
+		if (member.kind === "property") {
+			addCopyBtn("Copy Name", member.property.name, "Copied property name");
+			addCopyBtn("Copy Declaration", declaration, "Copied declaration");
+			addCopyBtn("Copy Attributes", member.property.attributes, "Copied attributes");
+		} else {
+			addCopyBtn("Copy Name", member.ivar.name, "Copied ivar name");
+			addCopyBtn("Copy Declaration", declaration, "Copied declaration");
+		}
 	}
 
 	// Check for pending class selection (from cross-binary click on a different binary)

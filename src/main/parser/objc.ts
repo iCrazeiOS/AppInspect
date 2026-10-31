@@ -10,7 +10,10 @@
  * BigUint64 from the buffer. Low 3 bits are stripped from data pointers
  * (Apple stores runtime flags there).
  *
- * Does NOT parse ivar types, property attributes, or category merging.
+ * Recovers class names, superclasses, methods, instance variables,
+ * properties, protocols, and categories (`__objc_catlist`). External class
+ * references (superclasses and category targets) are named from the chained
+ * fixup bind map's `_OBJC_CLASS_$_` imports when they live in another image.
  */
 
 import { vmaddrToFileOffset } from "./address";
@@ -26,12 +29,44 @@ export interface ObjCMethod {
 	_isClassMethod?: boolean;
 	/** @internal Implementation address; feeds size attribution, then stripped before results leave the pipeline. */
 	_imp?: bigint;
+	/**
+	 * @internal Raw relative-method-list `name` field. In dyld_shared_cache images this is a
+	 * position-independent offset into the cache's global selector pool (same selector → same
+	 * value), so it keys selectors we recover from one method list onto identical ones in
+	 * another (e.g. class → protocol). Stripped before results leave the pipeline.
+	 */
+	_nameOffset?: number;
+}
+
+export interface ObjCIvar {
+	name: string;
+	type: string;
+	offset: number;
+}
+
+export interface ObjCProperty {
+	name: string;
+	type: string;
+	attributes: string;
+	attributeList: string[];
+	ivar?: string;
 }
 
 export interface ObjCClass {
 	name: string;
+	superclass?: string;
 	methods: ObjCMethod[];
 	protocols?: string[];
+	properties?: ObjCProperty[];
+	ivars?: ObjCIvar[];
+}
+
+export interface ObjCCategory {
+	name: string;
+	className: string;
+	methods: ObjCMethod[];
+	properties: ObjCProperty[];
+	protocols: string[];
 }
 
 export interface ObjCProtocol {
@@ -44,6 +79,7 @@ export interface ObjCProtocol {
 
 export interface ObjCMetadata {
 	classes: ObjCClass[];
+	categories: ObjCCategory[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];
 }
@@ -73,6 +109,41 @@ const CLASS_RO_METHODS_OFFSET_64 = 32; // +name(8) = 32
 const CLASS_RO_METHODS_OFFSET_32 = 20; // +name(4) = 20
 const CLASS_RO_BASEPROTOCOLS_OFFSET_64 = 40; // +baseMethods(8) = 40
 const CLASS_RO_BASEPROTOCOLS_OFFSET_32 = 24; // +baseMethods(4) = 24
+const CLASS_RO_IVARS_OFFSET_64 = 48; // +baseProtocols(8) = 48
+const CLASS_RO_IVARS_OFFSET_32 = 28; // +baseProtocols(4) = 28
+// class_ro_t continues: ivars + weakIvarLayout(ptr) + baseProperties(ptr)
+const CLASS_RO_BASEPROPERTIES_OFFSET_64 = 64; // +ivars(8) + weakIvarLayout(8) = 64
+const CLASS_RO_BASEPROPERTIES_OFFSET_32 = 36; // +ivars(4) + weakIvarLayout(4) = 36
+
+// class_t.superclass pointer offset (field 2).
+const CLASS_T_SUPERCLASS_OFFSET_64 = 8;
+const CLASS_T_SUPERCLASS_OFFSET_32 = 4;
+
+// ivar_t layout:
+// 64-bit: offset_ptr(8) + name(8) + type(8) + alignment(4) + size(4) = 32 bytes
+// 32-bit: offset_ptr(4) + name(4) + type(4) + alignment(4) + size(4) = 20 bytes
+const IVAR_ENTRY_SIZE_64 = 32;
+const IVAR_ENTRY_SIZE_32 = 20;
+
+// property_t layout:
+// 64-bit: name_ptr(8) + attributes_ptr(8) = 16 bytes
+// 32-bit: name_ptr(4) + attributes_ptr(4) = 8 bytes
+const PROPERTY_ENTRY_SIZE_64 = 16;
+const PROPERTY_ENTRY_SIZE_32 = 8;
+
+// category_t layout:
+// 64-bit: name(8) + cls(8) + instanceMethods(8) + classMethods(8) + protocols(8) + instanceProperties(8)
+// 32-bit: same fields with 4-byte pointers
+const CATEGORY_CLS_OFFSET_64 = 8;
+const CATEGORY_CLS_OFFSET_32 = 4;
+const CATEGORY_INSTANCE_METHODS_OFFSET_64 = 16;
+const CATEGORY_INSTANCE_METHODS_OFFSET_32 = 8;
+const CATEGORY_CLASS_METHODS_OFFSET_64 = 24;
+const CATEGORY_CLASS_METHODS_OFFSET_32 = 12;
+const CATEGORY_PROTOCOLS_OFFSET_64 = 32;
+const CATEGORY_PROTOCOLS_OFFSET_32 = 16;
+const CATEGORY_INSTANCE_PROPERTIES_OFFSET_64 = 40;
+const CATEGORY_INSTANCE_PROPERTIES_OFFSET_32 = 20;
 
 // protocol_t layout:
 // 64-bit: isa(8) + mangledName(8) + protocols(8) + instanceMethods(8) + classMethods(8) +
@@ -192,6 +263,16 @@ function readString(view: DataView, offset: number): string {
 	if (offset < 0 || offset >= view.byteLength) return "";
 	const maxLen = Math.min(4096, view.byteLength - offset);
 	return readCString(view, offset, maxLen);
+}
+
+/**
+ * Whether a string reads as an ObjC selector rather than bytes a mis-resolved pointer
+ * happened to land on. Selectors are ASCII identifiers with optional colons; a shared-cache
+ * offset that resolves to the wrong address yields high-byte garbage this rejects.
+ */
+function isLikelySelector(name: string): boolean {
+	// Identifiers with colons, plus a leading dot for compiler selectors like `.cxx_destruct`.
+	return name.length > 0 && /^[A-Za-z_.][A-Za-z0-9_:]*$/.test(name);
 }
 
 // ── ObjC Type Encoding Decoder ───────────────────────────────────────
@@ -364,16 +445,190 @@ export function buildMethodSignature(
 }
 
 /**
- * Enrich classes with method names recovered from the symbol table.
- *
- * dyld_shared_cache-extracted binaries often have method lists whose relative
- * selector offsets point outside the file, leaving methods with type encodings
- * but empty selectors. ObjC symbols like `-[Class selector:]` carry the names;
- * this merges them back in, matching unnamed entries to symbols by argument
- * count (colons in the selector == argument types in the encoding). Mutates
- * `classes` in place.
+ * Readable prototype for a method whose selector could not be recovered (shared-cache
+ * images whose selector pool is absent). The selector segments show as `…` so the return
+ * and argument types stay useful without inventing a name: `-(id)…:(struct _NSZone *)arg0`.
  */
-export function enrichMethodsFromSymbols(classes: ObjCClass[], symbols: { name: string }[]): void {
+export function describeUnnamedMethod(typeEncoding: string, isInstance = true): string {
+	const prefix = isInstance ? "-" : "+";
+	const types = parseTypeEncoding(typeEncoding);
+	if (types.length === 0) return `${prefix}(id)…`;
+	const returnType = types[0];
+	const argTypes = types.slice(3); // drop return, self, _cmd
+	if (argTypes.length === 0) return `${prefix}(${returnType})…`;
+	const segments = argTypes.map((t, i) => `…:(${t})arg${i}`).join(" ");
+	return `${prefix}(${returnType})${segments}`;
+}
+
+/**
+ * Decode a single ObjC type encoding (as used for ivar and property types)
+ * into a readable type string. Returns "" for an empty encoding.
+ */
+function decodeSingleType(encoding: string): string {
+	if (!encoding) return "";
+	return decodeType(encoding, 0).type;
+}
+
+/**
+ * Extract the class name from an ObjC bind symbol like `_OBJC_CLASS_$_NSObject`.
+ * Returns null when the symbol is not a class reference.
+ */
+function classNameFromBindSymbol(symbolName: string): string | null {
+	const m = symbolName.match(/_OBJC_CLASS_\$_(.+)$/);
+	return m ? m[1]! : null;
+}
+
+/**
+ * Decode an ObjC property attribute string (property_t.attributes).
+ *
+ * Format is a comma-separated list where the first char of each part is the
+ * attribute code: T<type>, R(readonly), C(copy), &(retain/strong), N(nonatomic),
+ * G<name>(getter), S<name>(setter), V<name>(backing ivar), W(weak), D(dynamic).
+ */
+function decodePropertyAttributes(attributes: string): {
+	type: string;
+	attributeList: string[];
+	ivar?: string;
+} {
+	const parts = attributes.split(",");
+	let type = "";
+	let ivar: string | undefined;
+	const list: string[] = [];
+
+	for (const part of parts) {
+		if (part.length === 0) continue;
+		const code = part[0]!;
+		const rest = part.slice(1);
+		switch (code) {
+			case "T":
+				type = decodeSingleType(rest);
+				break;
+			case "V":
+				ivar = rest;
+				break;
+			case "R":
+				list.push("readonly");
+				break;
+			case "C":
+				list.push("copy");
+				break;
+			case "&":
+				list.push("strong");
+				break;
+			case "N":
+				list.push("nonatomic");
+				break;
+			case "W":
+				list.push("weak");
+				break;
+			case "D":
+				list.push("dynamic");
+				break;
+			case "G":
+				if (rest) list.push(`getter=${rest}`);
+				break;
+			case "S":
+				if (rest) list.push(`setter=${rest}`);
+				break;
+		}
+	}
+
+	return { type, attributeList: list, ...(ivar !== undefined && { ivar }) };
+}
+
+/** Walk past a nested type-encoding group that opens at `pos` (e.g. `{...}`, `(...)`, `[...]`). */
+function skipNestedEncoding(enc: string, pos: number, open: string, close: string): number {
+	let depth = 1;
+	let i = pos + 1;
+	while (i < enc.length && depth > 0) {
+		if (enc[i] === open) depth++;
+		else if (enc[i] === close) depth--;
+		i++;
+	}
+	return i;
+}
+
+/**
+ * Number of arguments encoded in an ObjC method type string, excluding the implicit
+ * return value, `self` and `_cmd`. Used to line up unnamed method-list entries with
+ * selectors (whose colon count equals the argument count).
+ */
+function countArgsFromEncoding(enc: string): number {
+	let count = 0;
+	let pos = 0;
+	while (pos < enc.length) {
+		const ch = enc[pos]!;
+		// Skip offset digits
+		if ((ch >= "0" && ch <= "9") || ch === "-") {
+			pos++;
+			continue;
+		}
+		// Skip qualifiers
+		if ("rnNoORV".includes(ch)) {
+			pos++;
+			continue;
+		}
+		// Count a type
+		if (ch === "{") {
+			pos = skipNestedEncoding(enc, pos, "{", "}");
+		} else if (ch === "(") {
+			pos = skipNestedEncoding(enc, pos, "(", ")");
+		} else if (ch === "[") {
+			pos = skipNestedEncoding(enc, pos, "[", "]");
+		} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === "?") {
+			pos += 2;
+		} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === '"') {
+			const c = enc.indexOf('"', pos + 2);
+			pos = c !== -1 ? c + 1 : pos + 1;
+		} else if (ch === "^") {
+			pos++;
+			continue;
+		} // pointer prefix, next char is the type
+		else {
+			pos++;
+		}
+		count++;
+	}
+	return Math.max(0, count - 3); // subtract return, self, _cmd
+}
+
+/** Assign a selector to an unnamed method, rebuilding its signature from the type encoding. */
+function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): void {
+	const encoding = method.signature; // raw type encoding stored while the selector was empty
+	method.selector = selector;
+	method.signature = encoding
+		? buildMethodSignature(selector, encoding, isInstance)
+		: `${isInstance ? "-" : "+"}${selector}`;
+}
+
+/**
+ * Enrich methods with selector names recovered from the symbol table.
+ *
+ * dyld_shared_cache-extracted binaries often have method lists whose relative selector
+ * offsets point into the cache's global selector pool, which isn't present in an extracted
+ * file — so methods arrive with type encodings but empty selectors. ObjC symbols like
+ * `-[Class selector:]` carry the names for class methods; protocols and categories carry
+ * no symbols of their own. Recovery runs in two passes:
+ *
+ *  1. High-precision offset map. The relative `name` offset is a position-independent key
+ *     into that selector pool (identical selectors share one value). When a class has
+ *     exactly one unnamed method and one symbol of a given argument count the pairing is
+ *     forced, so that offset→selector mapping is certain; collected across all classes,
+ *     with any offset that resolves two ways dropped. The map then fills matching methods
+ *     everywhere — classes, categories and protocols — so a selector a class pins down is
+ *     carried to the protocol that declares it.
+ *  2. Per-class argument-count fallback. Remaining unnamed class methods are matched to
+ *     their leftover symbols by argument count. These are best-effort guesses, so they
+ *     stay within the class and are never propagated to protocols or categories.
+ *
+ * Mutates `classes`, `categories` and `protocols` in place.
+ */
+export function enrichMethodsFromSymbols(
+	classes: ObjCClass[],
+	symbols: { name: string }[],
+	categories: ObjCCategory[] = [],
+	protocols: ObjCProtocol[] = []
+): void {
 	const classesNeedingEnrichment = classes.filter(
 		(c) => c.methods.length > 0 && c.methods.some((m) => m.selector === "")
 	);
@@ -386,7 +641,7 @@ export function enrichMethodsFromSymbols(classes: ObjCClass[], symbols: { name: 
 		return;
 	}
 
-	// Build map: className → ordered methods from ObjC symbols like -[Class method:]
+	// Build map: className → methods from ObjC symbols like -[Class method:]
 	const symMethodMap = new Map<string, { selector: string; prefix: string }[]>();
 	for (const sym of symbols) {
 		const m = sym.name.match(/^([+-])\[(\S+)\s+(.+)\]$/);
@@ -396,74 +651,80 @@ export function enrichMethodsFromSymbols(classes: ObjCClass[], symbols: { name: 
 		symMethodMap.get(className)!.push({ selector: m[3]!, prefix: m[1]! });
 	}
 
-	// Merge: fill in selector names from symbols, keep type encodings from method list.
-	// Method list and symbol table may be in different orders, so match by
-	// argument count (colons in selector == arg types in encoding).
+	// ── Pass 1: high-precision offset→selector map from forced (singleton) matches ──
+	const offsetToSelector = new Map<number, string>();
+	const ambiguous = new Set<number>();
 	for (const cls of classesNeedingEnrichment) {
 		const symMethods = symMethodMap.get(cls.name);
 		if (!symMethods) continue;
-
-		const symInstanceMethods = symMethods.filter((m) => m.prefix === "-");
-		const symClassMethods = symMethods.filter((m) => m.prefix === "+");
-
-		// Group unnamed method entries by arg count (from type encoding)
-		// Type encoding args = total decoded types - 3 (return, self, _cmd)
-		const skipNested = (enc: string, pos: number, open: string, close: string): number => {
-			let depth = 1;
-			let i = pos + 1;
-			while (i < enc.length && depth > 0) {
-				if (enc[i] === open) depth++;
-				else if (enc[i] === close) depth--;
-				i++;
+		for (const isClassMethod of [false, true]) {
+			const symByArgc = new Map<number, string[]>();
+			for (const s of symMethods) {
+				if ((s.prefix === "+") !== isClassMethod) continue;
+				const argc = (s.selector.match(/:/g) || []).length;
+				const list = symByArgc.get(argc);
+				if (list) list.push(s.selector);
+				else symByArgc.set(argc, [s.selector]);
 			}
-			return i;
-		};
-		const countArgsFromEncoding = (enc: string): number => {
-			let count = 0;
-			let pos = 0;
-			while (pos < enc.length) {
-				const ch = enc[pos]!;
-				// Skip offset digits
-				if ((ch >= "0" && ch <= "9") || ch === "-") {
-					pos++;
-					continue;
-				}
-				// Skip qualifiers
-				if ("rnNoORV".includes(ch)) {
-					pos++;
-					continue;
-				}
-				// Count a type
-				if (ch === "{") {
-					pos = skipNested(enc, pos, "{", "}");
-				} else if (ch === "(") {
-					pos = skipNested(enc, pos, "(", ")");
-				} else if (ch === "[") {
-					pos = skipNested(enc, pos, "[", "]");
-				} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === "?") {
-					pos += 2;
-				} else if (ch === "@" && pos + 1 < enc.length && enc[pos + 1] === '"') {
-					const c = enc.indexOf('"', pos + 2);
-					pos = c !== -1 ? c + 1 : pos + 1;
-				} else if (ch === "^") {
-					pos++;
-					continue;
-				} // pointer prefix, next char is the type
-				else {
-					pos++;
-				}
-				count++;
+			const methByArgc = new Map<number, ObjCMethod[]>();
+			for (const m of cls.methods) {
+				if (m.selector !== "" || !!m._isClassMethod !== isClassMethod) continue;
+				const argc = countArgsFromEncoding(m.signature);
+				const list = methByArgc.get(argc);
+				if (list) list.push(m);
+				else methByArgc.set(argc, [m]);
 			}
-			return Math.max(0, count - 3); // subtract return, self, _cmd
-		};
+			for (const [argc, methods] of methByArgc) {
+				const sels = symByArgc.get(argc);
+				if (methods.length !== 1 || !sels || sels.length !== 1) continue;
+				const offset = methods[0]!._nameOffset;
+				if (offset === undefined) continue;
+				const existing = offsetToSelector.get(offset);
+				if (existing === undefined) offsetToSelector.set(offset, sels[0]!);
+				else if (existing !== sels[0]) ambiguous.add(offset);
+			}
+		}
+	}
+	for (const off of ambiguous) offsetToSelector.delete(off);
 
-		// Match unnamed method entries against symbols by arg count.
-		// Process instance and class methods separately using the _isClassMethod flag.
+	const fillFromOffset = (m: ObjCMethod, isInstance: boolean): void => {
+		if (m.selector !== "" || m._nameOffset === undefined) return;
+		const selector = offsetToSelector.get(m._nameOffset);
+		if (selector !== undefined) nameMethod(m, selector, isInstance);
+	};
+	if (offsetToSelector.size > 0) {
+		for (const cls of classesNeedingEnrichment)
+			for (const m of cls.methods) fillFromOffset(m, !m._isClassMethod);
+		for (const cat of categories)
+			for (const m of cat.methods) fillFromOffset(m, !m._isClassMethod);
+		for (const p of protocols) {
+			for (const m of p.instanceMethods) fillFromOffset(m, true);
+			for (const m of p.classMethods) fillFromOffset(m, false);
+			for (const m of p.optionalInstanceMethods) fillFromOffset(m, true);
+			for (const m of p.optionalClassMethods) fillFromOffset(m, false);
+		}
+	}
+
+	// ── Pass 2: per-class argument-count fallback for whatever Pass 1 left unnamed ──
+	for (const cls of classesNeedingEnrichment) {
+		const symMethods = symMethodMap.get(cls.name);
+		if (!symMethods) {
+			cls.methods = cls.methods.filter((m) => m.selector !== "");
+			continue;
+		}
+		// Symbols already placed by the offset pass are off the table.
+		const assigned = new Set(
+			cls.methods.filter((m) => m.selector !== "").map((m) => m.selector)
+		);
+		const symInstanceMethods = symMethods.filter(
+			(m) => m.prefix === "-" && !assigned.has(m.selector)
+		);
+		const symClassMethods = symMethods.filter(
+			(m) => m.prefix === "+" && !assigned.has(m.selector)
+		);
+
 		const matchMethodGroup = (symGroup: typeof symInstanceMethods, isClassMethod: boolean) => {
-			const byArgCount = new Map<
-				number,
-				{ method: (typeof cls.methods)[0]; enc: string }[]
-			>();
+			const byArgCount = new Map<number, { method: ObjCMethod; enc: string }[]>();
 			for (const method of cls.methods) {
 				if (method.selector !== "") continue;
 				if (isClassMethod !== !!method._isClassMethod) continue;
@@ -504,8 +765,6 @@ export function enrichMethodsFromSymbols(classes: ObjCClass[], symbols: { name: 
 				remainingMethods[j]!.signature =
 					`${remainingSyms[j]!.prefix}${remainingSyms[j]!.selector}`;
 			}
-
-			return usedSymbols;
 		};
 
 		matchMethodGroup(symInstanceMethods, false);
@@ -652,6 +911,10 @@ function parseMethodList(
 				}
 			}
 
+			// A relative name offset that lands inside the file by chance can resolve to
+			// non-selector bytes; drop those so the entry is treated as unresolved.
+			if (name.length > 0 && !isLikelySelector(name)) name = "";
+
 			// types_offset is a signed 32-bit relative offset from its own position
 			const typesRelOffset = view.getInt32(entryOffset + 4, le);
 			const typesFileOffset = entryOffset + 4 + typesRelOffset;
@@ -668,7 +931,8 @@ function parseMethodList(
 					: 0n;
 
 			// Keep entry even with empty name — the orchestrator can fill it
-			// from symbol table data for shared cache binaries.
+			// from symbol table data for shared cache binaries. Record the raw name
+			// offset so identical selectors in other method lists can be back-filled.
 			methods.push({
 				selector: name,
 				signature:
@@ -676,7 +940,8 @@ function parseMethodList(
 						? buildMethodSignature(name, typeEncoding, isInstance)
 						: typeEncoding,
 				...(!isInstance && { _isClassMethod: true }),
-				...(imp !== 0n && { _imp: imp })
+				...(imp !== 0n && { _imp: imp }),
+				...(name.length === 0 && { _nameOffset: nameRelOffset })
 			});
 		}
 	} else {
@@ -739,6 +1004,269 @@ function parseMethodList(
 	return methods;
 }
 
+// ── Ivar + Property List Parsing ─────────────────────────────────────
+
+/**
+ * Parse an ivar_list_t at the given file offset into decoded instance variables.
+ *
+ * ivar_list_t: entsize(4) + count(4) + [ivar_t entries]. Each ivar_t stores a
+ * pointer to its runtime offset slot, a name pointer, and a type-encoding pointer.
+ */
+function parseIvarList(
+	view: DataView,
+	listFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean
+): ObjCIvar[] {
+	if (listFileOffset < 0 || listFileOffset + 8 > view.byteLength) return [];
+
+	const count = view.getUint32(listFileOffset + 4, le);
+	if (count === 0 || count > 100_000) return [];
+
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	const entrySize = is64Bit ? IVAR_ENTRY_SIZE_64 : IVAR_ENTRY_SIZE_32;
+	const entriesStart = listFileOffset + 8;
+	const ivars: ObjCIvar[] = [];
+
+	for (let i = 0; i < count; i++) {
+		const entryOffset = entriesStart + i * entrySize;
+		if (entryOffset + entrySize > view.byteLength) break;
+
+		// offset_ptr points to a 4-byte slot holding the ivar's byte offset.
+		let offset = 0;
+		const offsetVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments, is64Bit);
+		if (offsetVmaddr !== 0n) {
+			const offsetFileOffset = vmaddrToFileOffset(offsetVmaddr, segments);
+			if (offsetFileOffset !== null && offsetFileOffset + 4 <= view.byteLength) {
+				offset = view.getUint32(offsetFileOffset, le);
+			}
+		}
+
+		const nameVmaddr = resolvePointer(
+			view,
+			entryOffset + ptrSize,
+			rebaseMap,
+			le,
+			segments,
+			is64Bit
+		);
+		const nameFileOffset = nameVmaddr !== 0n ? vmaddrToFileOffset(nameVmaddr, segments) : null;
+		const name = nameFileOffset !== null ? readString(view, nameFileOffset) : "";
+		if (name.length === 0) continue;
+
+		const typeVmaddr = resolvePointer(
+			view,
+			entryOffset + ptrSize * 2,
+			rebaseMap,
+			le,
+			segments,
+			is64Bit
+		);
+		const typeFileOffset = typeVmaddr !== 0n ? vmaddrToFileOffset(typeVmaddr, segments) : null;
+		const type =
+			typeFileOffset !== null ? decodeSingleType(readString(view, typeFileOffset)) : "";
+
+		ivars.push({ name, type, offset });
+	}
+
+	return ivars;
+}
+
+/**
+ * Parse a property_list_t at the given file offset into decoded properties.
+ *
+ * property_list_t: entsize(4) + count(4) + [property_t entries]. Each property_t
+ * is a name pointer and an attribute-string pointer.
+ */
+function parsePropertyList(
+	view: DataView,
+	listFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean
+): ObjCProperty[] {
+	if (listFileOffset < 0 || listFileOffset + 8 > view.byteLength) return [];
+
+	const count = view.getUint32(listFileOffset + 4, le);
+	if (count === 0 || count > 100_000) return [];
+
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	const entrySize = is64Bit ? PROPERTY_ENTRY_SIZE_64 : PROPERTY_ENTRY_SIZE_32;
+	const entriesStart = listFileOffset + 8;
+	const properties: ObjCProperty[] = [];
+
+	for (let i = 0; i < count; i++) {
+		const entryOffset = entriesStart + i * entrySize;
+		if (entryOffset + entrySize > view.byteLength) break;
+
+		const nameVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments, is64Bit);
+		const nameFileOffset = nameVmaddr !== 0n ? vmaddrToFileOffset(nameVmaddr, segments) : null;
+		const name = nameFileOffset !== null ? readString(view, nameFileOffset) : "";
+		if (name.length === 0) continue;
+
+		const attrVmaddr = resolvePointer(
+			view,
+			entryOffset + ptrSize,
+			rebaseMap,
+			le,
+			segments,
+			is64Bit
+		);
+		const attrFileOffset = attrVmaddr !== 0n ? vmaddrToFileOffset(attrVmaddr, segments) : null;
+		const attributes = attrFileOffset !== null ? readString(view, attrFileOffset) : "";
+		const { type, attributeList, ivar } = decodePropertyAttributes(attributes);
+
+		properties.push({
+			name,
+			type,
+			attributes,
+			attributeList,
+			...(ivar !== undefined && { ivar })
+		});
+	}
+
+	return properties;
+}
+
+/** Resolve a method-list pointer field to its parsed methods, or []. */
+function parseMethodListField(
+	view: DataView,
+	fieldFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean,
+	isInstance: boolean
+): ObjCMethod[] {
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	if (fieldFileOffset + ptrSize > view.byteLength) return [];
+	const listVmaddr = resolvePointer(view, fieldFileOffset, rebaseMap, le, segments, is64Bit);
+	if (listVmaddr === 0n) return [];
+	const listFileOffset = vmaddrToFileOffset(listVmaddr, segments);
+	if (listFileOffset === null) return [];
+	return parseMethodList(
+		view,
+		listFileOffset,
+		segments,
+		rebaseMap,
+		le,
+		listVmaddr,
+		isInstance,
+		is64Bit
+	);
+}
+
+/** Resolve an ivar-list pointer field to its parsed ivars, or []. */
+function parseIvarListField(
+	view: DataView,
+	fieldFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean
+): ObjCIvar[] {
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	if (fieldFileOffset + ptrSize > view.byteLength) return [];
+	const listVmaddr = resolvePointer(view, fieldFileOffset, rebaseMap, le, segments, is64Bit);
+	if (listVmaddr === 0n) return [];
+	const listFileOffset = vmaddrToFileOffset(listVmaddr, segments);
+	if (listFileOffset === null) return [];
+	return parseIvarList(view, listFileOffset, segments, rebaseMap, le, is64Bit);
+}
+
+/** Resolve a property-list pointer field to its parsed properties, or []. */
+function parsePropertyListField(
+	view: DataView,
+	fieldFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean
+): ObjCProperty[] {
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	if (fieldFileOffset + ptrSize > view.byteLength) return [];
+	const listVmaddr = resolvePointer(view, fieldFileOffset, rebaseMap, le, segments, is64Bit);
+	if (listVmaddr === 0n) return [];
+	const listFileOffset = vmaddrToFileOffset(listVmaddr, segments);
+	if (listFileOffset === null) return [];
+	return parsePropertyList(view, listFileOffset, segments, rebaseMap, le, is64Bit);
+}
+
+/**
+ * Read the class name reachable from a class_t at the given vmaddr
+ * (class_t.data → class_ro_t.name). Returns "" when it cannot be resolved.
+ */
+function readClassNameAt(
+	view: DataView,
+	classVmaddr: bigint,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean
+): string {
+	const classFileOffset = vmaddrToFileOffset(classVmaddr, segments);
+	if (classFileOffset === null) return "";
+
+	const dataOffset = is64Bit ? CLASS_T_DATA_OFFSET_64 : CLASS_T_DATA_OFFSET_32;
+	const roNameOffset = is64Bit ? CLASS_RO_NAME_OFFSET_64 : CLASS_RO_NAME_OFFSET_32;
+
+	let dataVmaddr = resolvePointer(
+		view,
+		classFileOffset + dataOffset,
+		rebaseMap,
+		le,
+		segments,
+		is64Bit
+	);
+	if (is64Bit) dataVmaddr = dataVmaddr & POINTER_MASK;
+	if (dataVmaddr === 0n) return "";
+
+	const roFileOffset = vmaddrToFileOffset(dataVmaddr, segments);
+	if (roFileOffset === null) return "";
+
+	const nameVmaddr = resolvePointer(
+		view,
+		roFileOffset + roNameOffset,
+		rebaseMap,
+		le,
+		segments,
+		is64Bit
+	);
+	if (nameVmaddr === 0n) return "";
+	const nameFileOffset = vmaddrToFileOffset(nameVmaddr, segments);
+	if (nameFileOffset === null) return "";
+	return readString(view, nameFileOffset);
+}
+
+/**
+ * Resolve the name of a class referenced by a pointer field (a superclass or a
+ * category's target class). In-file classes are followed to class_ro_t.name;
+ * external classes are named from the bind map's `_OBJC_CLASS_$_` import.
+ */
+function resolveClassReference(
+	view: DataView,
+	fieldFileOffset: number,
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean,
+	bindMap?: Map<number, { symbolName: string }>
+): string {
+	const bind = bindMap?.get(fieldFileOffset);
+	if (bind) {
+		const name = classNameFromBindSymbol(bind.symbolName);
+		if (name) return name;
+	}
+
+	let classVmaddr = resolvePointer(view, fieldFileOffset, rebaseMap, le, segments, is64Bit);
+	if (is64Bit) classVmaddr = classVmaddr & POINTER_MASK;
+	if (classVmaddr === 0n) return "";
+	return readClassNameAt(view, classVmaddr, segments, rebaseMap, le, is64Bit);
+}
+
 // ── Class Parsing ────────────────────────────────────────────────────
 
 /**
@@ -759,7 +1287,8 @@ function parseClass(
 	segments: Segment64[],
 	rebaseMap: Map<number, bigint>,
 	le: boolean,
-	is64Bit = true
+	is64Bit = true,
+	bindMap?: Map<number, { symbolName: string }>
 ): ObjCClass | null {
 	const classSize = is64Bit ? CLASS_T_SIZE_64 : CLASS_T_SIZE_32;
 	const dataOffset = is64Bit ? CLASS_T_DATA_OFFSET_64 : CLASS_T_DATA_OFFSET_32;
@@ -769,6 +1298,11 @@ function parseClass(
 	const roBaseProtocolsOffset = is64Bit
 		? CLASS_RO_BASEPROTOCOLS_OFFSET_64
 		: CLASS_RO_BASEPROTOCOLS_OFFSET_32;
+	const roIvarsOffset = is64Bit ? CLASS_RO_IVARS_OFFSET_64 : CLASS_RO_IVARS_OFFSET_32;
+	const roBasePropertiesOffset = is64Bit
+		? CLASS_RO_BASEPROPERTIES_OFFSET_64
+		: CLASS_RO_BASEPROPERTIES_OFFSET_32;
+	const superclassOffset = is64Bit ? CLASS_T_SUPERCLASS_OFFSET_64 : CLASS_T_SUPERCLASS_OFFSET_32;
 
 	// Read class_t.data pointer
 	if (classFileOffset + classSize > view.byteLength) return null;
@@ -799,6 +1333,17 @@ function parseClass(
 
 	const className = readString(view, nameFileOffset);
 	if (className.length === 0) return null;
+
+	// superclass pointer within class_t (in-file class or external bind)
+	const superclass = resolveClassReference(
+		view,
+		classFileOffset + superclassOffset,
+		segments,
+		rebaseMap,
+		le,
+		is64Bit,
+		bindMap
+	);
 
 	// baseMethods pointer within class_ro_t
 	const baseMethodsFieldOffset = roFileOffset + roMethodsOffset;
@@ -855,6 +1400,26 @@ function parseClass(
 		}
 	}
 
+	// ivars within class_ro_t
+	const ivars = parseIvarListField(
+		view,
+		roFileOffset + roIvarsOffset,
+		segments,
+		rebaseMap,
+		le,
+		is64Bit
+	);
+
+	// baseProperties within class_ro_t
+	const properties = parsePropertyListField(
+		view,
+		roFileOffset + roBasePropertiesOffset,
+		segments,
+		rebaseMap,
+		le,
+		is64Bit
+	);
+
 	// Class methods from metaclass (isa pointer at offset 0)
 	let isaVmaddr = resolvePointer(view, classFileOffset, rebaseMap, le, segments, is64Bit);
 	// Only strip low bits on 64-bit (tagged isa)
@@ -907,7 +1472,140 @@ function parseClass(
 		}
 	}
 
-	return { name: className, methods, protocols: protocols.length > 0 ? protocols : undefined };
+	return {
+		name: className,
+		...(superclass.length > 0 && { superclass }),
+		methods,
+		...(protocols.length > 0 && { protocols }),
+		...(properties.length > 0 && { properties }),
+		...(ivars.length > 0 && { ivars })
+	};
+}
+
+// ── Category Parsing ─────────────────────────────────────────────────
+
+/**
+ * Parse `__objc_catlist` into decoded categories.
+ *
+ * category_t: name(ptr) + cls(ptr) + instanceMethods(ptr) + classMethods(ptr) +
+ * protocols(ptr) + instanceProperties(ptr).
+ */
+function parseCategories(
+	view: DataView,
+	sections: Section64[],
+	segments: Segment64[],
+	rebaseMap: Map<number, bigint>,
+	le: boolean,
+	is64Bit: boolean,
+	bindMap?: Map<number, { symbolName: string }>
+): ObjCCategory[] {
+	const catlistSection = findObjCSection(sections, "__objc_catlist");
+	if (!catlistSection) return [];
+
+	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
+	const clsOffset = is64Bit ? CATEGORY_CLS_OFFSET_64 : CATEGORY_CLS_OFFSET_32;
+	const instMethodsOffset = is64Bit
+		? CATEGORY_INSTANCE_METHODS_OFFSET_64
+		: CATEGORY_INSTANCE_METHODS_OFFSET_32;
+	const classMethodsOffset = is64Bit
+		? CATEGORY_CLASS_METHODS_OFFSET_64
+		: CATEGORY_CLASS_METHODS_OFFSET_32;
+	const protocolsOffset = is64Bit ? CATEGORY_PROTOCOLS_OFFSET_64 : CATEGORY_PROTOCOLS_OFFSET_32;
+	const instPropertiesOffset = is64Bit
+		? CATEGORY_INSTANCE_PROPERTIES_OFFSET_64
+		: CATEGORY_INSTANCE_PROPERTIES_OFFSET_32;
+
+	const sectionOffset =
+		vmaddrToFileOffset(catlistSection.addr, segments) ?? catlistSection.offset;
+	const pointerCount = Math.floor(Number(catlistSection.size) / ptrSize);
+
+	const categories: ObjCCategory[] = [];
+
+	for (let i = 0; i < pointerCount; i++) {
+		const ptrFileOffset = sectionOffset + i * ptrSize;
+		if (ptrFileOffset + ptrSize > view.byteLength) break;
+
+		let catVmaddr = resolvePointer(view, ptrFileOffset, rebaseMap, le, segments, is64Bit);
+		if (is64Bit) catVmaddr = catVmaddr & POINTER_MASK;
+		if (catVmaddr === 0n) continue;
+
+		const catFileOffset = vmaddrToFileOffset(catVmaddr, segments);
+		if (catFileOffset === null) continue;
+		if (catFileOffset + ptrSize > view.byteLength) continue;
+
+		// name pointer (field 0)
+		const nameVmaddr = resolvePointer(view, catFileOffset, rebaseMap, le, segments, is64Bit);
+		const nameFileOffset = nameVmaddr !== 0n ? vmaddrToFileOffset(nameVmaddr, segments) : null;
+		const name = nameFileOffset !== null ? readString(view, nameFileOffset) : "";
+		if (name.length === 0) continue;
+
+		const className = resolveClassReference(
+			view,
+			catFileOffset + clsOffset,
+			segments,
+			rebaseMap,
+			le,
+			is64Bit,
+			bindMap
+		);
+
+		const methods = [
+			...parseMethodListField(
+				view,
+				catFileOffset + instMethodsOffset,
+				segments,
+				rebaseMap,
+				le,
+				is64Bit,
+				true
+			),
+			...parseMethodListField(
+				view,
+				catFileOffset + classMethodsOffset,
+				segments,
+				rebaseMap,
+				le,
+				is64Bit,
+				false
+			)
+		];
+
+		const properties = parsePropertyListField(
+			view,
+			catFileOffset + instPropertiesOffset,
+			segments,
+			rebaseMap,
+			le,
+			is64Bit
+		);
+
+		let protocols: string[] = [];
+		const protocolsVmaddr = resolvePointer(
+			view,
+			catFileOffset + protocolsOffset,
+			rebaseMap,
+			le,
+			segments,
+			is64Bit
+		);
+		if (protocolsVmaddr !== 0n) {
+			const protocolListFileOffset = vmaddrToFileOffset(protocolsVmaddr, segments);
+			if (protocolListFileOffset !== null) {
+				protocols = parseProtocolListAt(
+					view,
+					protocolListFileOffset,
+					segments,
+					rebaseMap,
+					le,
+					is64Bit
+				);
+			}
+		}
+
+		categories.push({ name, className: className || "?", methods, properties, protocols });
+	}
+
+	return categories;
 }
 
 // ── Protocol Parsing ─────────────────────────────────────────────────
@@ -1113,6 +1811,8 @@ function parseProtocolsWithDetails(
  * @param rebaseMap    Chained fixups rebase map (file offset → resolved vmaddr)
  * @param littleEndian Byte order of the binary
  * @param is64Bit      Whether this is a 64-bit Mach-O (affects pointer sizes and struct offsets)
+ * @param bindMap      Chained fixup bind map (file offset → import), used to name
+ *                     external superclasses and category target classes
  */
 export function extractObjCMetadata(
 	buffer: ArrayBuffer,
@@ -1120,7 +1820,8 @@ export function extractObjCMetadata(
 	segments: Segment64[],
 	rebaseMap: Map<number, bigint>,
 	littleEndian: boolean,
-	is64Bit: boolean = true
+	is64Bit: boolean = true,
+	bindMap?: Map<number, { symbolName: string }>
 ): ObjCMetadata {
 	const view = new DataView(buffer);
 	const le = littleEndian;
@@ -1132,6 +1833,7 @@ export function extractObjCMetadata(
 
 	const result: ObjCMetadata = {
 		classes: [],
+		categories: [],
 		protocols: [],
 		protocolDetails: []
 	};
@@ -1166,14 +1868,25 @@ export function extractObjCMetadata(
 			if (classFileOffset === null) continue;
 
 			// Steps 3-5: Parse the class
-			const cls = parseClass(view, classFileOffset, segments, rebaseMap, le, is64Bit);
+			const cls = parseClass(
+				view,
+				classFileOffset,
+				segments,
+				rebaseMap,
+				le,
+				is64Bit,
+				bindMap
+			);
 			if (cls) {
 				result.classes.push(cls);
 			}
 		}
 	}
 
-	// Step 6: Parse protocols with details
+	// Step 6: Parse categories from __objc_catlist
+	result.categories = parseCategories(view, sections, segments, rebaseMap, le, is64Bit, bindMap);
+
+	// Step 7: Parse protocols with details
 	const protoResult = parseProtocolsWithDetails(view, sections, segments, rebaseMap, le, is64Bit);
 	result.protocols = protoResult.names;
 	result.protocolDetails = protoResult.details;

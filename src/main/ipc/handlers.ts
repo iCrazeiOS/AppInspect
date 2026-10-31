@@ -191,15 +191,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
 				case "swift":
 					return sanitizeBigInts({ tab: "swift", data: cached.swift });
-				case "classes":
-					return sanitizeBigInts({
-						tab: "classes",
-						data: {
-							classes: cached.classes,
-							protocols: cached.protocols ?? [],
-							protocolDetails: cached.protocolDetails ?? []
-						}
-					});
+				case "objc":
+					return sanitizeBigInts({ tab: "objc", data: cached.objc });
 				case "entitlements": {
 					// Null prototype: keys come from an untrusted plist inside the
 					// analysed binary, so "__proto__" must not be the setter.
@@ -454,9 +447,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			}
 
 			const files = buildHeaders({
-				classes: cached.classes ?? [],
-				protocols: cached.protocols ?? [],
-				protocolDetails: cached.protocolDetails ?? [],
+				...cached.objc,
 				binaryName: session.getActiveBinaryName()
 			});
 

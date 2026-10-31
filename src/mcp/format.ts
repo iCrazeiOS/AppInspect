@@ -20,7 +20,7 @@ export const SECTION_NAMES = [
 	"headers",
 	"libraries",
 	"symbols",
-	"classes",
+	"objc",
 	"swift",
 	"entitlements",
 	"infoPlist",
@@ -37,7 +37,7 @@ export type SectionName = (typeof SECTION_NAMES)[number];
 export const PAGINATED_SECTIONS = new Set<SectionName>([
 	"strings",
 	"symbols",
-	"classes",
+	"objc",
 	"swift",
 	"libraries"
 ]);
@@ -70,8 +70,12 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 			return cached.libraries;
 		case "symbols":
 			return cached.symbols;
-		case "classes":
-			return { classes: cached.classes, protocols: cached.protocols ?? [] };
+		case "objc":
+			return {
+				classes: cached.objc.classes,
+				categories: cached.objc.categories,
+				protocols: cached.objc.protocols
+			};
 		case "swift":
 			return cached.swift;
 		case "entitlements": {
@@ -101,7 +105,7 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 /** Extract the filterable array from a section's data */
 export function getArray(data: unknown, section: SectionName): unknown[] {
 	if (section === "strings") return (data as { binary: unknown[] }).binary;
-	if (section === "classes") return (data as { classes: unknown[] }).classes;
+	if (section === "objc") return (data as { classes: unknown[] }).classes;
 	return data as unknown[];
 }
 
@@ -164,8 +168,9 @@ export function buildPaginatedResult(
 	if (section === "strings") {
 		result.binary = sliced;
 		result.localisation = sanitize((data as { localisation: unknown[] }).localisation);
-	} else if (section === "classes") {
+	} else if (section === "objc") {
 		result.classes = sliced;
+		result.categories = sanitize((data as { categories: unknown[] }).categories ?? []);
 		result.protocols = sanitize((data as { protocols: unknown[] }).protocols);
 	} else {
 		result.data = sliced;

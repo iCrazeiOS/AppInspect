@@ -70,9 +70,7 @@ function makeResult(
 		headers: { machO: HEADER, fatArchs: [], loadCommands: [] },
 		libraries: [],
 		symbols: [],
-		classes: [],
-		protocols: [],
-		protocolDetails: [],
+		objc: { classes: [], categories: [], protocols: [], protocolDetails: [] },
 		swift: {
 			types: [],
 			protocols: [],
@@ -131,5 +129,14 @@ describe("json export", () => {
 		expect(filtered.version).toBe("Unknown");
 		expect(filtered.data).toHaveProperty("overview");
 		expect(filtered.data).not.toHaveProperty("infoPlist");
+	});
+
+	it("exports the objc tab as a single consolidated key", () => {
+		const filtered = JSON.parse(exportAnalysis(makeResult(), ["objc"]));
+		expect(filtered.data).toHaveProperty("objc");
+		expect(filtered.data.objc).toHaveProperty("classes");
+		expect(filtered.data.objc).toHaveProperty("categories");
+		expect(filtered.data.objc).toHaveProperty("protocolDetails");
+		expect(filtered.data).not.toHaveProperty("classes");
 	});
 });

@@ -8,14 +8,14 @@
 import type { TabName } from "../../shared/ipc-types";
 import type { AnalysisResult } from "../../shared/types";
 
-/** Map of tab names to their keys in AnalysisResult */
+/** Map of tab names to their key in AnalysisResult */
 const TAB_KEY_MAP: Record<TabName, keyof AnalysisResult> = {
 	overview: "overview",
 	strings: "strings",
 	headers: "headers",
 	libraries: "libraries",
 	symbols: "symbols",
-	classes: "classes",
+	objc: "objc",
 	swift: "swift",
 	entitlements: "entitlements",
 	infoPlist: "infoPlist",

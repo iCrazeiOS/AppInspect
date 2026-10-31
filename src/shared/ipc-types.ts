@@ -15,8 +15,7 @@ import type {
 	LoadCommand,
 	LocalisationString,
 	MachOHeader,
-	ObjCClass,
-	ObjCProtocol,
+	ObjCMetadata,
 	PlistValue,
 	SecurityFinding,
 	SizeBreakdown,
@@ -60,9 +59,9 @@ export interface SymbolsTabData {
 	data: SymbolEntry[];
 }
 
-export interface ClassesTabData {
-	tab: "classes";
-	data: { classes: ObjCClass[]; protocols: string[]; protocolDetails: ObjCProtocol[] };
+export interface ObjCTabData {
+	tab: "objc";
+	data: ObjCMetadata;
 }
 
 export interface SwiftTabData {
@@ -114,7 +113,7 @@ export type TabData =
 	| HeadersTabData
 	| LibrariesTabData
 	| SymbolsTabData
-	| ClassesTabData
+	| ObjCTabData
 	| SwiftTabData
 	| EntitlementsTabData
 	| InfoPlistTabData
@@ -133,7 +132,7 @@ export interface CrossBinarySearchResult {
 	symbolType?: string;
 }
 
-export type SearchableTab = "classes" | "strings" | "symbols" | "libraries" | "swift";
+export type SearchableTab = "objc" | "strings" | "symbols" | "libraries" | "swift";
 
 export type TabName = TabData["tab"];
 

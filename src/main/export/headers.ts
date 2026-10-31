@@ -5,10 +5,18 @@
  * Files are written flat into the user-selected directory.
  */
 
-import type { ObjCClass, ObjCMethod, ObjCProtocol } from "../../shared/types";
+import type {
+	ObjCCategory,
+	ObjCClass,
+	ObjCIvar,
+	ObjCMethod,
+	ObjCProperty,
+	ObjCProtocol
+} from "../../shared/types";
 
 export interface HeaderExportInput {
 	classes: ObjCClass[];
+	categories?: ObjCCategory[];
 	protocols: string[];
 	protocolDetails: ObjCProtocol[];
 	/** Binary name shown in the generated file banners. */
@@ -22,6 +30,9 @@ export interface HeaderFile {
 
 /** Method signatures can be decorated with a trailing semicolon after enrichment. */
 function methodDeclaration(method: ObjCMethod): string | null {
+	// A method whose selector was never recovered (shared-cache selector pool absent)
+	// can't be written as a valid declaration — its signature is only a decoded prototype.
+	if (!method.selector?.trim()) return null;
 	const signature = (method.signature || method.selector || "").trim();
 	if (!signature) return null;
 
@@ -33,6 +44,48 @@ function methodDeclaration(method: ObjCMethod): string | null {
 	}
 	declaration = declaration.replace(/;\s*$/, "").trim();
 	return declaration ? `${declaration};` : null;
+}
+
+/** Join a type and a name with a space unless the type ends in a pointer star. */
+function typedName(type: string, name: string): string {
+	const t = type.trim() || "id";
+	return t.endsWith("*") ? `${t}${name}` : `${t} ${name}`;
+}
+
+/** `@property (attrs) Type name;` */
+function propertyDeclaration(property: ObjCProperty): string {
+	const attrs =
+		property.attributeList.length > 0 ? ` (${property.attributeList.join(", ")})` : "";
+	return `@property${attrs} ${typedName(property.type, property.name)};`;
+}
+
+/** Sorted, de-duplicated property declarations. */
+function propertyDeclarations(properties: ObjCProperty[] | undefined): string[] {
+	const seen = new Set<string>();
+	const declarations: string[] = [];
+	for (const property of properties ?? []) {
+		if (!property.name) continue;
+		const declaration = propertyDeclaration(property);
+		if (seen.has(declaration)) continue;
+		seen.add(declaration);
+		declarations.push(declaration);
+	}
+	return declarations.sort((a, b) => a.localeCompare(b));
+}
+
+/** Ivar block lines (`Type _name;`) wrapped in braces, or [] when there are none. */
+function ivarBlock(ivars: ObjCIvar[] | undefined): string[] {
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const ivar of ivars ?? []) {
+		if (!ivar.name) continue;
+		const line = `    ${typedName(ivar.type, ivar.name)};`;
+		if (seen.has(line)) continue;
+		seen.add(line);
+		lines.push(line);
+	}
+	if (lines.length === 0) return [];
+	return ["{", ...lines, "}"];
 }
 
 /** Sorted, de-duplicated method declarations. */
@@ -49,7 +102,8 @@ function methodDeclarations(methods: ObjCMethod[] | undefined): string[] {
 }
 
 function sanitiseFileName(name: string): string {
-	const safe = name.replace(/[^A-Za-z0-9_.-]/g, "_");
+	// "+" is kept so categories export as the class-dump "Class+Category.h" form.
+	const safe = name.replace(/[^A-Za-z0-9_.+-]/g, "_");
 	return safe || "Unnamed";
 }
 
@@ -107,7 +161,43 @@ function classHeader(
 	if (protocols.length > 0) declaration += ` <${protocols.join(", ")}>`;
 	lines.push(declaration);
 
-	for (const method of methodDeclarations(cls.methods)) lines.push(method);
+	for (const line of ivarBlock(cls.ivars)) lines.push(line);
+	const properties = propertyDeclarations(cls.properties);
+	if (properties.length > 0) {
+		lines.push("");
+		for (const property of properties) lines.push(property);
+	}
+	const methods = methodDeclarations(cls.methods);
+	if (methods.length > 0) {
+		lines.push("");
+		for (const method of methods) lines.push(method);
+	}
+	lines.push("@end", "");
+	return lines.join("\n");
+}
+
+/** Build a category header: `@interface Class (Category) ... @end`. */
+function categoryHeader(category: ObjCCategory, fileName: string, binaryName?: string): string {
+	const protocols = [...new Set(category.protocols.filter(Boolean))].sort((a, b) =>
+		a.localeCompare(b)
+	);
+
+	const lines = banner(fileName, binaryName);
+	lines.push("#import <Foundation/Foundation.h>", "");
+	if (category.className) lines.push(`@class ${category.className};`);
+	for (const name of protocols) lines.push(`@protocol ${name};`);
+	if (category.className || protocols.length > 0) lines.push("");
+
+	let declaration = `@interface ${category.className} (${category.name})`;
+	if (protocols.length > 0) declaration += ` <${protocols.join(", ")}>`;
+	lines.push(declaration);
+
+	const properties = propertyDeclarations(category.properties);
+	if (properties.length > 0) {
+		for (const property of properties) lines.push(property);
+		lines.push("");
+	}
+	for (const method of methodDeclarations(category.methods)) lines.push(method);
 	lines.push("@end", "");
 	return lines.join("\n");
 }
@@ -166,6 +256,7 @@ function allocator(): (base: string) => string {
  */
 export function buildHeaders({
 	classes,
+	categories,
 	protocols,
 	protocolDetails,
 	binaryName
@@ -218,6 +309,14 @@ export function buildHeaders({
 				binaryName
 			)
 		});
+	}
+
+	const sortedCategories = [...(categories ?? [])]
+		.filter((category) => category.name)
+		.sort((a, b) => `${a.className}+${a.name}`.localeCompare(`${b.className}+${b.name}`));
+	for (const category of sortedCategories) {
+		const fileName = allocate(`${category.className}+${category.name}`);
+		files.push({ name: fileName, content: categoryHeader(category, fileName, binaryName) });
 	}
 
 	return files;

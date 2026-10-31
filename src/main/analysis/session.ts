@@ -385,7 +385,7 @@ export class AnalysisSession {
 					}
 				);
 				this.searchIndex.set(i, {
-					classes: result.classes.map((c) => c.name),
+					objc: result.classes.map((c) => c.name),
 					strings: result.strings.map((s) => s.value),
 					symbols: result.symbols.map((s) => s.demangled ?? s.name),
 					symbolTypes: result.symbols.map((s) => s.type),
@@ -394,7 +394,7 @@ export class AnalysisSession {
 				});
 			} catch {
 				this.searchIndex.set(i, {
-					classes: [],
+					objc: [],
 					strings: [],
 					symbols: [],
 					symbolTypes: [],

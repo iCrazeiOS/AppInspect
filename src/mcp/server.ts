@@ -18,7 +18,7 @@
  *   analyse_file   — Load and analyse a file or folder (IPA, Mach-O, DEB, .app, .xcframework)
  *   get_overview    — Analysis summary (header, hardening, hooks, etc.)
  *   get_section     — Detailed data for a specific section with filtering
- *   search          — Cross-binary search (classes, strings, symbols, libraries, swift)
+ *   search          — Cross-binary search (objc, strings, symbols, libraries, swift)
  *   get_size_tree   — Bundle files as a size tree, active binary split into modules
  *   switch_binary   — Switch to a different binary in the container
  *   read_hex        — Read raw bytes from the active binary
@@ -181,11 +181,12 @@ server.registerTool(
 	{
 		description:
 			"Get detailed data for a specific analysis section. Use filter, offset, " +
-			"and limit for large sections (strings, symbols, classes, libraries). " +
+			"and limit for large sections (strings, symbols, objc, libraries). " +
 			"Sections: strings (embedded binary strings + localisation), " +
 			"headers (Mach-O header + load commands), libraries (linked dylibs/" +
-			"frameworks), symbols (exported/imported/local), classes (ObjC classes " +
-			"+ methods + protocols), swift (Swift nominal types with stored " +
+			"frameworks), symbols (exported/imported/local), objc (ObjC classes " +
+			"with superclasses, methods, instance variables, and properties, plus " +
+			"categories and protocols), swift (Swift nominal types with stored " +
 			"properties, superclasses, protocols, and protocol conformances), " +
 			"entitlements (code signing), infoPlist " +
 			"(Info.plist), electron (Electron version, fuses, ASAR header integrity " +
@@ -202,7 +203,7 @@ server.registerTool(
 				.optional()
 				.describe(
 					"Case-insensitive substring filter on primary field: " +
-						"value (strings), name (symbols/classes/libraries), " +
+						"value (strings), name (symbols/objc/libraries), " +
 						"fullName (swift types)"
 				),
 			offset: z
@@ -239,8 +240,8 @@ server.registerTool(
 		inputSchema: {
 			query: z.string().describe("Search query"),
 			tab: z
-				.enum(["classes", "strings", "symbols", "libraries", "swift"])
-				.describe("Data type to search (swift matches Swift type full names)"),
+				.enum(["objc", "strings", "symbols", "libraries", "swift"])
+				.describe("Data type to search (objc matches ObjC class names)"),
 			isRegex: z.boolean().optional().describe("Treat query as regex (default: false)"),
 			caseSensitive: z.boolean().optional().describe("Case-sensitive match (default: false)"),
 			path: pathParam

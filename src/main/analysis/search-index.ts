@@ -5,7 +5,7 @@
  */
 
 export interface BinarySearchIndex {
-	classes: string[];
+	objc: string[];
 	strings: string[];
 	symbols: string[];
 	symbolTypes: string[];
@@ -13,7 +13,7 @@ export interface BinarySearchIndex {
 	swift: string[];
 }
 
-export type SearchableTab = "classes" | "strings" | "symbols" | "libraries" | "swift";
+export type SearchableTab = "objc" | "strings" | "symbols" | "libraries" | "swift";
 
 export interface CrossBinarySearchResult {
 	binaryIndex: number;

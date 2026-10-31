@@ -34,7 +34,6 @@ import {
 // ── Search state ──
 import { clearSearchStatesForSession, getSearchBar } from "./search-state";
 import { clearTabStatesForSession } from "./tab-state";
-import { renderClasses } from "./tabs/classes";
 import { renderElectron } from "./tabs/electron";
 import { renderEntitlements } from "./tabs/entitlements";
 import { renderFiles } from "./tabs/files";
@@ -42,6 +41,7 @@ import { renderHeaders } from "./tabs/headers";
 import { renderHex } from "./tabs/hex";
 import { renderHooks } from "./tabs/hooks";
 import { cleanupLibrariesSession, renderLibraries } from "./tabs/libraries";
+import { renderObjC } from "./tabs/objc";
 import { renderOverview } from "./tabs/overview";
 import { renderPlist } from "./tabs/plist";
 import { renderSecurity } from "./tabs/security";
@@ -501,8 +501,8 @@ async function loadTabData(tabId: string): Promise<void> {
 				case "files":
 					renderFiles(panel, tabData.data, sid);
 					break;
-				case "classes":
-					renderClasses(panel, tabData.data, binCount, sid);
+				case "objc":
+					renderObjC(panel, tabData.data, binCount, sid);
 					break;
 				case "swift":
 					renderSwift(panel, tabData.data, sid, currentBinary, binCount);
