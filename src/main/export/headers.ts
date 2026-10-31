@@ -149,6 +149,33 @@ function importSection(imports: string[], classForwards: string[], protocolForwa
 	return lines;
 }
 
+/**
+ * Append an interface body — the ivar block, then the property, class-method and
+ * instance-method sections — separating sections with a blank line but never leading the
+ * first one that appears with a blank.
+ */
+function appendInterfaceBody(
+	lines: string[],
+	sections: {
+		ivars: string[];
+		properties: string[];
+		classMethods: string[];
+		instanceMethods: string[];
+	}
+): void {
+	let wrote = false;
+	if (sections.ivars.length > 0) {
+		for (const line of sections.ivars) lines.push(line);
+		wrote = true;
+	}
+	for (const group of [sections.properties, sections.classMethods, sections.instanceMethods]) {
+		if (group.length === 0) continue;
+		if (wrote) lines.push("");
+		for (const item of group) lines.push(item);
+		wrote = true;
+	}
+}
+
 function classHeader(
 	cls: ObjCClass,
 	fileName: string,
@@ -184,21 +211,13 @@ function classHeader(
 	if (protocols.length > 0) declaration += ` <${protocols.join(", ")}>`;
 	lines.push(declaration);
 
-	for (const line of ivarBlock(cls.ivars)) lines.push(line);
-	const properties = propertyDeclarations(cls.properties);
-	if (properties.length > 0) {
-		lines.push("");
-		for (const property of properties) lines.push(property);
-	}
 	const { classMethods, instanceMethods } = splitMethodDeclarations(cls.methods);
-	if (classMethods.length > 0) {
-		lines.push("");
-		for (const method of classMethods) lines.push(method);
-	}
-	if (instanceMethods.length > 0) {
-		lines.push("");
-		for (const method of instanceMethods) lines.push(method);
-	}
+	appendInterfaceBody(lines, {
+		ivars: ivarBlock(cls.ivars),
+		properties: propertyDeclarations(cls.properties),
+		classMethods,
+		instanceMethods
+	});
 	lines.push("@end", "");
 	return lines.join("\n");
 }
@@ -219,20 +238,13 @@ function categoryHeader(category: ObjCCategory, fileName: string, binaryName?: s
 	if (protocols.length > 0) declaration += ` <${protocols.join(", ")}>`;
 	lines.push(declaration);
 
-	const properties = propertyDeclarations(category.properties);
-	if (properties.length > 0) {
-		lines.push("");
-		for (const property of properties) lines.push(property);
-	}
 	const { classMethods, instanceMethods } = splitMethodDeclarations(category.methods);
-	if (classMethods.length > 0) {
-		lines.push("");
-		for (const method of classMethods) lines.push(method);
-	}
-	if (instanceMethods.length > 0) {
-		lines.push("");
-		for (const method of instanceMethods) lines.push(method);
-	}
+	appendInterfaceBody(lines, {
+		ivars: [],
+		properties: propertyDeclarations(category.properties),
+		classMethods,
+		instanceMethods
+	});
 	lines.push("@end", "");
 	return lines.join("\n");
 }
