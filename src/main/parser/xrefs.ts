@@ -377,21 +377,16 @@ function buildStringSectionRanges(segments: Segment64[]): VmRange[] {
 	for (const seg of segments) {
 		for (const sect of seg.sections) {
 			const name = sect.sectname.trim();
-			if (STRING_SECTIONS.includes(name)) {
-				ranges.push({
-					vmStart: sect.addr,
-					vmEnd: sect.addr + sect.size,
-					fileStart: sect.offset,
-					isCFString: false
-				});
-			} else if (name === "__cfstring") {
-				ranges.push({
-					vmStart: sect.addr,
-					vmEnd: sect.addr + sect.size,
-					fileStart: sect.offset,
-					isCFString: true
-				});
-			}
+			const isString = STRING_SECTIONS.includes(name);
+			if (!isString && name !== "__cfstring") continue;
+			// dyld_shared_cache sections keep their stale cache `offset`; map the vmaddr instead.
+			const fileStart = vmaddrToFileOffset(sect.addr, segments) ?? sect.offset;
+			ranges.push({
+				vmStart: sect.addr,
+				vmEnd: sect.addr + sect.size,
+				fileStart,
+				isCFString: name === "__cfstring"
+			});
 		}
 	}
 	return ranges;
@@ -474,6 +469,8 @@ interface XrefContext {
 	littleEndian: boolean;
 	is64Bit: boolean;
 	textSection: Section64;
+	/** File offset of __text, resolved via vmaddr so dyld_shared_cache images scan correctly. */
+	textFileOffset: number;
 }
 
 function createXrefContext(
@@ -548,7 +545,8 @@ function createXrefContext(
 		rebaseMap,
 		littleEndian,
 		is64Bit,
-		textSection
+		textSection,
+		textFileOffset: vmaddrToFileOffset(textSection.addr, segments) ?? textSection.offset
 	};
 }
 
@@ -616,8 +614,8 @@ function recordXrefForTarget(ctx: XrefContext, targetVmaddr: bigint, pc: bigint)
 // ── ARM64 scanner ────────────────────────────────────────────────────
 
 function scanARM64(ctx: XrefContext): void {
-	const { view, littleEndian, textSection, buffer } = ctx;
-	const sectionOffset = textSection.offset;
+	const { view, littleEndian, textSection, buffer, textFileOffset } = ctx;
+	const sectionOffset = textFileOffset;
 	const sectionSize = Number(textSection.size);
 	const sectionVmaddr = textSection.addr;
 
@@ -686,8 +684,8 @@ function scanARM64(ctx: XrefContext): void {
  * carry the interworking bit 0, which is what this scanner assumes.
  */
 function scanARM32(ctx: XrefContext): void {
-	const { view, littleEndian, textSection, buffer } = ctx;
-	const sectionOffset = textSection.offset;
+	const { view, littleEndian, textSection, buffer, textFileOffset } = ctx;
+	const sectionOffset = textFileOffset;
 	const sectionSize = Number(textSection.size);
 	const sectionVmaddr = textSection.addr;
 
@@ -777,8 +775,8 @@ function scanARM32(ctx: XrefContext): void {
  * known patterns that load absolute addresses.
  */
 function scanX86(ctx: XrefContext): void {
-	const { textSection, buffer } = ctx;
-	const sectionOffset = textSection.offset;
+	const { textSection, buffer, textFileOffset } = ctx;
+	const sectionOffset = textFileOffset;
 	const sectionSize = Number(textSection.size);
 	const sectionVmaddr = textSection.addr;
 	const bytes = new Uint8Array(buffer);

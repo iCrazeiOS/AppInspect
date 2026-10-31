@@ -68,6 +68,15 @@ function findSections(segments: Segment64[], segname: string, sectname: string):
 }
 
 /**
+ * Effective file offset of a section. dyld_shared_cache-extracted binaries keep the
+ * original cache `offset`, which lands past the end of the extracted file, so map the
+ * section's vmaddr through the segments instead and fall back to the stored offset.
+ */
+function sectionFileOffset(section: Section64, segments: Segment64[]): number {
+	return vmaddrToFileOffset(section.addr, segments) ?? section.offset;
+}
+
+/**
  * Parse null-terminated C strings from a region of the buffer.
  * Returns strings of length >= minLen.
  */
@@ -162,6 +171,7 @@ function parseUTF16Strings(
 function parseCFStrings(
 	buffer: ArrayBuffer,
 	section: Section64,
+	baseOffset: number,
 	segments: Segment64[],
 	rebaseMap: Map<number, bigint>,
 	littleEndian: boolean,
@@ -174,14 +184,14 @@ function parseCFStrings(
 	const decoder = new TextDecoder("utf-8", { fatal: false });
 	const le = littleEndian;
 
-	const sectionEnd = section.offset + Number(section.size);
+	const sectionEnd = baseOffset + Number(section.size);
 	const structSize = is64Bit ? CFSTRING_SIZE_64 : CFSTRING_SIZE_32;
 	const dataPtrOffset = is64Bit ? CFSTRING_DATA_OFFSET_64 : CFSTRING_DATA_OFFSET_32;
 	const lengthOffset = is64Bit ? CFSTRING_LENGTH_OFFSET_64 : CFSTRING_LENGTH_OFFSET_32;
 	const ptrSize = is64Bit ? 8 : 4;
 
 	for (
-		let structOff = section.offset;
+		let structOff = baseOffset;
 		structOff + structSize <= sectionEnd;
 		structOff += structSize
 	) {
@@ -280,9 +290,10 @@ export function extractStrings(
 		for (const sect of matched) {
 			const size = Number(sect.size);
 			if (size === 0) continue;
-			if (sect.offset + size > buffer.byteLength) continue;
+			const offset = sectionFileOffset(sect, segments);
+			if (offset + size > buffer.byteLength) continue;
 
-			const entries = parseNullTerminatedStrings(bytes, sect.offset, size, MIN_LEN);
+			const entries = parseNullTerminatedStrings(bytes, offset, size, MIN_LEN);
 			addEntries(entries, sectname);
 		}
 	}
@@ -292,9 +303,10 @@ export function extractStrings(
 	for (const sect of ustringMatched) {
 		const size = Number(sect.size);
 		if (size === 0) continue;
-		if (sect.offset + size > buffer.byteLength) continue;
+		const offset = sectionFileOffset(sect, segments);
+		if (offset + size > buffer.byteLength) continue;
 
-		const entries = parseUTF16Strings(view, sect.offset, size, littleEndian, MIN_LEN);
+		const entries = parseUTF16Strings(view, offset, size, littleEndian, MIN_LEN);
 		addEntries(entries, "__ustring");
 	}
 
@@ -304,11 +316,13 @@ export function extractStrings(
 		for (const sect of matched) {
 			const size = Number(sect.size);
 			if (size === 0) continue;
-			if (sect.offset + size > buffer.byteLength) continue;
+			const offset = sectionFileOffset(sect, segments);
+			if (offset + size > buffer.byteLength) continue;
 
 			const entries = parseCFStrings(
 				buffer,
 				sect,
+				offset,
 				segments,
 				rebaseMap,
 				littleEndian,

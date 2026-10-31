@@ -97,6 +97,29 @@ describe("strings", () => {
 			expect(values).toContain("test");
 			expect(values).not.toContain("ok");
 		});
+
+		it("extracts from sections whose stored offset is stale (dyld_shared_cache)", () => {
+			const realOffset = 100;
+			const bufSize = 1024;
+			const buf = new ArrayBuffer(bufSize);
+			const arr = new Uint8Array(buf);
+			let pos = realOffset;
+			pos += writeCString(arr, pos, "cachedString");
+			const size = pos - realOffset;
+
+			// A shared-cache section keeps its original (out-of-file) cache offset, but its
+			// vmaddr still maps through the segment to the real in-file location.
+			const sect: Section64 = {
+				...makeSection("__TEXT", "__cstring", realOffset, size),
+				offset: bufSize + 5_000_000 // past end of file, like otool reports
+			};
+			const seg = makeSegment("__TEXT", 0x100000000n, BigInt(bufSize), 0n, BigInt(bufSize), [
+				sect
+			]);
+
+			const result = extractStrings(buf, [sect], [seg], new Map(), true);
+			expect(result.map((e) => e.value)).toContain("cachedString");
+		});
 	});
 
 	describe("minimum length filter", () => {
