@@ -78,6 +78,13 @@ type SelectedMember =
 	| { kind: "property"; property: ObjCProperty; owner: string }
 	| { kind: "ivar"; ivar: ObjCIvar; owner: string };
 
+/** A single member hit in the cross-class ("All Classes") search. */
+type GlobalMatch = { className: string } & (
+	| { kind: "property"; property: ObjCProperty }
+	| { kind: "ivar"; ivar: ObjCIvar }
+	| { kind: "method"; method: ObjCMethod }
+);
+
 const ROW_HEIGHT = 28;
 const BUFFER = 20;
 
@@ -1000,14 +1007,23 @@ export function renderObjC(
 	}
 
 	/** Collect every method across all classes that matches the search term. */
-	function getGlobalMethodMatches(
-		matcher: ((s: string) => boolean) | null
-	): { className: string; method: ObjCMethod }[] {
-		const results: { className: string; method: ObjCMethod }[] = [];
+	/** Every member (property, ivar, method) across all classes that matches the term. */
+	function getGlobalMatches(matcher: ((s: string) => boolean) | null): GlobalMatch[] {
+		const results: GlobalMatch[] = [];
 		for (const cls of allClasses) {
+			for (const p of cls.properties ?? []) {
+				if (!matcher || matcher(formatProperty(p)) || matcher(p.name)) {
+					results.push({ className: cls.name, kind: "property", property: p });
+				}
+			}
+			for (const iv of cls.ivars ?? []) {
+				if (!matcher || matcher(formatIvar(iv)) || matcher(iv.name)) {
+					results.push({ className: cls.name, kind: "ivar", ivar: iv });
+				}
+			}
 			for (const m of cls.methods) {
 				if (!matcher || matcher(m.signature)) {
-					results.push({ className: cls.name, method: m });
+					results.push({ className: cls.name, kind: "method", method: m });
 				}
 			}
 		}
@@ -1286,14 +1302,14 @@ export function renderObjC(
 		}
 	}
 
-	/** Render the cross-class method search results (All Classes scope). */
+	/** Render the cross-class member search results (All Classes scope). */
 	function renderGlobalMethodSearch(): void {
 		const matcher = buildSearchMatcher();
-		const filtered = matcher === false ? [] : getGlobalMethodMatches(matcher);
+		const filtered = matcher === false ? [] : getGlobalMatches(matcher);
 
 		const heading = document.createElement("h3");
 		heading.className = "cls-detail-name";
-		heading.textContent = "Method Search";
+		heading.textContent = "Search";
 		detailHeader.appendChild(heading);
 
 		const countEl = document.createElement("div");
@@ -1305,7 +1321,7 @@ export function renderObjC(
 		if (filtered.length === 0) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
-			hint.textContent = "No matching methods.";
+			hint.textContent = "No matching members.";
 			methodListContainer.appendChild(hint);
 			return;
 		}
@@ -1313,7 +1329,8 @@ export function renderObjC(
 		const list = document.createElement("ul");
 		list.className = "cls-method-list";
 		let lastClassName = "";
-		for (const { className: clsName, method: m } of filtered) {
+		for (const match of filtered) {
+			const clsName = match.className;
 			if (clsName !== lastClassName) {
 				lastClassName = clsName;
 				const groupHeader = document.createElement("li");
@@ -1335,16 +1352,38 @@ export function renderObjC(
 				list.appendChild(groupHeader);
 			}
 
+			const text =
+				match.kind === "method"
+					? match.method.signature
+					: match.kind === "property"
+						? formatProperty(match.property)
+						: formatIvar(match.ivar);
+			const active =
+				match.kind === "method"
+					? selectedMethod === match.method
+					: match.kind === "property"
+						? selectedMember?.kind === "property" &&
+							selectedMember.property === match.property
+						: selectedMember?.kind === "ivar" && selectedMember.ivar === match.ivar;
+
 			const li = document.createElement("li");
 			li.className = "cls-method-item";
-			if (selectedMethod === m) li.classList.add("cls-method-active");
-			li.innerHTML = highlightObjCMethod(m.signature);
-			li.title = m.signature;
+			if (active) li.classList.add("cls-method-active");
+			li.innerHTML = highlightObjCMethod(text);
+			li.title = text;
 			li.addEventListener("click", () => {
 				const cls = allClasses.find((c) => c.name === clsName);
 				if (cls) selectedClass = cls;
-				selectedMember = null;
-				selectedMethod = m;
+				if (match.kind === "method") {
+					selectedMember = null;
+					selectedMethod = match.method;
+				} else if (match.kind === "property") {
+					selectedMethod = null;
+					selectedMember = { kind: "property", property: match.property, owner: clsName };
+				} else {
+					selectedMethod = null;
+					selectedMember = { kind: "ivar", ivar: match.ivar, owner: clsName };
+				}
 				renderDetail();
 				renderSidebar();
 			});
