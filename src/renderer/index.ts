@@ -70,6 +70,7 @@ const archDropdown = $<HTMLSelectElement>("#arch-dropdown");
 const sidebarFooter = $<HTMLDivElement>("#sidebar-footer");
 const tabBtnInfoPlist = $<HTMLButtonElement>("#tab-btn-infoplist");
 const tabBtnElectron = $<HTMLButtonElement>("#tab-btn-electron");
+const tabBtnFiles = $<HTMLButtonElement>("#tab-btn-files");
 const tabBtnHooks = $<HTMLButtonElement>("#tab-btn-hooks");
 const exportTabBtns = document.querySelectorAll<HTMLButtonElement>(".export-tab-btn");
 
@@ -275,6 +276,8 @@ function updateTabsForResult(result: AnalysisResult): void {
 	tabBtnInfoPlist.classList.toggle("hidden", isTweak);
 	tabBtnHooks.classList.toggle("hidden", !isTweak);
 	tabBtnElectron.classList.toggle("hidden", result.electron == null);
+	// A bare Mach-O has no bundle contents to browse.
+	tabBtnFiles.classList.toggle("hidden", sourceType === "macho");
 }
 
 // ── Encryption warning banner ──
