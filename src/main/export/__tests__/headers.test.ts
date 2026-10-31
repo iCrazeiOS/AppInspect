@@ -161,6 +161,31 @@ describe("buildHeaders", () => {
 		expect(header).toContain("}");
 		expect(header).toContain("@property (copy, nonatomic) NSString *title;");
 		expect(header).toContain("-(id)title;");
+		// Ivars carry their hex offset; properties name their backing ivar.
+		expect(header).toContain("    NSString *_title;  // offset: +0x8");
+		expect(header).toContain("    int _count;        // offset: +0x10");
+		expect(header).toContain("@property (copy, nonatomic) NSString *title;  // ivar: _title");
+	});
+
+	it("orders class methods before instance methods, each sorted", () => {
+		const cls: ObjCClass = {
+			name: "Ordered",
+			superclass: "NSObject",
+			methods: [
+				{ selector: "zzz", signature: "-(void)zzz" },
+				{ selector: "shared", signature: "+(id)shared" },
+				{ selector: "aaa", signature: "-(void)aaa" },
+				{ selector: "alloc", signature: "+(id)alloc" }
+			]
+		};
+		const header = find(
+			buildHeaders({ classes: [cls], protocols: [], protocolDetails: [] }),
+			"Ordered.h"
+		);
+		// Both class methods appear before either instance method, and each block is sorted.
+		expect(header.indexOf("+(id)alloc;")).toBeLessThan(header.indexOf("+(id)shared;"));
+		expect(header.indexOf("+(id)shared;")).toBeLessThan(header.indexOf("-(void)aaa;"));
+		expect(header.indexOf("-(void)aaa;")).toBeLessThan(header.indexOf("-(void)zzz;"));
 	});
 
 	it("writes a Class+Category.h header per category", () => {

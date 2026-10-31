@@ -52,6 +52,16 @@ function typedName(type: string, name: string): string {
 	return t.endsWith("*") ? `${t}${name}` : `${t} ${name}`;
 }
 
+/**
+ * Render declarations with their trailing `// comment` aligned to the longest declaration
+ * that carries one. Declarations without a comment are emitted as-is (no trailing padding).
+ */
+function withAlignedComments(entries: { decl: string; comment?: string }[]): string[] {
+	const commented = entries.filter((e) => e.comment);
+	const width = commented.length > 0 ? Math.max(...commented.map((e) => e.decl.length)) : 0;
+	return entries.map((e) => (e.comment ? `${e.decl.padEnd(width)}  // ${e.comment}` : e.decl));
+}
+
 /** `@property (attrs) Type name;` */
 function propertyDeclaration(property: ObjCProperty): string {
 	const attrs =
@@ -59,46 +69,59 @@ function propertyDeclaration(property: ObjCProperty): string {
 	return `@property${attrs} ${typedName(property.type, property.name)};`;
 }
 
-/** Sorted, de-duplicated property declarations. */
+/** Sorted, de-duplicated property declarations, each annotated with its backing ivar. */
 function propertyDeclarations(properties: ObjCProperty[] | undefined): string[] {
 	const seen = new Set<string>();
-	const declarations: string[] = [];
+	const entries: { decl: string; comment?: string }[] = [];
 	for (const property of properties ?? []) {
 		if (!property.name) continue;
-		const declaration = propertyDeclaration(property);
-		if (seen.has(declaration)) continue;
-		seen.add(declaration);
-		declarations.push(declaration);
+		const decl = propertyDeclaration(property);
+		if (seen.has(decl)) continue;
+		seen.add(decl);
+		entries.push({ decl, comment: property.ivar ? `ivar: ${property.ivar}` : undefined });
 	}
-	return declarations.sort((a, b) => a.localeCompare(b));
+	entries.sort((a, b) => a.decl.localeCompare(b.decl));
+	return withAlignedComments(entries);
 }
 
-/** Ivar block lines (`Type _name;`) wrapped in braces, or [] when there are none. */
+/** Ivar block lines (`Type _name;  // offset: +0xN`) wrapped in braces, or [] when none. */
 function ivarBlock(ivars: ObjCIvar[] | undefined): string[] {
 	const seen = new Set<string>();
-	const lines: string[] = [];
+	const entries: { decl: string; comment?: string }[] = [];
 	for (const ivar of ivars ?? []) {
 		if (!ivar.name) continue;
-		const line = `    ${typedName(ivar.type, ivar.name)};`;
-		if (seen.has(line)) continue;
-		seen.add(line);
-		lines.push(line);
+		const decl = `    ${typedName(ivar.type, ivar.name)};`;
+		if (seen.has(decl)) continue;
+		seen.add(decl);
+		entries.push({ decl, comment: `offset: +0x${ivar.offset.toString(16)}` });
 	}
-	if (lines.length === 0) return [];
-	return ["{", ...lines, "}"];
+	if (entries.length === 0) return [];
+	return ["{", ...withAlignedComments(entries), "}"];
 }
 
-/** Sorted, de-duplicated method declarations. */
-function methodDeclarations(methods: ObjCMethod[] | undefined): string[] {
+/** Sorted, de-duplicated method declarations, split into class (+) and instance (-). */
+function splitMethodDeclarations(methods: ObjCMethod[] | undefined): {
+	classMethods: string[];
+	instanceMethods: string[];
+} {
 	const seen = new Set<string>();
-	const declarations: string[] = [];
+	const classMethods: string[] = [];
+	const instanceMethods: string[] = [];
 	for (const method of methods ?? []) {
 		const declaration = methodDeclaration(method);
 		if (!declaration || seen.has(declaration)) continue;
 		seen.add(declaration);
-		declarations.push(declaration);
+		(declaration.startsWith("+") ? classMethods : instanceMethods).push(declaration);
 	}
-	return declarations.sort((a, b) => a.localeCompare(b));
+	classMethods.sort((a, b) => a.localeCompare(b));
+	instanceMethods.sort((a, b) => a.localeCompare(b));
+	return { classMethods, instanceMethods };
+}
+
+/** Sorted, de-duplicated method declarations (class methods first, then instance). */
+function methodDeclarations(methods: ObjCMethod[] | undefined): string[] {
+	const { classMethods, instanceMethods } = splitMethodDeclarations(methods);
+	return [...classMethods, ...instanceMethods];
 }
 
 function sanitiseFileName(name: string): string {
@@ -167,10 +190,14 @@ function classHeader(
 		lines.push("");
 		for (const property of properties) lines.push(property);
 	}
-	const methods = methodDeclarations(cls.methods);
-	if (methods.length > 0) {
+	const { classMethods, instanceMethods } = splitMethodDeclarations(cls.methods);
+	if (classMethods.length > 0) {
 		lines.push("");
-		for (const method of methods) lines.push(method);
+		for (const method of classMethods) lines.push(method);
+	}
+	if (instanceMethods.length > 0) {
+		lines.push("");
+		for (const method of instanceMethods) lines.push(method);
 	}
 	lines.push("@end", "");
 	return lines.join("\n");
@@ -194,10 +221,18 @@ function categoryHeader(category: ObjCCategory, fileName: string, binaryName?: s
 
 	const properties = propertyDeclarations(category.properties);
 	if (properties.length > 0) {
-		for (const property of properties) lines.push(property);
 		lines.push("");
+		for (const property of properties) lines.push(property);
 	}
-	for (const method of methodDeclarations(category.methods)) lines.push(method);
+	const { classMethods, instanceMethods } = splitMethodDeclarations(category.methods);
+	if (classMethods.length > 0) {
+		lines.push("");
+		for (const method of classMethods) lines.push(method);
+	}
+	if (instanceMethods.length > 0) {
+		lines.push("");
+		for (const method of instanceMethods) lines.push(method);
+	}
 	lines.push("@end", "");
 	return lines.join("\n");
 }
