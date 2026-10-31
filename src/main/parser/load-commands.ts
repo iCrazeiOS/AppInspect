@@ -193,6 +193,15 @@ export interface LoadCommandsResult {
 	functionStartsInfo: { offset: number; size: number } | null;
 	/** Export trie from LC_DYLD_EXPORTS_TRIE or LC_DYLD_INFO(_ONLY) */
 	exportTrieInfo: { offset: number; size: number } | null;
+	/** Classic bind opcode streams from LC_DYLD_INFO(_ONLY), when present. */
+	bindInfo: {
+		bindOff: number;
+		bindSize: number;
+		weakBindOff: number;
+		weakBindSize: number;
+		lazyBindOff: number;
+		lazyBindSize: number;
+	} | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -324,7 +333,8 @@ export function parseLoadCommands(
 		codeSignatureInfo: null,
 		chainedFixupsInfo: null,
 		functionStartsInfo: null,
-		exportTrieInfo: null
+		exportTrieInfo: null,
+		bindInfo: null
 	};
 
 	const endOffset = offset + sizeofcmds;
@@ -468,6 +478,20 @@ export function parseLoadCommands(
 					result.exportTrieInfo = {
 						offset: dyldInfo.exportOff,
 						size: dyldInfo.exportSize
+					};
+				}
+				if (
+					dyldInfo.bindSize > 0 ||
+					dyldInfo.weakBindSize > 0 ||
+					dyldInfo.lazyBindSize > 0
+				) {
+					result.bindInfo = {
+						bindOff: dyldInfo.bindOff,
+						bindSize: dyldInfo.bindSize,
+						weakBindOff: dyldInfo.weakBindOff,
+						weakBindSize: dyldInfo.weakBindSize,
+						lazyBindOff: dyldInfo.lazyBindOff,
+						lazyBindSize: dyldInfo.lazyBindSize
 					};
 				}
 				parsed = dyldInfo;

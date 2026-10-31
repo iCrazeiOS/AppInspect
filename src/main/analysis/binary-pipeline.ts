@@ -33,6 +33,7 @@ import type {
 	SymbolEntry
 } from "../../shared/types";
 import { buildFixupMap } from "../parser/chained-fixups";
+import { buildClassicBindMap } from "../parser/classic-fixups";
 import { parseCodeSignature } from "../parser/codesign";
 import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { parseLoadCommands } from "../parser/load-commands";
@@ -357,10 +358,19 @@ export async function analyseBinaryFile(
 			);
 			rebaseMap = fixups.rebaseMap;
 			bindMap = fixups.bindMap;
+		} else if (lcResult.bindInfo) {
+			// Classic LC_DYLD_INFO binaries (older or dual-arch tweaks) describe external
+			// pointer binds with opcodes instead of chained fixups.
+			bindMap = buildClassicBindMap(
+				buffer,
+				lcResult.bindInfo,
+				lcResult.segments,
+				machoFile.is64Bit
+			);
 		}
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`Chained fixups error: ${msg}`);
+		errors.push(`Fixups error: ${msg}`);
 	}
 
 	// Flatten all sections for convenience

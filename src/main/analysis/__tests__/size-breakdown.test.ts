@@ -63,6 +63,7 @@ function loadCommands(
 		chainedFixupsInfo: null,
 		functionStartsInfo: null,
 		exportTrieInfo: null,
+		bindInfo: null,
 		...extra
 	};
 }
