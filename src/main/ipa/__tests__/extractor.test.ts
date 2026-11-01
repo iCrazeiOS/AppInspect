@@ -280,6 +280,79 @@ describe("discoverMacOSBinaries – symlink dedup", () => {
 	});
 });
 
+describe("discoverMacOSBinaries – CFBundleExecutable traversal", () => {
+	const machO = Buffer.from([0xfe, 0xed, 0xfa, 0xce, 0x00, 0x00, 0x00, 0x00]);
+
+	function plistWithExecutable(exec: string): string {
+		return (
+			'<?xml version="1.0"?><plist version="1.0"><dict>' +
+			`<key>CFBundleExecutable</key><string>${exec}</string>` +
+			"</dict></plist>"
+		);
+	}
+
+	it("should ignore a plugin executable name that escapes the app bundle", () => {
+		const tmpDir = makeTempDir("macos-traversal");
+		tempDirs.push(tmpDir);
+
+		const appDir = path.join(tmpDir, "TestApp.app");
+		const macosDir = path.join(appDir, "Contents", "MacOS");
+		const pluginDir = path.join(appDir, "Contents", "PlugIns", "Evil.appex");
+		const pluginMacosDir = path.join(pluginDir, "Contents", "MacOS");
+		fs.mkdirSync(macosDir, { recursive: true });
+		fs.mkdirSync(pluginMacosDir, { recursive: true });
+
+		fs.writeFileSync(
+			path.join(appDir, "Contents", "Info.plist"),
+			plistWithExecutable("TestApp")
+		);
+		fs.writeFileSync(path.join(macosDir, "TestApp"), machO);
+
+		// A Mach-O outside the bundle that the traversal would otherwise reach.
+		const outsidePath = path.join(tmpDir, "outside-binary");
+		fs.writeFileSync(outsidePath, machO);
+
+		const escapePath = path.relative(pluginMacosDir, outsidePath).split(path.sep).join("/");
+		fs.writeFileSync(
+			path.join(pluginDir, "Contents", "Info.plist"),
+			plistWithExecutable(escapePath)
+		);
+
+		const binaries = discoverMacOSBinaries(appDir);
+
+		expect(binaries.some((b) => b.path === outsidePath)).toBe(false);
+		expect(binaries.every((b) => b.path.startsWith(appDir + path.sep))).toBe(true);
+	});
+
+	it("should still discover a plugin binary named by a relative CFBundleExecutable", () => {
+		const tmpDir = makeTempDir("macos-plugin");
+		tempDirs.push(tmpDir);
+
+		const appDir = path.join(tmpDir, "TestApp.app");
+		const macosDir = path.join(appDir, "Contents", "MacOS");
+		const pluginDir = path.join(appDir, "Contents", "PlugIns", "Widget.appex");
+		fs.mkdirSync(macosDir, { recursive: true });
+		fs.mkdirSync(path.join(pluginDir, "Contents", "MacOS"), { recursive: true });
+
+		fs.writeFileSync(
+			path.join(appDir, "Contents", "Info.plist"),
+			plistWithExecutable("TestApp")
+		);
+		fs.writeFileSync(path.join(macosDir, "TestApp"), machO);
+		fs.writeFileSync(
+			path.join(pluginDir, "Contents", "Info.plist"),
+			plistWithExecutable("WidgetExt")
+		);
+		fs.writeFileSync(path.join(pluginDir, "Contents", "MacOS", "WidgetExt"), machO);
+
+		const binaries = discoverMacOSBinaries(appDir);
+		const extension = binaries.find((b) => b.type === "extension");
+
+		expect(extension).toBeDefined();
+		expect(extension!.path).toBe(path.join(pluginDir, "Contents", "MacOS", "WidgetExt"));
+	});
+});
+
 describe("cleanupExtracted", () => {
 	it("should remove the extraction directory", () => {
 		const tmpDir = makeTempDir("cleanup");

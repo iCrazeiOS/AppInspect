@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isMachOFile } from "../parser/macho";
 import { parsePlistBuffer } from "../parser/plist";
-import { removeEscapingSymlinks } from "../util/safe-path";
+import { removeEscapingSymlinks, safeJoin } from "../util/safe-path";
 
 export interface BinaryInfo {
 	name: string;
@@ -347,20 +347,26 @@ export function discoverMacOSBinaries(appBundlePath: string): BinaryInfo[] {
 				) {
 					const ext = path.extname(entry.name);
 					const extName = path.basename(entry.name, ext);
+					const pluginDir = path.join(plugInsDir, entry.name);
 					// Read the plugin's own CFBundleExecutable, or fall back to folder name
-					const pluginPlist = path.join(plugInsDir, entry.name, "Contents", "Info.plist");
-					const pluginExec = readCFBundleExecutable(pluginPlist) ?? extName;
+					const pluginExec =
+						readCFBundleExecutable(path.join(pluginDir, "Contents", "Info.plist")) ??
+						extName;
+					// CFBundleExecutable is attacker-supplied, so keep both candidates
+					// inside the plugin bundle rather than letting `..` escape the .app.
 					// Extension binary may be in Contents/MacOS/ or flat
-					const nestedPath = path.join(
-						plugInsDir,
-						entry.name,
-						"Contents",
-						"MacOS",
-						pluginExec
+					const nestedPath = safeJoin(
+						pluginDir,
+						path.join("Contents", "MacOS", pluginExec)
 					);
-					const flatPath = path.join(plugInsDir, entry.name, pluginExec);
-					const extBinaryPath = fs.existsSync(nestedPath) ? nestedPath : flatPath;
-					if (fs.existsSync(extBinaryPath) && isMachOFile(extBinaryPath)) {
+					const flatPath = safeJoin(pluginDir, pluginExec);
+					const extBinaryPath =
+						nestedPath && fs.existsSync(nestedPath) ? nestedPath : flatPath;
+					if (
+						extBinaryPath &&
+						fs.existsSync(extBinaryPath) &&
+						isMachOFile(extBinaryPath)
+					) {
 						addBinary(
 							{ name: extName, path: extBinaryPath, type: "extension" },
 							binaries,
