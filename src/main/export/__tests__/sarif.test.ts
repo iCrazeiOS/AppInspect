@@ -66,6 +66,7 @@ function makeResult(findings: SecurityFinding[]): AnalysisResult {
 			unresolvedConformances: 0
 		},
 		entitlements: [],
+		entitlementsRaw: null,
 		infoPlist: {},
 		security: { findings, hardening: HARDENING },
 		files: []

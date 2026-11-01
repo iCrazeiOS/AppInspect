@@ -80,6 +80,7 @@ export interface BinaryAnalysisResult {
 	protocolDetails: ObjCProtocol[];
 	swift: SwiftMetadata;
 	entitlements: Entitlement[];
+	entitlementsRaw: string | null;
 	uuid: string | null;
 	teamId: string | null;
 	security: { findings: SecurityFinding[]; hardening: BinaryHardening };
@@ -142,6 +143,7 @@ export async function analyseBinaryFile(
 		unresolvedConformances: 0
 	};
 	let entitlements: Entitlement[] = [];
+	let entitlementsRaw: string | null = null;
 	let uuid: string | null = null;
 	let teamId: string | null = null;
 	let findings: SecurityFinding[] = [];
@@ -181,6 +183,7 @@ export async function analyseBinaryFile(
 			protocolDetails,
 			swift,
 			entitlements,
+			entitlementsRaw,
 			uuid,
 			teamId,
 			security: { findings, hardening },
@@ -265,6 +268,7 @@ export async function analyseBinaryFile(
 			protocolDetails,
 			swift,
 			entitlements,
+			entitlementsRaw,
 			uuid,
 			teamId,
 			security: { findings, hardening },
@@ -333,6 +337,7 @@ export async function analyseBinaryFile(
 			protocolDetails,
 			swift,
 			entitlements,
+			entitlementsRaw,
 			uuid,
 			teamId,
 			security: { findings, hardening },
@@ -558,6 +563,7 @@ export async function analyseBinaryFile(
 			if (csResult.ok) {
 				if (csResult.data.entitlements) {
 					entitlements = convertEntitlements(csResult.data.entitlements);
+					entitlementsRaw = csResult.data.entitlementsRaw;
 				}
 				if (csResult.data.codeDirectory?.teamID) {
 					teamId = csResult.data.codeDirectory.teamID;
@@ -674,6 +680,7 @@ export async function analyseBinaryFile(
 		protocolDetails,
 		swift,
 		entitlements,
+		entitlementsRaw,
 		uuid,
 		teamId,
 		security: { findings, hardening },
@@ -736,6 +743,7 @@ export function buildAnalysisResult(
 		},
 		swift: br.swift,
 		entitlements: opts.entitlements ?? br.entitlements,
+		entitlementsRaw: br.entitlementsRaw,
 		infoPlist: opts.infoPlist ?? {},
 		security: { ...security, findings: dedupeAndCapFindings(security.findings) },
 		hooks: br.hooks,

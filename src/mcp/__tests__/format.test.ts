@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { LibraryGraphData } from "../../shared/types";
+import type { AnalysisResult, LibraryGraphData } from "../../shared/types";
 import {
 	bigintReplacer,
 	buildHexSearchResult,
 	buildLibraryGraphResult,
 	buildPaginatedResult,
+	getSectionData,
 	parseHexPattern,
 	sanitize
 } from "../format";
@@ -14,6 +15,28 @@ describe("sanitize", () => {
 		const out = sanitize({ a: 5n, b: 2n ** 70n });
 		expect(out).toEqual({ a: 5, b: (2n ** 70n).toString() } as never);
 		expect(bigintReplacer("k", 1n)).toBe(1);
+	});
+});
+
+describe("getSectionData entitlements", () => {
+	it("returns parsed entries alongside the raw XML blob", () => {
+		const cached = {
+			entitlements: [
+				{ key: "get-task-allow", value: true },
+				{ key: "__proto__", value: { polluted: true } }
+			],
+			entitlementsRaw: '<?xml version="1.0"?><plist><dict/></plist>'
+		} as unknown as AnalysisResult;
+
+		const section = getSectionData(cached, "entitlements") as {
+			entries: Record<string, unknown>;
+			raw: string | null;
+		};
+
+		expect(section.raw).toBe('<?xml version="1.0"?><plist><dict/></plist>');
+		expect(section.entries["get-task-allow"]).toBe(true);
+		expect(Object.getPrototypeOf(section.entries)).toBeNull();
+		expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 	});
 });
 

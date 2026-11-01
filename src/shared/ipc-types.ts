@@ -71,7 +71,11 @@ export interface SwiftTabData {
 
 export interface EntitlementsTabData {
 	tab: "entitlements";
-	data: Record<string, unknown>;
+	data: {
+		entries: Record<string, unknown>;
+		/** Raw XML plist exactly as embedded in the code signature, when present. */
+		raw: string | null;
+	};
 }
 
 export interface InfoPlistTabData {

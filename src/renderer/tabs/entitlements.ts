@@ -4,6 +4,8 @@
 
 import { EmptyState, JsonTree } from "../components";
 import { announce, takePendingTarget } from "../navigation";
+import { copyText } from "../utils/clipboard";
+import { highlightSource } from "../utils/source-highlight";
 
 /** Entitlements that are flagged as dangerous (red). */
 const RED_PATTERNS = ["com.apple.private.", "platform-application"];
@@ -30,16 +32,21 @@ export function renderEntitlements(
 ): void {
 	container.innerHTML = "";
 
-	// data may be { embedded: {...}, profile: {...} } or a flat object
-	const obj: Record<string, unknown> | null =
+	// The IPC layer sends { entries, raw } for this binary.
+	const payload =
 		data && typeof data === "object" && !Array.isArray(data)
-			? (data as Record<string, unknown>)
+			? (data as { entries?: unknown; raw?: unknown })
 			: null;
-	const embedded = (obj?.embedded ?? obj?.entitlements ?? null) as Record<string, unknown> | null;
-	const profile = (obj?.profile ?? null) as Record<string, unknown> | null;
-	const flat: Record<string, unknown> | null = embedded ?? obj;
+	const flat =
+		payload?.entries && typeof payload.entries === "object"
+			? (payload.entries as Record<string, unknown>)
+			: null;
+	const raw = typeof payload?.raw === "string" && payload.raw !== "" ? payload.raw : null;
 
-	if (!flat || Object.keys(flat).length === 0) {
+	const entries: Record<string, unknown> = flat ?? {};
+	const hasEntries = Object.keys(entries).length > 0;
+
+	if (!hasEntries && !raw) {
 		const empty = new EmptyState({
 			icon: "\u{1F512}",
 			message: "No entitlements found in this binary."
@@ -48,77 +55,130 @@ export function renderEntitlements(
 		return;
 	}
 
-	// Determine which sources are available
-	const hasBothSources = embedded !== null && profile !== null;
+	// Toolbar with the parsed / raw XML toggle. With nothing parsed but the raw
+	// blob present, open on the raw view so the button is not the only content.
+	let showRaw = !hasEntries;
+	const body = document.createElement("div");
+	if (raw) {
+		const toolbar = document.createElement("div");
+		toolbar.className = "ent-toolbar";
 
-	// Dangerous entitlements summary
-	const allKeys = Object.keys(flat);
-	const dangerousEntries: { key: string; level: BadgeLevel }[] = [];
-	for (const key of allKeys) {
-		const level = classifyKey(key);
-		if (level) dangerousEntries.push({ key, level });
+		const toggle = document.createElement("button");
+		toggle.className = "ent-view-btn";
+		toggle.type = "button";
+
+		const updateLabel = (): void => {
+			toggle.textContent = showRaw ? "View parsed" : "View raw XML";
+			toggle.title = showRaw
+				? "Show the parsed entitlement keys"
+				: "Show the entitlements XML embedded in the code signature";
+		};
+		updateLabel();
+
+		toggle.addEventListener("click", () => {
+			showRaw = !showRaw;
+			updateLabel();
+			renderBody();
+		});
+
+		const copy = document.createElement("button");
+		copy.className = "ent-view-btn";
+		copy.type = "button";
+		copy.textContent = "Copy XML";
+		copy.title = "Copy the raw entitlements XML to the clipboard";
+		copy.addEventListener("click", () => copyText(raw, "Copied entitlements XML"));
+
+		toolbar.appendChild(toggle);
+		toolbar.appendChild(copy);
+		container.appendChild(toolbar);
 	}
+	container.appendChild(body);
 
-	if (dangerousEntries.length > 0) {
-		const dangerSection = document.createElement("div");
-		dangerSection.className = "ent-danger-section";
+	function renderBody(): void {
+		body.innerHTML = "";
 
-		const dangerTitle = document.createElement("div");
-		dangerTitle.className = "ent-danger-title";
-		dangerTitle.textContent = "Flagged Entitlements";
-		dangerSection.appendChild(dangerTitle);
-
-		const badgeList = document.createElement("div");
-		badgeList.className = "ent-badge-list";
-
-		for (const entry of dangerousEntries) {
-			const badge = document.createElement("span");
-			badge.className = `ent-badge ent-badge-${entry.level}`;
-			badge.textContent = entry.key;
-			badge.title =
-				entry.level === "red"
-					? "Private / dangerous entitlement"
-					: "Potentially risky entitlement";
-			badgeList.appendChild(badge);
+		if (showRaw && raw) {
+			// Reuse the file-preview code block so the highlight.js theme applies.
+			const pre = document.createElement("pre");
+			pre.className = "fb-code ent-raw";
+			const highlighted = highlightSource(raw, "xml");
+			if (highlighted !== null) {
+				pre.innerHTML = highlighted;
+			} else {
+				pre.textContent = raw;
+			}
+			body.appendChild(pre);
+			return;
 		}
 
-		dangerSection.appendChild(badgeList);
-		container.appendChild(dangerSection);
-	}
-
-	// Source sections
-	const target = takePendingTarget(sessionId, "entitlements");
-	const renderSource = (label: string, obj: Record<string, unknown>, field: string): void => {
-		if (hasBothSources) {
-			const sourceLabel = document.createElement("div");
-			sourceLabel.className = "ent-source-label";
-			sourceLabel.textContent = label;
-			container.appendChild(sourceLabel);
-		}
-
-		const treeContainer = document.createElement("div");
-		treeContainer.className = "ent-tree";
-		container.appendChild(treeContainer);
-
-		const tree = new JsonTree({ sessionId, tabId: "entitlements", field });
-		tree.mount(treeContainer);
-		tree.setData(obj);
-
-		// Reserved consumer: no producer emits entitlement findings yet.
-		if (target?.kind === "entitlement") {
-			tree.filter(target.key);
-			requestAnimationFrame(() => {
-				const highlight = treeContainer.querySelector<HTMLElement>(".jt-highlight");
-				highlight?.scrollIntoView({ block: "center" });
-				announce("Opened entitlement");
+		if (!hasEntries) {
+			const empty = new EmptyState({
+				icon: "\u{1F512}",
+				message: "The entitlements XML contained no keys."
 			});
+			empty.mount(body);
+			return;
 		}
-	};
 
-	if (hasBothSources) {
-		renderSource("Embedded (Code Signature)", embedded!, "embedded");
-		renderSource("Provisioning Profile", profile!, "profile");
-	} else {
-		renderSource("Entitlements", flat, "entitlements");
+		// Dangerous entitlements summary
+		const allKeys = Object.keys(entries);
+		const dangerousEntries: { key: string; level: BadgeLevel }[] = [];
+		for (const key of allKeys) {
+			const level = classifyKey(key);
+			if (level) dangerousEntries.push({ key, level });
+		}
+
+		if (dangerousEntries.length > 0) {
+			const dangerSection = document.createElement("div");
+			dangerSection.className = "ent-danger-section";
+
+			const dangerTitle = document.createElement("div");
+			dangerTitle.className = "ent-danger-title";
+			dangerTitle.textContent = "Flagged Entitlements";
+			dangerSection.appendChild(dangerTitle);
+
+			const badgeList = document.createElement("div");
+			badgeList.className = "ent-badge-list";
+
+			for (const entry of dangerousEntries) {
+				const badge = document.createElement("span");
+				badge.className = `ent-badge ent-badge-${entry.level}`;
+				badge.textContent = entry.key;
+				badge.title =
+					entry.level === "red"
+						? "Private / dangerous entitlement"
+						: "Potentially risky entitlement";
+				badgeList.appendChild(badge);
+			}
+
+			dangerSection.appendChild(badgeList);
+			body.appendChild(dangerSection);
+		}
+
+		// Source section
+		const target = takePendingTarget(sessionId, "entitlements");
+		const renderSource = (obj: Record<string, unknown>, field: string): void => {
+			const treeContainer = document.createElement("div");
+			treeContainer.className = "ent-tree";
+			body.appendChild(treeContainer);
+
+			const tree = new JsonTree({ sessionId, tabId: "entitlements", field });
+			tree.mount(treeContainer);
+			tree.setData(obj);
+
+			// Reserved consumer: no producer emits entitlement findings yet.
+			if (target?.kind === "entitlement") {
+				tree.filter(target.key);
+				requestAnimationFrame(() => {
+					const highlight = treeContainer.querySelector<HTMLElement>(".jt-highlight");
+					highlight?.scrollIntoView({ block: "center" });
+					announce("Opened entitlement");
+				});
+			}
+		};
+
+		renderSource(entries, "entitlements");
 	}
+
+	renderBody();
 }

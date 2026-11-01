@@ -8,6 +8,7 @@
 import { statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { entitlementsToObject } from "../../shared/entitlements";
 import { FILE_PREVIEW_BYTES } from "../../shared/file-preview";
 import { formatCount, formatSize } from "../../shared/format";
 import type { TabName } from "../../shared/ipc-types";
@@ -193,15 +194,14 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 					return sanitizeBigInts({ tab: "swift", data: cached.swift });
 				case "objc":
 					return sanitizeBigInts({ tab: "objc", data: cached.objc });
-				case "entitlements": {
-					// Null prototype: keys come from an untrusted plist inside the
-					// analysed binary, so "__proto__" must not be the setter.
-					const entObj: Record<string, unknown> = Object.create(null);
-					if (Array.isArray(cached.entitlements)) {
-						for (const e of cached.entitlements) entObj[e.key] = e.value;
-					}
-					return sanitizeBigInts({ tab: "entitlements", data: entObj });
-				}
+				case "entitlements":
+					return sanitizeBigInts({
+						tab: "entitlements",
+						data: {
+							entries: entitlementsToObject(cached.entitlements),
+							raw: cached.entitlementsRaw
+						}
+					});
 				case "infoPlist":
 					return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
 				case "electron":

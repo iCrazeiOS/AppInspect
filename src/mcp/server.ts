@@ -188,7 +188,8 @@ server.registerTool(
 			"with superclasses, methods, instance variables, and properties, plus " +
 			"categories and protocols), swift (Swift nominal types with stored " +
 			"properties, superclasses, protocols, and protocol conformances), " +
-			"entitlements (code signing), infoPlist " +
+			"entitlements (parsed code-signing entitlements as entries, plus the " +
+			"raw XML plist in raw when embedded), infoPlist " +
 			"(Info.plist), electron (Electron version, fuses, ASAR header integrity " +
 			"status (header hash only), " +
 			"package.json, source maps, native addons), security (findings + hardening), " +

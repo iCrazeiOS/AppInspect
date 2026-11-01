@@ -659,6 +659,8 @@ export interface AnalysisResult {
 	swift: SwiftMetadata;
 	objc: ObjCMetadata;
 	entitlements: Entitlement[];
+	/** Raw entitlements XML plist from the code signature, when present. */
+	entitlementsRaw: string | null;
 	infoPlist: { [key: string]: PlistValue };
 	electron: ElectronInfo | null;
 	security: {

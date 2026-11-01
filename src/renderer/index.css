@@ -1641,6 +1641,35 @@ body.platform-darwin .app-title-row {
   margin-bottom: 12px;
 }
 
+.ent-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ent-view-btn {
+  padding: 4px 12px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ent-view-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.fb-code.ent-raw {
+  /* Scroll the XML inside the block instead of stretching the tab. */
+  min-width: 0;
+  overflow-x: auto;
+}
+
 /* ══════════════════════════════════════════════
    Info.plist Tab (plist-)
    ══════════════════════════════════════════════ */

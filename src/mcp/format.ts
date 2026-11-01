@@ -5,6 +5,7 @@
  * starting the server.
  */
 
+import { entitlementsToObject } from "../shared/entitlements";
 import { plural } from "../shared/format";
 import type {
 	AnalysisResult,
@@ -78,15 +79,11 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 			};
 		case "swift":
 			return cached.swift;
-		case "entitlements": {
-			// Null prototype: keys come from an untrusted plist inside the
-			// analysed binary, so "__proto__" must not be the setter.
-			const obj: Record<string, unknown> = Object.create(null);
-			if (Array.isArray(cached.entitlements)) {
-				for (const e of cached.entitlements) obj[e.key] = e.value;
-			}
-			return obj;
-		}
+		case "entitlements":
+			return {
+				entries: entitlementsToObject(cached.entitlements),
+				raw: cached.entitlementsRaw
+			};
 		case "infoPlist":
 			return cached.infoPlist;
 		case "electron":
