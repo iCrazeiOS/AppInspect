@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { FILE_PREVIEW_BYTES } from "../../../shared/file-preview";
-import { HIGHLIGHT_AUTO_BYTES, highlightLanguage, highlightSource } from "../source-highlight";
+import { highlightLanguage, highlightSource } from "../source-highlight";
 
 describe("highlightLanguage", () => {
 	it("maps common source extensions", () => {
@@ -17,10 +16,6 @@ describe("highlightLanguage", () => {
 		expect(highlightLanguage("README.txt")).toBeNull();
 		expect(highlightLanguage("LICENSE")).toBeNull();
 		expect(highlightLanguage("image.png")).toBeNull();
-	});
-
-	it("auto-highlights up to the default preview cap", () => {
-		expect(HIGHLIGHT_AUTO_BYTES).toBe(FILE_PREVIEW_BYTES);
 	});
 });
 

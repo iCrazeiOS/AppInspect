@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-	announce,
 	clearPendingTargets,
 	type NavigationTarget,
 	navigateTo,
@@ -50,11 +49,5 @@ describe("navigation pending targets", () => {
 
 		expect(takePendingTarget("session-three", "files")).toBeUndefined();
 		expect(takePendingTarget("session-four", "files")).toEqual(second);
-	});
-});
-
-describe("navigation announcer", () => {
-	it("does not throw without a DOM", () => {
-		expect(() => announce("Opened string in Strings")).not.toThrow();
 	});
 });

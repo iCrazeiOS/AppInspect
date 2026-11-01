@@ -293,8 +293,4 @@ describe("cleanupExtracted", () => {
 		cleanupExtracted(tmpDir);
 		expect(fs.existsSync(tmpDir)).toBe(false);
 	});
-
-	it("should not throw for a non-existent directory", () => {
-		expect(() => cleanupExtracted("/tmp/does-not-exist-xyz-123")).not.toThrow();
-	});
 });

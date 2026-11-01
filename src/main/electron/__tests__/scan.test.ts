@@ -816,12 +816,17 @@ describe("scanElectron runtime API checks", () => {
 	});
 
 	it("does not resolve a constant shadowed by a method after a class field", () => {
-		const content = [
+		const asi = [
 			'const channel = "x";',
 			"class A { x = 1",
 			"  m(channel) { return ipcRenderer.invoke(channel); }"
 		].join("\n");
-		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
+		const terminated = [
+			'const channel = "app:x";',
+			"class A { x = 1; m(channel) { return ipcRenderer.invoke(channel); } }"
+		].join("\n");
+		expect(scanText(asi, "app.asar/preload.js")).toHaveLength(1);
+		expect(scanText(terminated, "app.asar/preload.js")).toHaveLength(1);
 	});
 
 	it("still flags a helper whose omitted channel has a default", () => {
@@ -922,14 +927,6 @@ describe("scanElectron runtime API checks", () => {
 			"function E(c) { return ipcRenderer.invoke(c); }",
 			'E("fixed");',
 			"cond ? E(userChannel) : null;"
-		].join("\n");
-		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
-	});
-
-	it("does not resolve a constant shadowed by a method after a class field", () => {
-		const content = [
-			'const channel = "app:x";',
-			"class A { x = 1; m(channel) { return ipcRenderer.invoke(channel); } }"
 		].join("\n");
 		expect(scanText(content, "app.asar/preload.js")).toHaveLength(1);
 	});

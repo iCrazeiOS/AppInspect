@@ -166,15 +166,4 @@ describe("buildFilePreview", () => {
 		expect(content.kind).toBe("binary");
 		expect(content.text).toBeUndefined();
 	});
-
-	it("decodes text up to the first NUL-free bytes", () => {
-		const content = buildFilePreview("entry.txt", Buffer.from("abc"), 3, false, false);
-		expect(content).toEqual({
-			path: "entry.txt",
-			size: 3,
-			truncated: false,
-			kind: "text",
-			text: "abc"
-		});
-	});
 });

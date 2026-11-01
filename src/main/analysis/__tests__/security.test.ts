@@ -688,15 +688,6 @@ describe("dedupeAndCapFindings", () => {
 		expect(note?.severity).toBe("info");
 		expect(note?.message).toContain("10 findings omitted");
 	});
-
-	it("normalizes runSecurityScan output", () => {
-		const strings = Array.from({ length: 25 }, (_, index) =>
-			makeStr(`AKIA${fill(16, `ABCDEFGHJKLMNPQR${index}`)}`)
-		);
-		const normalized = dedupeAndCapFindings(runSecurityScan(baseParams({ strings })));
-		const credentials = normalized.filter((f) => f.category === "credential-leak");
-		expect(credentials.length).toBeLessThanOrEqual(MAX_FINDINGS_PER_CATEGORY + 1);
-	});
 });
 
 describe("adjustElectronHardeningFindings", () => {

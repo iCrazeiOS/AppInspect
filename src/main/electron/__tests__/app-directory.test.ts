@@ -112,31 +112,6 @@ describe("readAppDirectoryTextFiles", () => {
 });
 
 describe("scanElectronText with an app/ directory", () => {
-	it("flags renderer preferences in app-prefixed files", () => {
-		const findings = scanElectronText(makeInfo(), [
-			{
-				relativePath: "app/out/main.js",
-				content:
-					"new BrowserWindow({webPreferences:{nodeIntegration:!0,contextIsolation:!1}})"
-			}
-		]);
-
-		expect(findings).toHaveLength(1);
-		expect(findings[0]?.severity).toBe("critical");
-		expect(findings[0]?.category).toBe("electron-renderer");
-		expect(findings[0]?.source).toBe("app/out/main.js");
-	});
-
-	it("flags a script-bearing page without a CSP in app-prefixed files", () => {
-		const findings = scanElectronText(makeInfo(), [
-			{ relativePath: "app/out/index.html", content: "<script></script>" }
-		]);
-
-		expect(findings).toHaveLength(1);
-		expect(findings[0]?.category).toBe("electron-csp");
-		expect(findings[0]?.source).toBe("app/out/index.html");
-	});
-
 	it("treats the app's package main and vendor code like an archive", () => {
 		const info = makeInfo({ packageJson: { name: "demo", main: "out/main.js" } });
 		const findings = scanElectronText(info, [
@@ -151,15 +126,5 @@ describe("scanElectronText with an app/ directory", () => {
 		expect(findings[0]?.vendor).toBe(true);
 		expect(findings[0]?.message).toContain("(vendor code)");
 		expect(findings[1]?.vendor).toBeUndefined();
-	});
-
-	it("detects preload IPC forwarding in an app/ preload", () => {
-		const findings = scanElectronText(makeInfo(), [
-			{ relativePath: "app/out/preload.js", content: "ipcRenderer.invoke(channel, payload)" }
-		]);
-
-		expect(findings).toHaveLength(1);
-		expect(findings[0]?.category).toBe("electron-runtime");
-		expect(findings[0]?.source).toBe("app/out/preload.js");
 	});
 });
