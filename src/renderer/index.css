@@ -1189,6 +1189,8 @@ body.platform-darwin .app-title-row {
 .jt-colon {
   color: var(--text-muted);
   flex-shrink: 0;
+  /* Flex items drop trailing spaces; keep the space after the colon. */
+  white-space: pre;
 }
 
 .jt-val {
