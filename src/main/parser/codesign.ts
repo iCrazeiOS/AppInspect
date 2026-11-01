@@ -238,20 +238,3 @@ export function parseCodeSignature(
 
 	return { ok: true, data: result };
 }
-
-/**
- * Convenience wrapper: extract just the entitlements dictionary from a code signature.
- *
- * @param buffer   The full Mach-O file buffer
- * @param csOffset Byte offset to the SuperBlob
- * @param csSize   Size in bytes of the code signature region
- * @returns Entitlements object or null
- */
-export function extractEntitlements(
-	buffer: ArrayBuffer,
-	csOffset: number,
-	csSize: number
-): Record<string, unknown> | null {
-	const result = parseCodeSignature(buffer, csOffset, csSize);
-	return result.ok ? (result.data.entitlements ?? null) : null;
-}

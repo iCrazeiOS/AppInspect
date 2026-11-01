@@ -5,7 +5,6 @@ import {
 	CS_MAGIC_SUPERBLOB,
 	CS_SLOT_CODEDIRECTORY,
 	CS_SLOT_ENTITLEMENTS,
-	extractEntitlements,
 	parseCodeSignature
 } from "../codesign";
 
@@ -253,7 +252,6 @@ describe("parseCodeSignature", () => {
 		const buffer = new ArrayBuffer(100);
 		expect(parseCodeSignature(buffer, 0, 0).ok).toBe(false);
 		expect(parseCodeSignature(buffer, 0, 4).ok).toBe(false);
-		expect(extractEntitlements(buffer, 0, 0)).toBeNull();
 	});
 
 	it("should return an error on invalid SuperBlob magic", () => {
@@ -322,30 +320,5 @@ describe("parseCodeSignature", () => {
 		if (!result.ok) throw new Error(`Expected successful parse, got: ${result.error}`);
 		expect(result.data.entitlements).not.toBeNull();
 		expect(result.data.entitlements!["test-key"]).toBe(true);
-	});
-});
-
-describe("extractEntitlements", () => {
-	it("should return just the entitlements object", () => {
-		const xml = buildEntitlementsXml({
-			"application-identifier": "TEAM.com.example",
-			"aps-environment": "production"
-		});
-		const entBlob = buildEntitlementsBlob(xml);
-
-		const buffer = buildSuperBlob([{ type: CS_SLOT_ENTITLEMENTS, data: entBlob }]);
-
-		const ent = extractEntitlements(buffer, 0, buffer.byteLength);
-		expect(ent).not.toBeNull();
-		expect(ent!["application-identifier"]).toBe("TEAM.com.example");
-		expect(ent!["aps-environment"]).toBe("production");
-	});
-
-	it("should return null when no entitlements exist", () => {
-		const cdBlob = buildCodeDirectoryBlob({ version: 0x20400 });
-		const buffer = buildSuperBlob([{ type: CS_SLOT_CODEDIRECTORY, data: cdBlob }]);
-
-		const ent = extractEntitlements(buffer, 0, buffer.byteLength);
-		expect(ent).toBeNull();
 	});
 });
