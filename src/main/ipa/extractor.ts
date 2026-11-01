@@ -56,12 +56,10 @@ function extractWithSystem(
 		let cmd: string;
 
 		if (process.platform === "win32") {
-			cmd = "powershell.exe";
-			args.push(
-				"-NoProfile",
-				"-Command",
-				`Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${ipaPath.replace(/'/g, "''")}', '${destDir.replace(/'/g, "''")}')`
-			);
+			// bsdtar ships in System32 (Windows 10 1803+) and reads ZIP archives
+			// directly — no PowerShell startup or .NET decompression on the path.
+			cmd = path.join(process.env.SYSTEMROOT ?? "C:\\Windows", "System32", "tar.exe");
+			args.push("xf", ipaPath, "-C", destDir);
 		} else {
 			cmd = "unzip";
 			args.push("-o", "-q", ipaPath, "-d", destDir);
