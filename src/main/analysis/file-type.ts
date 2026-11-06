@@ -12,6 +12,64 @@ import type { SourceType } from "../../shared/types";
 import { MACHO_MAGICS } from "../parser/macho";
 import { isXCFrameworkPath } from "../xcframework/discovery";
 
+/** Extensions accepted regardless of the bytes they contain. */
+const KNOWN_EXTENSIONS = new Set([
+	".ipa",
+	".tipa",
+	".deb",
+	".dylib",
+	".a",
+	".zip",
+	".app",
+	".xcframework"
+]);
+
+/** Read the leading 8 bytes (never the whole file) and identify the container. */
+function sniffMagic(filePath: string): SourceType | null {
+	const fd = fs.openSync(filePath, "r");
+	try {
+		const buf = Buffer.alloc(8);
+		fs.readSync(fd, buf, 0, 8, 0);
+
+		// DEB: ar archive magic "!<arch>\n"
+		if (buf.toString("ascii", 0, 8) === "!<arch>\n") {
+			return "deb";
+		}
+
+		// Mach-O: check 4-byte magic in both byte orders
+		const magic = buf.readUInt32BE(0);
+		const magicLE = buf.readUInt32LE(0);
+		if (MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE)) {
+			return "macho";
+		}
+
+		// IPA: ZIP file (PK\x03\x04)
+		if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) {
+			return "ipa";
+		}
+
+		return null;
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+/**
+ * Whether a dropped or picked path looks like something the analysis pipeline
+ * can open. Directories are always accepted; files are accepted when their
+ * magic bytes match a supported container or they carry a known extension.
+ * Rare names such as `Foo.iOS_16.3.1` therefore still work.
+ */
+export function isSupportedFile(filePath: string): boolean {
+	try {
+		if (fs.statSync(filePath).isDirectory()) return true;
+		if (sniffMagic(filePath) !== null) return true;
+		return KNOWN_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+	} catch {
+		return false;
+	}
+}
+
 export function detectFileType(filePath: string): SourceType {
 	if (fs.statSync(filePath).isDirectory()) {
 		if (filePath.endsWith(".app")) return "ipa";
@@ -19,27 +77,8 @@ export function detectFileType(filePath: string): SourceType {
 		return "folder";
 	}
 
-	const fd = fs.openSync(filePath, "r");
-	const buf = Buffer.alloc(8);
-	fs.readSync(fd, buf, 0, 8, 0);
-	fs.closeSync(fd);
-
-	// DEB: ar archive magic "!<arch>\n"
-	if (buf.toString("ascii", 0, 8) === "!<arch>\n") {
-		return "deb";
-	}
-
-	// Mach-O: check 4-byte magic
-	const magic = buf.readUInt32BE(0);
-	const magicLE = buf.readUInt32LE(0);
-	if (MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE)) {
-		return "macho";
-	}
-
-	// IPA: ZIP file (PK\x03\x04) or assume IPA by extension
-	if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) {
-		return "ipa";
-	}
+	const sniffed = sniffMagic(filePath);
+	if (sniffed) return sniffed;
 
 	// Fallback: check extension
 	const ext = path.extname(filePath).toLowerCase();

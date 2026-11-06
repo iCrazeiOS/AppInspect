@@ -35,6 +35,7 @@ export interface AppInspectAPI {
 	openFilePicker(): Promise<string | null>;
 	openFolderPicker(): Promise<string | null>;
 	isDirectory(filePath: string): Promise<boolean>;
+	isSupportedFile(filePath: string): Promise<boolean>;
 	getSettings(): Promise<AppSettings>;
 	setSettings(settings: AppSettings): Promise<void>;
 	getCacheInfo(): Promise<InvokeChannelMap["get-cache-info"]["result"]>;

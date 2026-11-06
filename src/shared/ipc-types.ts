@@ -179,6 +179,10 @@ export type InvokeChannelMap = {
 		params: { path: string };
 		result: boolean;
 	};
+	"is-supported-file": {
+		params: { path: string };
+		result: boolean;
+	};
 	"analyse-binary": {
 		params: { sessionId: string; binaryIndex: number; cpuType?: number; cpuSubtype?: number };
 		result: AnalysisResult;

@@ -15,7 +15,7 @@ import type { TabName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
 import { clearCache, getCacheInfo } from "../analysis/cache";
 import type { SearchableTab } from "../analysis/orchestrator";
-import { AnalysisSession } from "../analysis/orchestrator";
+import { AnalysisSession, isSupportedFile } from "../analysis/orchestrator";
 import { buildHeaders } from "../export/headers";
 import { exportAnalysis } from "../export/json";
 import { loadSettings, saveSettings } from "../settings";
@@ -653,5 +653,10 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		} catch {
 			return false;
 		}
+	});
+
+	// ── is-supported-file ──
+	ipcMain.handle("is-supported-file", (_event, args: { path: string }) => {
+		return isSupportedFile(args.path);
 	});
 }

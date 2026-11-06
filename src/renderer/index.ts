@@ -1013,26 +1013,13 @@ document.addEventListener("drop", async (e: DragEvent) => {
 		return;
 	}
 
-	const lowerPath = filePath.toLowerCase();
-	const supported =
-		lowerPath.endsWith(".ipa") ||
-		lowerPath.endsWith(".tipa") ||
-		lowerPath.endsWith(".deb") ||
-		lowerPath.endsWith(".dylib") ||
-		lowerPath.endsWith(".app") ||
-		lowerPath.endsWith(".xcframework") ||
-		lowerPath.endsWith(".zip");
-	const isFolder = await window.api.isDirectory(filePath);
-	if (!supported && !isFolder) {
-		const fileName = filePath.split(/[\\/]/).pop() ?? "";
-		const hasExtension = fileName.includes(".");
-		if (hasExtension) {
-			showToast(
-				"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O, folder",
-				"warning"
-			);
-			return;
-		}
+	const supported = await window.api.isSupportedFile(filePath);
+	if (!supported) {
+		showToast(
+			"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O, folder",
+			"warning"
+		);
+		return;
 	}
 
 	startAnalysis(filePath);

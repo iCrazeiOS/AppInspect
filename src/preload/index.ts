@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("api", {
 	openFilePicker: () => ipcRenderer.invoke("open-file-picker", { mode: "file" }),
 	openFolderPicker: () => ipcRenderer.invoke("open-file-picker", { mode: "folder" }),
 	isDirectory: (filePath: string) => ipcRenderer.invoke("is-directory", { path: filePath }),
+	isSupportedFile: (filePath: string) =>
+		ipcRenderer.invoke("is-supported-file", { path: filePath }),
 	getSettings: () => ipcRenderer.invoke("get-settings"),
 	setSettings: (settings: AppSettings) => ipcRenderer.invoke("set-settings", settings),
 	getCacheInfo: () => ipcRenderer.invoke("get-cache-info"),
