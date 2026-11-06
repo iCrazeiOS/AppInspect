@@ -24,6 +24,8 @@ const FUSE_RE = /^([A-Za-z0-9_]+)=(enabled|disabled|removed)$/;
 const ELECTRON_ASAR_PREFIX = "app.asar/";
 const ELECTRON_UNPACKED_PREFIX = "app.asar.unpacked/";
 const SYMBOL_CATEGORIES = new Set(["weak-crypto", "unsafe-api", "dangerous-api"]);
+/** Synthetic name for a function-start range with no symbol (`sub_<hex>`). */
+const SYNTHETIC_FUNCTION_RE = /^sub_[0-9a-f]+$/i;
 
 function normalisePath(path: string): string {
 	return path.replaceAll("\\", "/").replace(/\/+$/, "");
@@ -122,7 +124,10 @@ export function resolveReference(
 		}
 		case "functionName": {
 			const name = finding.functionName?.trim();
-			return name ? { sectionTab: "symbols", kind: "symbol", name } : null;
+			// Stripped binaries get synthetic `sub_<hex>` ranges that the Symbols
+			// tab never lists, so only link names that actually exist there.
+			if (!name || SYNTHETIC_FUNCTION_RE.test(name)) return null;
+			return { sectionTab: "symbols", kind: "symbol", name };
 		}
 		case "evidence": {
 			if (finding.category === "electron-fuses") {
