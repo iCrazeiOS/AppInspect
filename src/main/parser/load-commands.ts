@@ -278,6 +278,34 @@ const SECTION_32_SIZE = 68;
 const SEGMENT_COMMAND_32_SIZE = 56;
 const SEGMENT_COMMAND_64_SIZE = 72;
 
+const SECTION_TYPE_MASK = 0xff;
+/** S_ZEROFILL, S_GB_ZEROFILL, S_THREAD_LOCAL_ZEROFILL — no file-backed bytes. */
+const ZEROFILL_SECTION_TYPES = new Set([0x1, 0xc, 0x12]);
+
+/**
+ * Rewrite section file offsets from the owning segment's mapping.
+ *
+ * dyld_shared_cache-extracted images keep cache-relative section offsets (often far past
+ * the end of the extracted file) while segment fileoff/vmaddr stay consistent. The Mach-O
+ * relationship `offset = segment.fileoff + (section.addr - segment.vmaddr)` recovers the
+ * real offset; zerofill and out-of-range sections keep whatever was recorded.
+ */
+function normalizeSectionOffsets(
+	sections: Section64[],
+	segVmaddr: bigint,
+	segFileoff: bigint,
+	segFilesize: bigint
+): void {
+	const segEnd = segFileoff + segFilesize;
+	for (const sec of sections) {
+		if (ZEROFILL_SECTION_TYPES.has(sec.flags & SECTION_TYPE_MASK)) continue;
+		if (sec.addr < segVmaddr) continue;
+		const computed = segFileoff + (sec.addr - segVmaddr);
+		if (computed < segFileoff || computed + sec.size > segEnd) continue;
+		sec.offset = Number(computed);
+	}
+}
+
 // ── Section32 Parser ──────────────────────────────────────────────────
 
 function parseSection32(view: DataView, offset: number, le: boolean): Section64 {
@@ -372,6 +400,7 @@ export function parseLoadCommands(
 					sections.push(parseSection32(view, sectOffset, le));
 					sectOffset += SECTION_32_SIZE;
 				}
+				normalizeSectionOffsets(sections, vmaddr, fileoff, filesize);
 
 				const seg: Segment64 = {
 					cmd,
@@ -410,6 +439,7 @@ export function parseLoadCommands(
 					sections.push(parseSection64(view, sectOffset, le));
 					sectOffset += SECTION_64_SIZE;
 				}
+				normalizeSectionOffsets(sections, vmaddr, fileoff, filesize);
 
 				const seg: Segment64 = {
 					cmd,

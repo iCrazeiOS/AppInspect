@@ -398,6 +398,54 @@ describe("parseLoadCommands", () => {
 		expect(s.sections[1]!.reserved2).toBe(6);
 	});
 
+	it("normalizes stale section offsets from the segment mapping", () => {
+		const seg = buildSegment64({
+			segname: "__TEXT",
+			vmaddr: 0x100000000n,
+			vmsize: 0x4000n,
+			fileoff: 0n,
+			filesize: 0x4000n,
+			maxprot: 5,
+			initprot: 5,
+			flags: 0,
+			sections: [
+				{
+					sectname: "__text",
+					segname: "__TEXT",
+					addr: 0x100001000n,
+					size: 0x1000n,
+					offset: 0x9000000, // stale shared-cache offset
+					align: 4,
+					reloff: 0,
+					nreloc: 0,
+					flags: 0x80000400,
+					reserved1: 0,
+					reserved2: 0,
+					reserved3: 0
+				},
+				{
+					sectname: "__bss",
+					segname: "__TEXT",
+					addr: 0x100003000n,
+					size: 0x1000n,
+					offset: 0,
+					align: 3,
+					reloff: 0,
+					nreloc: 0,
+					flags: 0x1, // S_ZEROFILL
+					reserved1: 0,
+					reserved2: 0,
+					reserved3: 0
+				}
+			]
+		});
+
+		const result = parse([seg]);
+		const sections = result.segments[0]!.sections;
+		expect(sections[0]!.offset).toBe(0x1000);
+		expect(sections[1]!.offset).toBe(0);
+	});
+
 	it("parses LC_LOAD_DYLIB with name string extraction", () => {
 		const dylib = buildDylibCommand({
 			name: "/usr/lib/libSystem.B.dylib",
