@@ -532,6 +532,7 @@ export async function analyseBinaryFile(
 		isInstance: boolean
 	) => {
 		if (m.selector === "") m.signature = describeUnnamedMethod(m.signature, isInstance);
+		delete m._imp;
 		delete m._nameOffset;
 	};
 	for (const cls of classes) {

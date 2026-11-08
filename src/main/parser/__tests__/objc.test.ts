@@ -9,6 +9,7 @@ import {
 	describeUnnamedMethod,
 	enrichMethodsFromSymbols,
 	extractObjCMetadata,
+	type ObjCCategory,
 	type ObjCClass,
 	type ObjCProtocol,
 	resolvePointer
@@ -572,7 +573,7 @@ describe("objc", () => {
 			//   0x5000 - 0x500F: type encoding "v@:\0"
 			//   0x5100 - 0x510F: type encoding "@:\0"
 
-			const buf = new ArrayBuffer(0x6000);
+			const buf = new ArrayBuffer(0x8000);
 			const view = new DataView(buf);
 			const le = true;
 			const baseVmaddr = 0x100000000n;
@@ -584,19 +585,36 @@ describe("objc", () => {
 			// protocol_t at 0x1000:
 			// isa(8) + mangledName(8) + protocols(8) + instanceMethods(8) + classMethods(8) + ...
 			const nameVmaddr = baseVmaddr + 0x2000n;
+			const protocolsVmaddr = baseVmaddr + 0x6000n;
 			const instMethodsVmaddr = baseVmaddr + 0x3000n;
 			const classMethodsVmaddr = baseVmaddr + 0x3100n;
+			const propertiesVmaddr = baseVmaddr + 0x7000n;
 
 			view.setBigUint64(0x1000 + 0, 0n, le); // isa
 			view.setBigUint64(0x1000 + 8, nameVmaddr, le); // mangledName
-			view.setBigUint64(0x1000 + 16, 0n, le); // protocols (none)
+			view.setBigUint64(0x1000 + 16, protocolsVmaddr, le); // inherited protocols
 			view.setBigUint64(0x1000 + 24, instMethodsVmaddr, le); // instanceMethods
 			view.setBigUint64(0x1000 + 32, classMethodsVmaddr, le); // classMethods
 			view.setBigUint64(0x1000 + 40, 0n, le); // optionalInstanceMethods
 			view.setBigUint64(0x1000 + 48, 0n, le); // optionalClassMethods
+			view.setBigUint64(0x1000 + 56, propertiesVmaddr, le); // instanceProperties
 
 			// Protocol name
 			writeCString(view, 0x2000, "MyProtocol");
+
+			// Inherited protocol_list_t at 0x6000 → ParentProtocol at 0x6200
+			view.setBigUint64(0x6000, 1n, le); // count
+			view.setBigUint64(0x6008, baseVmaddr + 0x6200n, le); // protocol_t*
+			view.setBigUint64(0x6200 + 8, baseVmaddr + 0x6300n, le); // mangledName
+			writeCString(view, 0x6300, "ParentProtocol");
+
+			// Property list at 0x7000: one property "value" (T@"NSString",R,N)
+			view.setUint32(0x7000, 16, le); // entsize
+			view.setUint32(0x7004, 1, le); // count
+			view.setBigUint64(0x7008, baseVmaddr + 0x7200n, le); // name
+			view.setBigUint64(0x7010, baseVmaddr + 0x7300n, le); // attributes
+			writeCString(view, 0x7200, "value");
+			writeCString(view, 0x7300, 'T@"NSString",R,N');
 
 			// Instance method_list_t at 0x3000 (absolute format):
 			// entsize_and_flags(4) + count(4) + [method entries]
@@ -630,7 +648,7 @@ describe("objc", () => {
 
 			const protolistSection = makeSection("__DATA", "__objc_protolist", baseVmaddr, 8n, 0);
 
-			const segments = [makeSegment("__DATA", baseVmaddr, 0x6000n, 0n, 0x6000n)];
+			const segments = [makeSegment("__DATA", baseVmaddr, 0x8000n, 0n, 0x8000n)];
 
 			const rebaseMap = new Map<number, bigint>();
 			const result = extractObjCMetadata(buf, [protolistSection], segments, rebaseMap, le);
@@ -644,6 +662,10 @@ describe("objc", () => {
 			expect(proto.instanceMethods[0]!.selector).toBe("doSomething:");
 			expect(proto.classMethods.length).toBe(1);
 			expect(proto.classMethods[0]!.selector).toBe("sharedInstance");
+			expect(proto.protocols).toEqual(["ParentProtocol"]);
+			expect(proto.properties).toHaveLength(1);
+			expect(proto.properties?.[0]?.name).toBe("value");
+			expect(proto.properties?.[0]?.type).toBe("NSString *");
 			expect(proto.optionalInstanceMethods).toEqual([]);
 			expect(proto.optionalClassMethods).toEqual([]);
 		});
@@ -888,6 +910,29 @@ describe("objc", () => {
 			expect(protocols[0]!.instanceMethods[0]!.selector).toBe(
 				"itemCollection:item:representation:beganDataTransferWithProgress:"
 			);
+		});
+
+		it("recovers category selectors from external Class(Category) symbols", () => {
+			const categories: ObjCCategory[] = [
+				{
+					name: "Pasteboard",
+					className: "?",
+					methods: [
+						{ selector: "", signature: "B16@0:8", _imp: 0x7000n, _nameOffset: 700 }
+					],
+					properties: [],
+					protocols: []
+				}
+			];
+			enrichMethodsFromSymbols(
+				[],
+				[{ name: "-[NSURL(Pasteboard) _pb_isDirectory]", address: 0x7000n }],
+				categories,
+				[]
+			);
+
+			expect(categories[0]!.methods[0]!.selector).toBe("_pb_isDirectory");
+			expect(categories[0]!.className).toBe("NSURL");
 		});
 
 		it("carries a class-recovered selector to a protocol sharing its name offset", () => {

@@ -71,6 +71,10 @@ export interface ObjCCategory {
 
 export interface ObjCProtocol {
 	name: string;
+	/** Protocols this protocol inherits from (`@protocol Foo <Bar>`). */
+	protocols?: string[];
+	/** Properties declared by the protocol. */
+	properties?: ObjCProperty[];
 	instanceMethods: ObjCMethod[];
 	classMethods: ObjCMethod[];
 	optionalInstanceMethods: ObjCMethod[];
@@ -151,6 +155,8 @@ const CATEGORY_INSTANCE_PROPERTIES_OFFSET_32 = 20;
 // 32-bit: same fields with 4-byte pointers
 const PROTOCOL_NAME_OFFSET_64 = 8;
 const PROTOCOL_NAME_OFFSET_32 = 4;
+const PROTOCOL_PROTOCOLS_OFFSET_64 = 16;
+const PROTOCOL_PROTOCOLS_OFFSET_32 = 8;
 const PROTOCOL_INSTANCE_METHODS_OFFSET_64 = 24;
 const PROTOCOL_INSTANCE_METHODS_OFFSET_32 = 12;
 const PROTOCOL_CLASS_METHODS_OFFSET_64 = 32;
@@ -159,6 +165,8 @@ const PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_64 = 40;
 const PROTOCOL_OPT_INSTANCE_METHODS_OFFSET_32 = 20;
 const PROTOCOL_OPT_CLASS_METHODS_OFFSET_64 = 48;
 const PROTOCOL_OPT_CLASS_METHODS_OFFSET_32 = 24;
+const PROTOCOL_INSTANCE_PROPERTIES_OFFSET_64 = 56;
+const PROTOCOL_INSTANCE_PROPERTIES_OFFSET_32 = 28;
 
 // Absolute method entry size:
 // 64-bit: name_ptr(8) + types_ptr(8) + imp_ptr(8) = 24 bytes
@@ -637,9 +645,21 @@ export function enrichMethodsFromSymbols(
 		(c) => c.methods.length > 0 && c.methods.some((m) => m.selector === "")
 	);
 	const classesWithNoMethods = classes.filter((c) => c.methods.length === 0);
+	const collateralNeedsEnrichment =
+		categories.some((c) => c.methods.some((m) => m.selector === "")) ||
+		protocols.some((p) =>
+			[
+				p.instanceMethods,
+				p.classMethods,
+				p.optionalInstanceMethods,
+				p.optionalClassMethods
+			].some((methods) => methods.some((m) => m.selector === ""))
+		);
 
 	if (
-		(classesNeedingEnrichment.length === 0 && classesWithNoMethods.length === 0) ||
+		(classesNeedingEnrichment.length === 0 &&
+			classesWithNoMethods.length === 0 &&
+			!collateralNeedsEnrichment) ||
 		symbols.length === 0
 	) {
 		return;
@@ -647,22 +667,46 @@ export function enrichMethodsFromSymbols(
 
 	// Build map: className → methods from ObjC symbols like -[Class method:].
 	// `address` (the implementation's vmaddr) is present in the symbol table, not in
-	// tests that pass bare names.
-	const symMethodMap = new Map<string, { selector: string; prefix: string }[]>();
-	const symAddressMap = new Map<string, Map<bigint, { selector: string; prefix: string }[]>>();
+	// tests that pass bare names. Category symbols are written `-[Class(Category) sel]`;
+	// their base class and category name are split out so external targets resolve.
+	type SymbolMethod = { selector: string; prefix: string; className: string };
+	const symMethodMap = new Map<string, SymbolMethod[]>();
+	const symAddressMap = new Map<string, Map<bigint, SymbolMethod[]>>();
+	const symCategoryAddressMap = new Map<string, Map<bigint, SymbolMethod[]>>();
+
+	const pushAddress = (
+		map: Map<string, Map<bigint, SymbolMethod[]>>,
+		key: string,
+		address: bigint,
+		entry: SymbolMethod
+	): void => {
+		let byAddress = map.get(key);
+		if (!byAddress) {
+			byAddress = new Map();
+			map.set(key, byAddress);
+		}
+		const list = byAddress.get(address);
+		if (list) list.push(entry);
+		else byAddress.set(address, [entry]);
+	};
+
 	for (const sym of symbols) {
 		const m = sym.name.match(/^([+-])\[(\S+)\s+(.+)\]$/);
 		if (!m) continue;
-		const className = m[2]!;
-		const entry = { selector: m[3]!, prefix: m[1]! };
-		if (!symMethodMap.has(className)) symMethodMap.set(className, []);
-		symMethodMap.get(className)!.push(entry);
+		const head = m[2]!;
+		const categoryMatch = head.match(/^([^()]+)\(([^()]+)\)$/);
+		const className = categoryMatch ? categoryMatch[1]! : head;
+		const categoryName = categoryMatch ? categoryMatch[2]! : null;
+		const entry: SymbolMethod = { selector: m[3]!, prefix: m[1]!, className };
+		// Category symbols belong to the base class at runtime, but keeping them out of the
+		// class list keeps argument-count fallback from assigning them to class methods.
+		if (!categoryName) {
+			if (!symMethodMap.has(className)) symMethodMap.set(className, []);
+			symMethodMap.get(className)!.push(entry);
+		}
 		if (sym.address !== undefined) {
-			if (!symAddressMap.has(className)) symAddressMap.set(className, new Map());
-			const byAddress = symAddressMap.get(className)!;
-			const list = byAddress.get(sym.address);
-			if (list) list.push(entry);
-			else byAddress.set(sym.address, [entry]);
+			pushAddress(symAddressMap, className, sym.address, entry);
+			if (categoryName) pushAddress(symCategoryAddressMap, categoryName, sym.address, entry);
 		}
 	}
 
@@ -695,6 +739,30 @@ export function enrichMethodsFromSymbols(
 			const selector = candidates[0]!.selector;
 			nameMethod(m, selector, !m._isClassMethod);
 			if (m._nameOffset !== undefined) recordTrustedOffset(m._nameOffset, selector);
+		}
+	}
+
+	// Categories whose target class lives outside this image arrive as `?`; the symbol's
+	// `Class(Category)` head still gives both the selector and the real base class.
+	for (const cat of categories) {
+		const byAddress =
+			symCategoryAddressMap.get(cat.name) ??
+			(cat.className !== "?" ? symAddressMap.get(cat.className) : undefined);
+		if (!byAddress) continue;
+		for (const m of cat.methods) {
+			if (m.selector !== "" || m._imp === undefined) continue;
+			const candidates = byAddress
+				.get(m._imp)
+				?.filter(
+					(s) =>
+						(s.prefix === "+") === !!m._isClassMethod &&
+						(cat.className === "?" || s.className === cat.className)
+				);
+			if (!candidates || candidates.length !== 1) continue;
+			const match = candidates[0]!;
+			nameMethod(m, match.selector, !m._isClassMethod);
+			if (m._nameOffset !== undefined) recordTrustedOffset(m._nameOffset, match.selector);
+			if (cat.className === "?") cat.className = match.className;
 		}
 	}
 	for (const off of ambiguous) offsetToSelector.delete(off);
@@ -1735,6 +1803,7 @@ function parseProtocolDetail(
 ): ObjCProtocol | null {
 	const ptrSize = is64Bit ? POINTER_SIZE_64 : POINTER_SIZE_32;
 	const nameOffset = is64Bit ? PROTOCOL_NAME_OFFSET_64 : PROTOCOL_NAME_OFFSET_32;
+	const protocolsOffset = is64Bit ? PROTOCOL_PROTOCOLS_OFFSET_64 : PROTOCOL_PROTOCOLS_OFFSET_32;
 	const instMethodsOffset = is64Bit
 		? PROTOCOL_INSTANCE_METHODS_OFFSET_64
 		: PROTOCOL_INSTANCE_METHODS_OFFSET_32;
@@ -1747,6 +1816,9 @@ function parseProtocolDetail(
 	const optClassMethodsOffset = is64Bit
 		? PROTOCOL_OPT_CLASS_METHODS_OFFSET_64
 		: PROTOCOL_OPT_CLASS_METHODS_OFFSET_32;
+	const propertiesOffset = is64Bit
+		? PROTOCOL_INSTANCE_PROPERTIES_OFFSET_64
+		: PROTOCOL_INSTANCE_PROPERTIES_OFFSET_32;
 
 	// Read name
 	if (protoFileOffset + nameOffset + ptrSize > view.byteLength) return null;
@@ -1790,8 +1862,34 @@ function parseProtocolDetail(
 		);
 	};
 
+	// Helper to resolve a protocol_t pointer field to a file offset.
+	const pointerFieldToOffset = (offset: number): number | null => {
+		if (protoFileOffset + offset + ptrSize > view.byteLength) return null;
+		const vmaddr = resolvePointer(
+			view,
+			protoFileOffset + offset,
+			rebaseMap,
+			le,
+			segments,
+			is64Bit
+		);
+		if (vmaddr === 0n) return null;
+		return vmaddrToFileOffset(is64Bit ? vmaddr & POINTER_MASK : vmaddr, segments);
+	};
+
+	const protocolsFileOffset = pointerFieldToOffset(protocolsOffset);
+	const propertiesFileOffset = pointerFieldToOffset(propertiesOffset);
+
 	return {
 		name,
+		protocols:
+			protocolsFileOffset !== null
+				? parseProtocolListAt(view, protocolsFileOffset, segments, rebaseMap, le, is64Bit)
+				: [],
+		properties:
+			propertiesFileOffset !== null
+				? parsePropertyList(view, propertiesFileOffset, segments, rebaseMap, le, is64Bit)
+				: [],
 		instanceMethods: parseMethodsAt(instMethodsOffset, false),
 		classMethods: parseMethodsAt(classMethodsOffset, true),
 		optionalInstanceMethods: parseMethodsAt(optInstMethodsOffset, false),
