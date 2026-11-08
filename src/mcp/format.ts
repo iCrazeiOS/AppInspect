@@ -75,7 +75,8 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 			return {
 				classes: cached.objc.classes,
 				categories: cached.objc.categories,
-				protocols: cached.objc.protocols
+				protocols: cached.objc.protocols,
+				protocolDetails: cached.objc.protocolDetails
 			};
 		case "swift":
 			return cached.swift;
@@ -169,6 +170,9 @@ export function buildPaginatedResult(
 		result.classes = sliced;
 		result.categories = sanitize((data as { categories: unknown[] }).categories ?? []);
 		result.protocols = sanitize((data as { protocols: unknown[] }).protocols);
+		result.protocolDetails = sanitize(
+			(data as { protocolDetails?: unknown[] }).protocolDetails ?? []
+		);
 	} else {
 		result.data = sliced;
 	}

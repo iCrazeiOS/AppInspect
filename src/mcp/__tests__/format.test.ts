@@ -53,6 +53,41 @@ describe("buildPaginatedResult", () => {
 		expect(r.returned).toBe(1);
 		expect(r.data[0]?.name).toBe("alphabet");
 	});
+
+	it("includes protocol details in the objc section", () => {
+		const protocol = {
+			name: "PBItemCollectionDataTransferDelegate",
+			instanceMethods: [
+				{
+					selector: "itemCollection:item:representationFinishedDataTransfer:",
+					signature: "-(void)itemCollection:(id)arg0 item:(id)arg1"
+				}
+			],
+			classMethods: [],
+			optionalInstanceMethods: [],
+			optionalClassMethods: []
+		};
+		const cached = {
+			objc: {
+				classes: [{ name: "Foo", methods: [] }],
+				categories: [],
+				protocols: [protocol.name],
+				protocolDetails: [protocol]
+			}
+		} as unknown as AnalysisResult;
+
+		const section = getSectionData(cached, "objc") as {
+			protocolDetails: { name: string }[];
+		};
+		expect(section.protocolDetails[0]?.name).toBe(protocol.name);
+
+		const page = buildPaginatedResult(section, "objc") as {
+			protocolDetails: { instanceMethods: { selector: string }[] }[];
+		};
+		expect(page.protocolDetails[0]?.instanceMethods[0]?.selector).toBe(
+			"itemCollection:item:representationFinishedDataTransfer:"
+		);
+	});
 });
 
 describe("parseHexPattern", () => {

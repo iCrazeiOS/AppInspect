@@ -60,6 +60,8 @@ interface ObjCCategory {
 
 interface ObjCProtocol {
 	name: string;
+	protocols?: string[];
+	properties?: ObjCProperty[];
 	instanceMethods: ObjCMethod[];
 	classMethods: ObjCMethod[];
 	optionalInstanceMethods: ObjCMethod[];
@@ -819,22 +821,55 @@ export function renderObjC(
 		heading.textContent = `@protocol ${selectedProtocol.name}`;
 		detailHeader.appendChild(heading);
 
+		if (selectedProtocol.protocols && selectedProtocol.protocols.length > 0) {
+			detailHeader.appendChild(buildProtocolBadges(selectedProtocol.protocols));
+		}
+
+		const properties = selectedProtocol.properties ?? [];
 		const hasAnyMethods =
 			selectedProtocol.instanceMethods.length > 0 ||
 			selectedProtocol.classMethods.length > 0 ||
 			selectedProtocol.optionalInstanceMethods.length > 0 ||
 			selectedProtocol.optionalClassMethods.length > 0;
 
-		if (!hasAnyMethods) {
+		if (!hasAnyMethods && properties.length === 0) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
-			hint.textContent = "No methods defined in this protocol.";
+			hint.textContent = "No methods or properties defined in this protocol.";
 			methodListContainer.appendChild(hint);
 			return;
 		}
 
 		const methodList = document.createElement("ul");
 		methodList.className = "cls-method-list";
+
+		if (properties.length > 0) {
+			const groupHeader = document.createElement("li");
+			groupHeader.className = "cls-proto-method-group";
+			groupHeader.textContent = `${plural(properties.length, "Property", "Properties")} (${properties.length})`;
+			methodList.appendChild(groupHeader);
+
+			for (const p of properties) {
+				const li = document.createElement("li");
+				li.className = "cls-method-item";
+				if (selectedMember?.kind === "property" && selectedMember.property === p) {
+					li.classList.add("cls-method-active");
+				}
+				li.innerHTML = highlightObjCMethod(formatProperty(p));
+				li.title = formatProperty(p);
+				li.addEventListener("click", () => {
+					selectedProtoMethod = null;
+					selectedMember = {
+						kind: "property",
+						property: p,
+						owner: selectedProtocol!.name
+					};
+					renderProtocolDetail();
+					renderSidebar();
+				});
+				methodList.appendChild(li);
+			}
+		}
 
 		const addMethodGroup = (title: string, methods: ObjCMethod[], isClassMethod: boolean) => {
 			if (methods.length === 0) return;
@@ -853,6 +888,7 @@ export function renderObjC(
 				li.innerHTML = highlightObjCMethod(m.signature || m.selector);
 				li.title = m.selector;
 				li.addEventListener("click", () => {
+					selectedMember = null;
 					selectedProtoMethod = { method: m, isClassMethod };
 					renderProtocolDetail();
 					renderSidebar();

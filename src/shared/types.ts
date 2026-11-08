@@ -290,6 +290,10 @@ export interface ObjCCategory {
 
 export interface ObjCProtocol {
 	name: string;
+	/** Protocols this protocol inherits from (`@protocol Foo <Bar>`). */
+	protocols?: string[];
+	/** Properties declared by the protocol. */
+	properties?: ObjCProperty[];
 	instanceMethods: ObjCMethod[];
 	classMethods: ObjCMethod[];
 	optionalInstanceMethods: ObjCMethod[];

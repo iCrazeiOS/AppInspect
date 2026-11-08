@@ -253,11 +253,30 @@ function protocolHeader(
 	protocol: ObjCProtocol | null,
 	name: string,
 	fileName: string,
+	protocolFiles: Map<string, string>,
 	binaryName?: string
 ): string {
+	const inherited = [...new Set((protocol?.protocols ?? []).filter(Boolean))]
+		.filter((parent) => parent !== name)
+		.sort((a, b) => a.localeCompare(b));
+
+	const imports: string[] = [];
+	const protocolForwards: string[] = [];
+	for (const parent of inherited) {
+		const parentFile = protocolFiles.get(parent);
+		if (parentFile) imports.push(parentFile);
+		else protocolForwards.push(parent);
+	}
+
 	const lines = banner(fileName, binaryName);
-	lines.push("#import <Foundation/Foundation.h>", "");
-	lines.push(`@protocol ${name}`, "");
+	lines.push(...importSection(imports, [], protocolForwards));
+
+	let declaration = `@protocol ${name}`;
+	if (inherited.length > 0) declaration += ` <${inherited.join(", ")}>`;
+	lines.push(declaration, "");
+
+	const properties = propertyDeclarations(protocol?.properties);
+	if (properties.length > 0) lines.push(...properties, "");
 
 	const groups: { label: string; methods: ObjCMethod[] | undefined }[] = protocol
 		? [
@@ -340,7 +359,13 @@ export function buildHeaders({
 		const fileName = protocolFiles.get(name)!;
 		files.push({
 			name: fileName,
-			content: protocolHeader(protocolMap.get(name) ?? null, name, fileName, binaryName)
+			content: protocolHeader(
+				protocolMap.get(name) ?? null,
+				name,
+				fileName,
+				protocolFiles,
+				binaryName
+			)
 		});
 	}
 

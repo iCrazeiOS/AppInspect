@@ -79,6 +79,33 @@ describe("buildHeaders", () => {
 		expect(things).toContain("+(void)optional:(int)arg0;");
 	});
 
+	it("writes protocol inheritance and properties", () => {
+		const files = buildHeaders({
+			classes: [],
+			protocols: ["Parent", "Child"],
+			protocolDetails: [
+				protocol("Parent"),
+				protocol("Child", {
+					protocols: ["Parent", "UIApplicationDelegate"],
+					properties: [
+						{
+							name: "value",
+							type: "NSString *",
+							attributes: 'T@"NSString",C,N',
+							attributeList: ["copy", "nonatomic"]
+						}
+					]
+				})
+			]
+		});
+
+		const child = find(files, "Child.h");
+		expect(child).toContain('#import "Parent.h"');
+		expect(child).toContain("@protocol UIApplicationDelegate;");
+		expect(child).toContain("@protocol Child <Parent, UIApplicationDelegate>");
+		expect(child).toContain("@property (copy, nonatomic) NSString *value;");
+	});
+
 	it("forward-declares superclasses and protocols that are not exported", () => {
 		const files = buildHeaders({
 			classes: [
