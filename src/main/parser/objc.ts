@@ -608,16 +608,20 @@ function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): 
  * offsets point into the cache's global selector pool, which isn't present in an extracted
  * file — so methods arrive with type encodings but empty selectors. ObjC symbols like
  * `-[Class selector:]` carry the names for class methods; protocols and categories carry
- * no symbols of their own. Recovery runs in two passes:
+ * no symbols of their own. Recovery runs in three passes:
  *
- *  1. High-precision offset map. The relative `name` offset is a position-independent key
+ *  1. Exact IMP match. Every method entry records its implementation address, which can
+ *     be matched against a `-[Class selector:]` symbol's address. This pairs the method
+ *     with its selector without any guessing, even when several methods share an argument
+ *     count, and the resolved offsets are then carried to protocols and categories.
+ *  2. High-precision offset map. The relative `name` offset is a position-independent key
  *     into that selector pool (identical selectors share one value). When a class has
- *     exactly one unnamed method and one symbol of a given argument count the pairing is
- *     forced, so that offset→selector mapping is certain; collected across all classes,
- *     with any offset that resolves two ways dropped. The map then fills matching methods
- *     everywhere — classes, categories and protocols — so a selector a class pins down is
- *     carried to the protocol that declares it.
- *  2. Per-class argument-count fallback. Remaining unnamed class methods are matched to
+ *     exactly one remaining unnamed method and one symbol of a given argument count the
+ *     pairing is forced, so that offset→selector mapping is certain; collected across all
+ *     classes, with any offset that resolves two ways dropped. The map then fills matching
+ *     methods everywhere — classes, categories and protocols — so a selector a class pins
+ *     down is carried to the protocol that declares it.
+ *  3. Per-class argument-count fallback. Remaining unnamed class methods are matched to
  *     their leftover symbols by argument count. These are best-effort guesses, so they
  *     stay within the class and are never propagated to protocols or categories.
  *
@@ -625,7 +629,7 @@ function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): 
  */
 export function enrichMethodsFromSymbols(
 	classes: ObjCClass[],
-	symbols: { name: string }[],
+	symbols: { name: string; address?: bigint }[],
 	categories: ObjCCategory[] = [],
 	protocols: ObjCProtocol[] = []
 ): void {
@@ -641,19 +645,61 @@ export function enrichMethodsFromSymbols(
 		return;
 	}
 
-	// Build map: className → methods from ObjC symbols like -[Class method:]
+	// Build map: className → methods from ObjC symbols like -[Class method:].
+	// `address` (the implementation's vmaddr) is present in the symbol table, not in
+	// tests that pass bare names.
 	const symMethodMap = new Map<string, { selector: string; prefix: string }[]>();
+	const symAddressMap = new Map<string, Map<bigint, { selector: string; prefix: string }[]>>();
 	for (const sym of symbols) {
 		const m = sym.name.match(/^([+-])\[(\S+)\s+(.+)\]$/);
 		if (!m) continue;
 		const className = m[2]!;
+		const entry = { selector: m[3]!, prefix: m[1]! };
 		if (!symMethodMap.has(className)) symMethodMap.set(className, []);
-		symMethodMap.get(className)!.push({ selector: m[3]!, prefix: m[1]! });
+		symMethodMap.get(className)!.push(entry);
+		if (sym.address !== undefined) {
+			if (!symAddressMap.has(className)) symAddressMap.set(className, new Map());
+			const byAddress = symAddressMap.get(className)!;
+			const list = byAddress.get(sym.address);
+			if (list) list.push(entry);
+			else byAddress.set(sym.address, [entry]);
+		}
 	}
 
-	// ── Pass 1: high-precision offset→selector map from forced (singleton) matches ──
 	const offsetToSelector = new Map<number, string>();
 	const ambiguous = new Set<number>();
+	const trustedOffsets = new Set<number>();
+
+	const recordTrustedOffset = (offset: number, selector: string): void => {
+		const existing = offsetToSelector.get(offset);
+		if (existing === undefined || existing === selector) {
+			offsetToSelector.set(offset, selector);
+			trustedOffsets.add(offset);
+		} else {
+			ambiguous.add(offset);
+		}
+	};
+
+	// ── Pass 1: exact IMP→selector match ──
+	// A method entry's implementation address equals the symbol's address, so this is an
+	// unambiguous pairing even when several methods in the class share an argument count.
+	for (const cls of classesNeedingEnrichment) {
+		const byAddress = symAddressMap.get(cls.name);
+		if (!byAddress) continue;
+		for (const m of cls.methods) {
+			if (m.selector !== "" || m._imp === undefined) continue;
+			const candidates = byAddress
+				.get(m._imp)
+				?.filter((s) => (s.prefix === "+") === !!m._isClassMethod);
+			if (!candidates || candidates.length !== 1) continue;
+			const selector = candidates[0]!.selector;
+			nameMethod(m, selector, !m._isClassMethod);
+			if (m._nameOffset !== undefined) recordTrustedOffset(m._nameOffset, selector);
+		}
+	}
+	for (const off of ambiguous) offsetToSelector.delete(off);
+
+	// ── Pass 2: high-precision offset→selector map from forced (singleton) matches ──
 	for (const cls of classesNeedingEnrichment) {
 		const symMethods = symMethodMap.get(cls.name);
 		if (!symMethods) continue;
@@ -678,7 +724,7 @@ export function enrichMethodsFromSymbols(
 				const sels = symByArgc.get(argc);
 				if (methods.length !== 1 || !sels || sels.length !== 1) continue;
 				const offset = methods[0]!._nameOffset;
-				if (offset === undefined) continue;
+				if (offset === undefined || trustedOffsets.has(offset)) continue;
 				const existing = offsetToSelector.get(offset);
 				if (existing === undefined) offsetToSelector.set(offset, sels[0]!);
 				else if (existing !== sels[0]) ambiguous.add(offset);
@@ -705,7 +751,7 @@ export function enrichMethodsFromSymbols(
 		}
 	}
 
-	// ── Pass 2: per-class argument-count fallback for whatever Pass 1 left unnamed ──
+	// ── Pass 3: per-class argument-count fallback for whatever the first two passes left unnamed ──
 	for (const cls of classesNeedingEnrichment) {
 		const symMethods = symMethodMap.get(cls.name);
 		if (!symMethods) {

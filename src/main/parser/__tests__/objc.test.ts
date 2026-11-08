@@ -843,6 +843,53 @@ describe("objc", () => {
 			_nameOffset: nameOffset
 		});
 
+		it("pairs same-arity methods by implementation address and carries the result to protocols", () => {
+			const encoding = "v48@0:8@16@24@32@40";
+			const classes: ObjCClass[] = [
+				{
+					name: "Foo",
+					methods: [
+						{ selector: "", signature: encoding, _imp: 0x2000n, _nameOffset: 200 },
+						{ selector: "", signature: encoding, _imp: 0x3000n, _nameOffset: 300 }
+					]
+				}
+			];
+			const protocols: ObjCProtocol[] = [
+				{
+					name: "Barable",
+					instanceMethods: [unnamed(encoding, 200)],
+					classMethods: [],
+					optionalInstanceMethods: [],
+					optionalClassMethods: []
+				}
+			];
+			enrichMethodsFromSymbols(
+				classes,
+				[
+					{
+						name: "-[Foo observeValueForKeyPath:ofObject:change:context:]",
+						address: 0x3000n
+					},
+					{
+						name: "-[Foo itemCollection:item:representation:beganDataTransferWithProgress:]",
+						address: 0x2000n
+					}
+				],
+				[],
+				protocols
+			);
+
+			// Argument-count ordering would have swapped these, but the IMP addresses pin
+			// each selector to its method exactly.
+			expect(classes[0]!.methods.map((m) => m.selector)).toEqual([
+				"itemCollection:item:representation:beganDataTransferWithProgress:",
+				"observeValueForKeyPath:ofObject:change:context:"
+			]);
+			expect(protocols[0]!.instanceMethods[0]!.selector).toBe(
+				"itemCollection:item:representation:beganDataTransferWithProgress:"
+			);
+		});
+
 		it("carries a class-recovered selector to a protocol sharing its name offset", () => {
 			const classes: ObjCClass[] = [{ name: "Foo", methods: [unnamed("v24@0:8@16", 100)] }];
 			const protocols: ObjCProtocol[] = [
