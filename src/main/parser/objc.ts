@@ -609,6 +609,78 @@ function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): 
 		: `${isInstance ? "-" : "+"}${selector}`;
 }
 
+function signExtend(value: number, bits: number): number {
+	const sign = 1 << (bits - 1);
+	return value & sign ? value - (1 << bits) : value;
+}
+
+/**
+ * Decode an arm64/arm64e `_objc_msgSend$` stub to the selector reference it loads.
+ * The stubs start with `adrp xN, #page` followed by `ldr xN, [xN, #offset]`.
+ */
+function selrefVmaddrFromStub(
+	view: DataView,
+	stubOffset: number,
+	stubVmaddr: bigint,
+	littleEndian: boolean
+): bigint | null {
+	if (stubOffset + 8 > view.byteLength) return null;
+
+	const adrp = view.getUint32(stubOffset, littleEndian);
+	if ((adrp & 0x9f000000) >>> 0 !== 0x90000000) return null;
+
+	const rd = adrp & 0x1f;
+	const immlo = (adrp >>> 29) & 3;
+	const immhi = (adrp >>> 5) & 0x7ffff;
+	const page = (stubVmaddr & ~0xfffn) + BigInt(signExtend((immhi << 2) | immlo, 21)) * 4096n;
+
+	const ldr = view.getUint32(stubOffset + 4, littleEndian);
+	if ((ldr & 0xffc00000) >>> 0 !== 0xf9400000) return null;
+	if (((ldr >>> 5) & 0x1f) !== rd) return null;
+
+	return page + BigInt((ldr >>> 10) & 0xfff) * 8n;
+}
+
+/**
+ * Build a map from shared-cache selector-pool offsets to selector names.
+ *
+ * In dyld_shared_cache-derived images, relative method-list name offsets index a global
+ * selector pool that isn't present in the extracted file. The `_objc_msgSend$selector`
+ * stubs still reference the same pool through `__objc_selrefs`: each stub loads a selref
+ * whose low 36 bits are the pool offset. Pairing those offsets with the stub's selector
+ * name lets `enrichMethodsFromSymbols` fill method lists that no symbol or sibling method
+ * list names (it derives the per-image pool delta from methods it can already name).
+ */
+export function buildMsgSendSelectorMap(
+	view: DataView,
+	sections: Section64[],
+	segments: Segment64[],
+	symbols: { name: string; address?: bigint }[],
+	littleEndian: boolean,
+	is64Bit: boolean
+): Map<bigint, string> {
+	const map = new Map<bigint, string>();
+	if (!is64Bit) return map;
+
+	const selrefs = sections.find((s) => s.sectname.trim() === "__objc_selrefs");
+	if (!selrefs || selrefs.size === 0n) return map;
+
+	const prefix = "_objc_msgSend$";
+	for (const sym of symbols) {
+		if (!sym.name.startsWith(prefix) || sym.address === undefined) continue;
+		const stubOffset = vmaddrToFileOffset(sym.address, segments);
+		if (stubOffset === null) continue;
+		const selrefVmaddr = selrefVmaddrFromStub(view, stubOffset, sym.address, littleEndian);
+		if (selrefVmaddr === null) continue;
+		const selrefOffset = vmaddrToFileOffset(selrefVmaddr, segments);
+		if (selrefOffset === null || selrefOffset + 8 > view.byteLength) continue;
+		const low = view.getBigUint64(selrefOffset, littleEndian) & 0xfffffffffn;
+		if (low === 0n || map.has(low)) continue;
+		map.set(low, sym.name.slice(prefix.length));
+	}
+	return map;
+}
+
 /**
  * Enrich methods with selector names recovered from the symbol table.
  *
@@ -616,7 +688,7 @@ function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): 
  * offsets point into the cache's global selector pool, which isn't present in an extracted
  * file — so methods arrive with type encodings but empty selectors. ObjC symbols like
  * `-[Class selector:]` carry the names for class methods; protocols and categories carry
- * no symbols of their own. Recovery runs in three passes:
+ * no symbols of their own. Recovery runs in four passes:
  *
  *  1. Exact IMP match. Every method entry records its implementation address, which can
  *     be matched against a `-[Class selector:]` symbol's address. This pairs the method
@@ -629,7 +701,12 @@ function nameMethod(method: ObjCMethod, selector: string, isInstance: boolean): 
  *     classes, with any offset that resolves two ways dropped. The map then fills matching
  *     methods everywhere — classes, categories and protocols — so a selector a class pins
  *     down is carried to the protocol that declares it.
- *  3. Per-class argument-count fallback. Remaining unnamed class methods are matched to
+ *  3. Selector-pool delta. When `selectorPool` is supplied (see `buildMsgSendSelectorMap`),
+ *     the per-image delta between a method's relative name offset and the pool offset is
+ *     recovered from the exact matches from pass 1. Applying it to the remaining offsets
+ *     names protocol methods the classes in this image never implement — e.g. the server
+ *     half of an XPC protocol.
+ *  4. Per-class argument-count fallback. Remaining unnamed class methods are matched to
  *     their leftover symbols by argument count. These are best-effort guesses, so they
  *     stay within the class and are never propagated to protocols or categories.
  *
@@ -639,7 +716,8 @@ export function enrichMethodsFromSymbols(
 	classes: ObjCClass[],
 	symbols: { name: string; address?: bigint }[],
 	categories: ObjCCategory[] = [],
-	protocols: ObjCProtocol[] = []
+	protocols: ObjCProtocol[] = [],
+	selectorPool: Map<bigint, string> = new Map()
 ): void {
 	const classesNeedingEnrichment = classes.filter(
 		(c) => c.methods.length > 0 && c.methods.some((m) => m.selector === "")
@@ -819,7 +897,62 @@ export function enrichMethodsFromSymbols(
 		}
 	}
 
-	// ── Pass 3: per-class argument-count fallback for whatever the first two passes left unnamed ──
+	// ── Pass 3: selector-pool delta ──
+	// `selectorPool` maps shared-cache selector-pool offsets to names (from `_objc_msgSend$`
+	// stubs). A method's `_nameOffset` differs from its pool offset by a constant for the
+	// whole image; derive that delta from pass 1's exact matches, then use it to name methods
+	// that no class in this image implements (notably protocol-only selectors).
+	const poolLowBySelector = new Map<string, bigint>();
+	const duplicatePoolSelectors = new Set<string>();
+	for (const [low, selector] of selectorPool) {
+		if (poolLowBySelector.has(selector)) duplicatePoolSelectors.add(selector);
+		else poolLowBySelector.set(selector, low);
+	}
+	for (const selector of duplicatePoolSelectors) poolLowBySelector.delete(selector);
+
+	const deltaCounts = new Map<bigint, number>();
+	let deltaTotal = 0;
+	for (const offset of trustedOffsets) {
+		const selector = offsetToSelector.get(offset);
+		if (selector === undefined) continue;
+		const low = poolLowBySelector.get(selector);
+		if (low === undefined) continue;
+		const delta = low - BigInt(offset);
+		deltaCounts.set(delta, (deltaCounts.get(delta) ?? 0) + 1);
+		deltaTotal++;
+	}
+
+	let poolDelta: bigint | undefined;
+	let deltaVotes = 0;
+	for (const [delta, count] of deltaCounts) {
+		if (count > deltaVotes) {
+			poolDelta = delta;
+			deltaVotes = count;
+		}
+	}
+
+	if (poolDelta !== undefined && deltaVotes * 10 >= deltaTotal * 9) {
+		const fillFromPool = (m: ObjCMethod, isInstance: boolean): void => {
+			if (m.selector !== "" || m._nameOffset === undefined || m._nameOffset <= 0) return;
+			const selector = selectorPool.get(BigInt(m._nameOffset) + poolDelta);
+			if (selector === undefined) return;
+			// Guard against a bad delta landing on an unrelated selector.
+			if (countArgsFromEncoding(m.signature) !== (selector.match(/:/g) || []).length) return;
+			nameMethod(m, selector, isInstance);
+		};
+		for (const cls of classesNeedingEnrichment)
+			for (const m of cls.methods) fillFromPool(m, !m._isClassMethod);
+		for (const cat of categories)
+			for (const m of cat.methods) fillFromPool(m, !m._isClassMethod);
+		for (const p of protocols) {
+			for (const m of p.instanceMethods) fillFromPool(m, true);
+			for (const m of p.classMethods) fillFromPool(m, false);
+			for (const m of p.optionalInstanceMethods) fillFromPool(m, true);
+			for (const m of p.optionalClassMethods) fillFromPool(m, false);
+		}
+	}
+
+	// ── Pass 4: per-class argument-count fallback for whatever the earlier passes left unnamed ──
 	for (const cls of classesNeedingEnrichment) {
 		const symMethods = symMethodMap.get(cls.name);
 		if (!symMethods) {

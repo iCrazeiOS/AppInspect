@@ -40,6 +40,7 @@ import { parseLoadCommands } from "../parser/load-commands";
 import type { MachOFile } from "../parser/macho";
 import { CPU_TYPE_ARM64, parseFatHeader, parseMachOHeader } from "../parser/macho";
 import {
+	buildMsgSendSelectorMap,
 	describeUnnamedMethod,
 	enrichMethodsFromSymbols,
 	extractObjCMetadata
@@ -482,7 +483,15 @@ export async function analyseBinaryFile(
 	// list left them empty (common with dyld_shared_cache extracted binaries).
 	// Shared-cache protocols and categories carry no symbols; passing them in lets the
 	// selector offsets the recovered class methods resolve flow through to them too.
-	enrichMethodsFromSymbols(classes, rawSymbols, categories, protocolDetails);
+	const msgSendSelectors = buildMsgSendSelectorMap(
+		new DataView(buffer),
+		allSections,
+		lcResult.segments,
+		rawSymbols,
+		machoFile.littleEndian,
+		machoFile.is64Bit
+	);
+	enrichMethodsFromSymbols(classes, rawSymbols, categories, protocolDetails, msgSendSelectors);
 
 	// Step 10c: Size breakdown by segment/section and module
 	if (!options.skipSize) {

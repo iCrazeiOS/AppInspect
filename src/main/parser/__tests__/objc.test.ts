@@ -6,6 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { vmaddrToFileOffset } from "../address";
 import type { Section64, Segment64 } from "../load-commands";
 import {
+	buildMsgSendSelectorMap,
 	describeUnnamedMethod,
 	enrichMethodsFromSymbols,
 	extractObjCMetadata,
@@ -977,6 +978,68 @@ describe("objc", () => {
 			// Offset 100 maps to two different selectors, so it is untrusted: the protocol
 			// method stays unnamed rather than guessing.
 			expect(protocols[0]!.instanceMethods[0]!.selector).toBe("");
+		});
+
+		it("names a protocol-only method from the image's selector-pool delta", () => {
+			const classes: ObjCClass[] = [
+				{
+					name: "Foo",
+					methods: [
+						{ selector: "", signature: "v24@0:8@16", _imp: 0x1000n, _nameOffset: 100 }
+					]
+				}
+			];
+			const protocols: ObjCProtocol[] = [
+				{
+					name: "ServerProtocol",
+					instanceMethods: [unnamed("v24@0:8@16", 2500)],
+					classMethods: [],
+					optionalInstanceMethods: [],
+					optionalClassMethods: []
+				}
+			];
+			// Exact IMP match names `foo:` and pins the delta: pool offset = nameOffset + 10400.
+			// `bar:` is implemented nowhere in this image, only reachable through the pool.
+			const pool = new Map<bigint, string>([
+				[10500n, "foo:"],
+				[12900n, "bar:"]
+			]);
+			enrichMethodsFromSymbols(
+				classes,
+				[{ name: "-[Foo foo:]", address: 0x1000n }],
+				[],
+				protocols,
+				pool
+			);
+
+			expect(classes[0]!.methods[0]!.selector).toBe("foo:");
+			expect(protocols[0]!.instanceMethods[0]!.selector).toBe("bar:");
+			expect(protocols[0]!.instanceMethods[0]!.signature).toBe("-(void)bar:(id)arg0");
+		});
+	});
+
+	describe("buildMsgSendSelectorMap", () => {
+		it("maps the selector-pool offset loaded by an arm64 msgSend stub", () => {
+			const view = new DataView(new ArrayBuffer(0x4000));
+			const segments = [makeSegment("__TEXT", 0x100000000n, 0x4000n, 0n, 0x4000n)];
+			const selrefs = makeSection("__DATA_CONST", "__objc_selrefs", 0x100002000n, 8n, 0x2000);
+
+			// adrp x1, 0x100002000; ldr x1, [x1]
+			view.setUint32(0x1000, 0xb0000001, true);
+			view.setUint32(0x1004, 0xf9400021, true);
+			// Low 36 bits are the shared-cache selector-pool offset.
+			view.setBigUint64(0x2000, 0x1000000001234n, true);
+
+			const map = buildMsgSendSelectorMap(
+				view,
+				[selrefs],
+				segments,
+				[{ name: "_objc_msgSend$bar:", address: 0x100001000n }],
+				true,
+				true
+			);
+
+			expect(map.get(0x1234n)).toBe("bar:");
 		});
 	});
 });
