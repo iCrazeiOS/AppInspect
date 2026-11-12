@@ -2,9 +2,10 @@
    Overview Tab (ov-)
    ══════════════════════════════════════════════ */
 
+/* Columns stay wide enough for a 36-character UUID to fit on one line. */
 .ov-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 16px;
 }
 
