@@ -8,6 +8,7 @@ import {
 	LC_DYLD_CHAINED_FIXUPS,
 	LC_ENCRYPTION_INFO,
 	LC_ENCRYPTION_INFO_64,
+	LC_LINKER_OPTION,
 	LC_LOAD_DYLIB,
 	LC_LOAD_WEAK_DYLIB,
 	LC_SEGMENT,
@@ -700,5 +701,25 @@ describe("parseLoadCommands", () => {
 		// cryptid 0 means unencrypted. security.ts and the renderer both branch
 		// on this exact value, so the unencrypted case needs its own assertion.
 		expect(result.encryption!.cryptid).toBe(0);
+	});
+});
+
+describe("LC_LINKER_OPTION", () => {
+	it("reads the autolink strings an object file requests", () => {
+		const strings = "-framework\0UIKit\0";
+		const cmdsize = Math.ceil((12 + strings.length) / 8) * 8;
+		const buf = new ArrayBuffer(cmdsize);
+		const view = new DataView(buf);
+		view.setUint32(0, LC_LINKER_OPTION, true);
+		view.setUint32(4, cmdsize, true);
+		view.setUint32(8, 2, true);
+		for (let i = 0; i < strings.length; i++) view.setUint8(12 + i, strings.charCodeAt(i));
+
+		const result = parse([buf]);
+		expect(result.loadCommands[0]).toEqual({
+			cmd: LC_LINKER_OPTION,
+			cmdsize,
+			options: ["-framework", "UIKit"]
+		});
 	});
 });

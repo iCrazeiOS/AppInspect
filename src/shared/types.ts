@@ -163,6 +163,13 @@ export interface LCRpath {
 	path: string;
 }
 
+export interface LCLinkerOption {
+	type: "linker_option";
+	cmd: number;
+	cmdsize: number;
+	options: string[];
+}
+
 export interface LCSourceVersion {
 	type: "source_version";
 	cmd: number;
@@ -197,6 +204,7 @@ export type LoadCommand =
 	| LCUUID
 	| LCMain
 	| LCRpath
+	| LCLinkerOption
 	| LCSourceVersion
 	| LCDyldInfo
 	| LCIdDylib

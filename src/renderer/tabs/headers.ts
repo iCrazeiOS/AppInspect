@@ -107,6 +107,8 @@ function lcDetail(lc: LoadCommand): string {
 			return `entry=0x${lc.entryoff.toString(16)}`;
 		case "rpath":
 			return lc.path;
+		case "linker_option":
+			return lc.options.join(" ");
 		case "source_version":
 			return lc.version;
 		case "dyld_info":

@@ -23,6 +23,7 @@ export const LC_LAZY_LOAD_DYLIB = 0x20;
 export const LC_DYLD_INFO = 0x22;
 export const LC_FUNCTION_STARTS = 0x26;
 export const LC_SOURCE_VERSION = 0x2a;
+export const LC_LINKER_OPTION = 0x2d;
 export const LC_ENCRYPTION_INFO = 0x21;
 export const LC_ENCRYPTION_INFO_64 = 0x2c;
 export const LC_BUILD_VERSION = 0x32;
@@ -139,6 +140,13 @@ export interface RpathCommand {
 	path: string;
 }
 
+/** LC_LINKER_OPTION: linker flags an object file requests (autolinking, e.g. `-framework UIKit`) */
+export interface LinkerOptionCommand {
+	cmd: number;
+	cmdsize: number;
+	options: string[];
+}
+
 export interface SourceVersionCommand {
 	cmd: number;
 	cmdsize: number;
@@ -176,6 +184,7 @@ export type LoadCommand =
 	| DysymtabCommand
 	| LinkeditDataCommand
 	| RpathCommand
+	| LinkerOptionCommand
 	| SourceVersionCommand
 	| DyldInfoCommand
 	| GenericLoadCommand;
@@ -658,6 +667,22 @@ export function parseLoadCommands(
 				};
 				result.functionStartsInfo = { offset: fs.dataoff, size: fs.datasize };
 				parsed = fs;
+				break;
+			}
+
+			case LC_LINKER_OPTION: {
+				// count(4) followed by `count` NUL-terminated strings
+				const count = view.getUint32(cursor + 8, le);
+				const options: string[] = [];
+				let at = cursor + 12;
+				const end = Math.min(cursor + cmdsize, view.byteLength);
+				for (let n = 0; n < count && at < end; n++) {
+					const option = readCString(view, at, end - at);
+					options.push(option);
+					at += option.length + 1;
+				}
+				const lo: LinkerOptionCommand = { cmd, cmdsize, options };
+				parsed = lo;
 				break;
 			}
 

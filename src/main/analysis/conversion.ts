@@ -188,6 +188,17 @@ export function convertLoadCommands(lcResult: LoadCommandsResult): SharedLoadCom
 			continue;
 		}
 
+		// LC_LINKER_OPTION
+		if ("options" in lc && Array.isArray(lc.options)) {
+			result.push({
+				type: "linker_option",
+				cmd,
+				cmdsize: lc.cmdsize,
+				options: lc.options
+			});
+			continue;
+		}
+
 		// LC_SOURCE_VERSION
 		if ("version" in lc && typeof lc.version === "bigint") {
 			result.push({
