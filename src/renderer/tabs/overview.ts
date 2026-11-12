@@ -286,7 +286,7 @@ export function renderOverview(
 					`${platformLabel}${variant} · ${lib.architectures.join(", ")}`
 				)
 			);
-			if (!lib.analysable) value.appendChild(buildBadge("Static", "yellow"));
+			if (lib.isStatic) value.appendChild(buildBadge("Static", "yellow"));
 			row.appendChild(value);
 			return row;
 		});

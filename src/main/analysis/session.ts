@@ -54,8 +54,18 @@ import {
 	isMacOSAppBundle
 } from "../ipa/extractor";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
-import { listStaticLibraryMembers, memberArchitectures } from "../static-library/extractor";
-import { discoverXCFramework, findXCFramework, isXCFrameworkPath } from "../xcframework/discovery";
+import {
+	listStaticLibraryMembers,
+	memberArchitectures,
+	type StaticLibraryMember
+} from "../static-library/extractor";
+import {
+	discoverXCFramework,
+	findXCFramework,
+	isXCFrameworkPath,
+	sliceBinaryName,
+	type XCFrameworkSlice
+} from "../xcframework/discovery";
 import type { BinaryAnalysisResult, ScanOptions } from "./binary-pipeline";
 import {
 	analyseBinaryFile,
@@ -363,8 +373,8 @@ export class AnalysisSession {
 	/**
 	 * Bundle contents for the treemap, with the active binary split into its
 	 * modules. XCFrameworks show the active slice's .framework as it would be
-	 * embedded in an app (headers, modules and .tbd stubs excluded); bare
-	 * Mach-O files show just the binary. An Electron app.asar is split into its
+	 * embedded in an app (headers, modules and .tbd stubs excluded), or a
+	 * static-library slice's object files; bare Mach-O files show just the binary. An Electron app.asar is split into its
 	 * packed contents.
 	 */
 	getSizeTree(): SizeTreeNode {
@@ -1244,8 +1254,9 @@ export class AnalysisSession {
 
 	/**
 	 * Analyse an .xcframework — enumerate its platform slices and parse the first
-	 * dynamic one. `sourcePath` is the file the user opened when the framework
-	 * was extracted from a ZIP.
+	 * one. A static-library slice contributes each of its object files as a
+	 * binary. `sourcePath` is the file the user opened when the framework was
+	 * extracted from a ZIP.
 	 */
 	async analyseXCFramework(
 		xcframeworkPath: string,
@@ -1258,20 +1269,51 @@ export class AnalysisSession {
 		// Step 1: Discover slices
 		progressCallback("Discovering slices...", 5);
 		await yieldToEventLoop();
-		const { slices, binaries } = discoverXCFramework(xcframeworkPath);
+		const { slices, analysableSlices } = discoverXCFramework(xcframeworkPath);
+		const binaries: BinaryInfo[] = [];
+		const sliceByBinary = new Map<string, XCFrameworkSlice>();
+		for (const slice of analysableSlices) {
+			const binaryPath = slice.absoluteBinaryPath!;
+			if (!slice.isStatic) {
+				binaries.push({
+					name: sliceBinaryName(slice),
+					path: binaryPath,
+					type: "framework"
+				});
+				sliceByBinary.set(binaryPath, slice);
+				continue;
+			}
+			progressCallback(`Extracting ${path.basename(binaryPath)}...`, 5);
+			await yieldToEventLoop();
+			let members: StaticLibraryMember[] = [];
+			try {
+				members = listStaticLibraryMembers(await extractStaticLibraryToCache(binaryPath));
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[xcframework] ${msg} (at ${binaryPath})`);
+			}
+			for (const member of members) {
+				binaries.push({
+					name: sliceBinaryName(slice, member.name),
+					path: member.path,
+					type: "object"
+				});
+				sliceByBinary.set(member.path, slice);
+			}
+		}
 		this.binaries = binaries;
 		this.searchIndex = null;
 
 		if (binaries.length === 0) {
 			throw new Error(
 				slices.length > 0
-					? "XCFramework contains only static libraries, which are not supported"
+					? "XCFramework slices contain no analysable binaries"
 					: "No binaries found in XCFramework"
 			);
 		}
 
 		const mainBinary = binaries[0]!;
-		const mainSlice = slices.find((s) => s.absoluteBinaryPath === mainBinary.path)!;
+		const mainSlice = sliceByBinary.get(mainBinary.path)!;
 		const libraryDir = fs.statSync(mainSlice.libraryPath).isDirectory()
 			? mainSlice.libraryPath
 			: path.dirname(mainSlice.libraryPath);

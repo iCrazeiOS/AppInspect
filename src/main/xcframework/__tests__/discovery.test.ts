@@ -119,7 +119,7 @@ describe("discoverXCFramework", () => {
 		expect(discoverXCFramework(xcf).binaries).toHaveLength(1);
 	});
 
-	it("lists static libraries (thin and universal) but does not offer them for analysis", () => {
+	it("flags static libraries (thin and universal) for member extraction", () => {
 		const xcf = buildXCFramework(
 			makeTempDir(),
 			[
@@ -131,9 +131,14 @@ describe("discoverXCFramework", () => {
 				"ios-arm64_x86_64-simulator/libKit.a": fatStaticLib()
 			}
 		);
-		const { slices, binaries } = discoverXCFramework(xcf);
+		const { slices, analysableSlices, binaries } = discoverXCFramework(xcf);
 		expect(slices).toHaveLength(2);
-		expect(slices.every((s) => !s.analysable)).toBe(true);
+		expect(slices.every((s) => s.analysable && s.isStatic)).toBe(true);
+		expect(analysableSlices.map((s) => s.identifier)).toEqual([
+			"ios-arm64",
+			"ios-arm64_x86_64-simulator"
+		]);
+		// Static slices are expanded into their object files by the session
 		expect(binaries).toEqual([]);
 	});
 

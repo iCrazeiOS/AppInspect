@@ -14,8 +14,10 @@ export interface XCFrameworkLibrary {
 	architectures: string[];
 	/** Path to the slice binary relative to the slice directory */
 	binaryPath: string;
-	/** False for static libraries, which are listed but not analysed */
+	/** False when the slice's binary is missing or neither a Mach-O image nor a static library */
 	analysable: boolean;
+	/** True when the slice ships a static library (an archive of object files) */
+	isStatic?: boolean;
 }
 
 /** DEB package control metadata */

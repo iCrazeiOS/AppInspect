@@ -3,8 +3,8 @@
  *
  * Reads an .xcframework's Info.plist (AvailableLibraries) to enumerate its
  * platform slices and resolve each slice's binary. Dynamic slices become
- * selectable binaries; static libraries (ar archives) are listed but skipped,
- * since the analysis pipeline only parses Mach-O.
+ * selectable binaries directly; static-library slices are flagged so the
+ * session can extract their object files first.
  */
 
 import * as fs from "node:fs";
@@ -14,6 +14,7 @@ import type { XCFrameworkLibrary } from "../../shared/types";
 import type { BinaryInfo } from "../ipa/extractor";
 import { isMachOFile, parseFatHeader } from "../parser/macho";
 import { parsePlistBuffer } from "../parser/plist";
+import { isStaticLibraryFile } from "../static-library/extractor";
 import { safeJoin } from "../util/safe-path";
 
 export interface XCFrameworkSlice extends XCFrameworkLibrary {
@@ -25,8 +26,16 @@ export interface XCFrameworkSlice extends XCFrameworkLibrary {
 
 export interface XCFrameworkContents {
 	slices: XCFrameworkSlice[];
-	/** Analysable slices, device builds first, named "<library> (<identifier>)" */
+	/** Analysable slices (dynamic and static), device builds first */
+	analysableSlices: XCFrameworkSlice[];
+	/** Dynamic slices' binaries, device builds first, named by `sliceBinaryName` */
 	binaries: BinaryInfo[];
+}
+
+/** Display name for a slice's binary, or a member of it: "<name> (<identifier>)". */
+export function sliceBinaryName(slice: XCFrameworkSlice, member?: string): string {
+	const name = member ?? path.basename(slice.libraryPath, path.extname(slice.libraryPath));
+	return `${name} (${slice.identifier})`;
 }
 
 /** True when `dirPath` is an .xcframework directory (extension match, case-insensitive). */
@@ -127,6 +136,7 @@ export function discoverXCFramework(xcframeworkPath: string): XCFrameworkContent
 		if (!libAbs || !binAbs) continue;
 
 		const exists = fs.existsSync(binAbs) && fs.statSync(binAbs).isFile();
+		const isStatic = exists && isStaticLibraryFile(binAbs);
 		slices.push({
 			identifier,
 			platform: typeof raw.SupportedPlatform === "string" ? raw.SupportedPlatform : "",
@@ -138,7 +148,8 @@ export function discoverXCFramework(xcframeworkPath: string): XCFrameworkContent
 				? raw.SupportedArchitectures.filter((a): a is string => typeof a === "string")
 				: [],
 			binaryPath,
-			analysable: exists && isAnalysableBinary(binAbs),
+			analysable: isStatic || (exists && isAnalysableBinary(binAbs)),
+			isStatic,
 			libraryPath: libAbs,
 			absoluteBinaryPath: exists ? binAbs : null
 		});
@@ -149,13 +160,10 @@ export function discoverXCFramework(xcframeworkPath: string): XCFrameworkContent
 		...slices.filter((s) => !s.platformVariant),
 		...slices.filter((s) => s.platformVariant)
 	];
-	const binaries: BinaryInfo[] = ordered
-		.filter((s) => s.analysable)
-		.map((s) => ({
-			name: `${path.basename(s.libraryPath, path.extname(s.libraryPath))} (${s.identifier})`,
-			path: s.absoluteBinaryPath!,
-			type: "framework"
-		}));
+	const analysableSlices = ordered.filter((s) => s.analysable);
+	const binaries: BinaryInfo[] = analysableSlices
+		.filter((s) => !s.isStatic)
+		.map((s) => ({ name: sliceBinaryName(s), path: s.absoluteBinaryPath!, type: "framework" }));
 
-	return { slices, binaries };
+	return { slices, analysableSlices, binaries };
 }
