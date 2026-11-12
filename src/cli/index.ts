@@ -241,7 +241,9 @@ async function main(argv: string[]): Promise<number> {
 		}
 		fs.writeFileSync(options.out, text);
 	} else {
-		process.stdout.write(text);
+		// Wait until the output is handed off: the caller exits the process
+		// right after, which would otherwise cut a large write to a pipe short.
+		await new Promise<void>((resolve) => process.stdout.write(text, () => resolve()));
 	}
 
 	if (
