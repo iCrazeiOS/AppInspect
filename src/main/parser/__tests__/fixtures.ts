@@ -337,3 +337,50 @@ export function buildObjectFile(opts: {
 
 	return { buffer, sectionAddrs };
 }
+
+// ── ar archive builder ────────────────────────────────────────────────
+
+export interface ArMemberSpec {
+	/** Raw header name (e.g. "foo.o", "foo.o/", "//", "/0"), or the long name for `bsd` */
+	name: string;
+	data: string | Uint8Array;
+	/** "bsd" stores the name as `#1/<len>` ahead of the data */
+	style?: "plain" | "bsd";
+}
+
+/** Build an ar archive (as written by `ar`/`libtool`), padding members to even offsets. */
+export function arArchive(members: ArMemberSpec[]): Uint8Array {
+	const parts: Uint8Array[] = [new TextEncoder().encode("!<arch>\n")];
+	for (const member of members) {
+		const data =
+			typeof member.data === "string" ? new TextEncoder().encode(member.data) : member.data;
+		let name = member.name;
+		let body = data;
+		if (member.style === "bsd") {
+			const nameBytes = new TextEncoder().encode(member.name);
+			const padded = new Uint8Array(Math.ceil((nameBytes.length + 1) / 4) * 4);
+			padded.set(nameBytes);
+			body = new Uint8Array(padded.length + data.length);
+			body.set(padded);
+			body.set(data, padded.length);
+			name = `#1/${padded.length}`;
+		}
+		const header =
+			name.padEnd(16) +
+			"0".padEnd(12) +
+			"0".padEnd(6) +
+			"0".padEnd(6) +
+			"644".padEnd(8) +
+			String(body.length).padEnd(10) +
+			"`\n";
+		parts.push(new TextEncoder().encode(header), body);
+		if (body.length % 2 !== 0) parts.push(new TextEncoder().encode("\n"));
+	}
+	const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+	let offset = 0;
+	for (const p of parts) {
+		out.set(p, offset);
+		offset += p.length;
+	}
+	return out;
+}

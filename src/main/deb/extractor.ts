@@ -16,6 +16,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DEBControlInfo } from "../../shared/types";
+import { type ArMember, parseArArchive } from "../parser/ar";
 import { isMachOFile } from "../parser/macho";
 import { removeEscapingSymlinks, safeJoin } from "../util/safe-path";
 
@@ -40,52 +41,20 @@ export interface DEBExtractionError {
 
 // ── AR archive parsing ─────────────────────────────────────────────
 
-const AR_MAGIC = "!<arch>\n";
-const AR_HEADER_SIZE = 60;
+/**
+ * List the package's ar members. Debian member names are flat: listing stops at the
+ * first name with a separator or traversal component.
+ */
+function parseARMembers(buf: Buffer): ArMember[] {
+	const parsed = parseArArchive(buf);
+	if (!parsed.ok) throw new Error("Not a valid ar archive (bad magic)");
 
-interface ARMember {
-	name: string;
-	size: number;
-	offset: number; // offset of data in the buffer
-}
-
-function parseARMembers(buf: Buffer): ARMember[] {
-	const magic = buf.toString("ascii", 0, 8);
-	if (magic !== AR_MAGIC) {
-		throw new Error("Not a valid ar archive (bad magic)");
+	const members: ArMember[] = [];
+	for (const member of parsed.data) {
+		const { name } = member;
+		if (name === "" || name.includes("/") || name.includes("\\") || name.includes("..")) break;
+		members.push(member);
 	}
-
-	const members: ARMember[] = [];
-	let pos = 8;
-
-	while (pos + AR_HEADER_SIZE <= buf.length) {
-		const name = buf
-			.toString("ascii", pos, pos + 16)
-			.trim()
-			.replace(/\/$/, "");
-		const sizeStr = buf.toString("ascii", pos + 48, pos + 58).trim();
-		const endMarker = buf.toString("ascii", pos + 58, pos + 60);
-
-		// Debian member names are flat: reject separators and traversal outright.
-		if (name === "" || name.includes("/") || name.includes("\\") || name.includes("..")) {
-			break; // Unsafe member name, stop
-		}
-
-		if (endMarker !== "`\n") {
-			break; // Invalid header, stop
-		}
-
-		const size = parseInt(sizeStr, 10);
-		if (Number.isNaN(size)) break;
-
-		const dataOffset = pos + AR_HEADER_SIZE;
-		members.push({ name, size, offset: dataOffset });
-
-		// Next member is aligned to 2-byte boundary
-		pos = dataOffset + size;
-		if (pos % 2 !== 0) pos++;
-	}
-
 	return members;
 }
 
