@@ -99,20 +99,30 @@ function bundleDirs(): string[] {
 	const addFile = (file: string | null | undefined) => {
 		if (file) dirs.push(path.dirname(file));
 	};
+	const entry = entryArgument();
 	addFile(requireMainFilename());
 	addFile(metaFilename());
-	addFile(process.argv[1]);
+	addFile(entry);
 
 	const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
 	if (typeof resourcesPath === "string") {
 		dirs.push(path.join(resourcesPath, "app.asar", "dist", "main"));
 		dirs.push(path.join(resourcesPath, "app", "dist", "main"));
 	}
-	if (process.argv[1]) {
-		dirs.push(path.join(process.argv[1], "dist", "main"));
+	if (entry) {
+		dirs.push(path.join(entry, "dist", "main"));
 	}
 
 	return [...new Set(dirs)];
+}
+
+/**
+ * The script or app directory the runtime was started with. Usually argv[1], but
+ * runtime flags can precede it (Electron launched with `--inspect=0 <app>`).
+ */
+function entryArgument(): string | null {
+	const arg = process.argv.slice(1).find((a) => !a.startsWith("-"));
+	return arg ? path.resolve(arg) : null;
 }
 
 function requireMainFilename(): string | null {
