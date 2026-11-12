@@ -97,6 +97,8 @@ When adding new features or modifying analysis logic, add or update correspondin
 
 When adding a significant user-facing feature (new tab, new MCP tool, major capability), update `README.md` to document it. Small additions that most users wouldn't care about should not be in the README just for the sake of it.
 
+Treat the README as a description of the product at any point in time, not a changelog. Fold new items into the existing prose and lists at the same level of detail as comparable features — don't add "new", "now supports", "including the new X", dedicated examples, or extra explanation just because it is the change you made. A reader with no knowledge of release history should not be able to tell which part is newest.
+
 ## Pre-commit hook
 
 Husky runs Biome auto-fix, re-stages changes, then runs `bun run check && bun run typecheck && bun test` before every commit. Auto-fixable issues are corrected automatically; unfixable lint errors will fail the commit. Do not bypass with `--no-verify`.
