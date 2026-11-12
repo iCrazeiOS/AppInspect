@@ -58,7 +58,7 @@ export class UsageError extends Error {}
 const USAGE = `Usage: appinspect <file-or-folder> [options]
 
 Analyse an iOS/macOS binary (IPA, DEB, .app bundle, .xcframework, Mach-O, dylib, or
-static library), or scan a folder for binaries and .deb packages.
+static library), or scan a folder for binaries, static libraries and .deb packages.
 
 Options:
   --json                Emit the full analysis as JSON (default)

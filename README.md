@@ -15,7 +15,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
 - **Static library (`.a`)** — extracts the archive's object files (thin or universal) and lets you switch between them; relocations are applied so classes, Swift types, conformances and string references resolve as in a linked binary
 - **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices and the object files of static-library slices
-- **Folder** — scans any directory for Mach-O binaries (extensionless executables, dylibs, and binaries inside `.app`/`.framework` bundles) and extracts any `.deb` packages found inside; every discovered binary is selectable
+- **Folder** — scans any directory for Mach-O binaries (extensionless executables, dylibs, and binaries inside `.app`/`.framework` bundles) and extracts any `.deb` packages and static libraries found inside; every discovered binary is selectable
 
 File type is detected automatically by magic bytes.
 

@@ -4,7 +4,8 @@
  * Walks a plain directory and collects every Mach-O binary it contains. App
  * and framework bundles are traversed as ordinary directories, so their main
  * executables, embedded dylibs and frameworks all surface. `.deb` and `.ipa`
- * archives are extracted to the cache first, then their binaries are added too.
+ * archives and static libraries (`.a`, or a static framework's binary) are
+ * extracted to the cache first, then their binaries are added too.
  */
 
 import * as fs from "node:fs";
@@ -13,8 +14,10 @@ import { extractDEB } from "../deb/extractor";
 import type { BinaryInfo } from "../ipa/extractor";
 import { discoverAppBundle, discoverBinaries, extractIPA } from "../ipa/extractor";
 import { isMachOFile } from "../parser/macho";
+import { isStaticLibraryFile, listStaticLibraryMembers } from "../static-library/extractor";
 import { yieldToEventLoop } from "./binary-pipeline";
 import { extractToCache, getCacheDir } from "./cache";
+import { extractStaticLibraryToCache } from "./containers/shared";
 
 /** Directories that never contain useful Mach-O binaries. */
 const SKIPPED_DIRS = new Set([".git", ".hg", ".svn", "node_modules", "_CodeSignature", "__MACOSX"]);
@@ -95,9 +98,25 @@ async function discoverIpaBinaries(ipaPath: string, root: string): Promise<Binar
 	}));
 }
 
+/** Extract a static library and return its object files named relative to the folder. */
+async function discoverStaticLibraryMembers(libPath: string, root: string): Promise<BinaryInfo[]> {
+	let cacheDir: string;
+	try {
+		cacheDir = await extractStaticLibraryToCache(libPath);
+	} catch {
+		return [];
+	}
+	const libName = relativeName(root, libPath);
+	return listStaticLibraryMembers(cacheDir).map((m) => ({
+		name: `${libName}/${m.name}`,
+		path: m.path,
+		type: "object"
+	}));
+}
+
 /**
  * Find every analysable Mach-O binary under `rootPath`, including binaries
- * inside `.deb` and `.ipa` archives. Names are paths relative to the folder, so
+ * inside `.deb` and `.ipa` archives and object files inside static libraries. Names are paths relative to the folder, so
  * binaries with the same basename remain distinguishable in the selector.
  */
 export async function discoverFolderBinaries(
@@ -108,6 +127,7 @@ export async function discoverFolderBinaries(
 	const seenRealPaths = new Set<string>();
 	const debPaths: string[] = [];
 	const ipaPaths: string[] = [];
+	const staticLibPaths: string[] = [];
 
 	async function walk(dir: string): Promise<void> {
 		let entries: fs.Dirent[];
@@ -136,6 +156,12 @@ export async function discoverFolderBinaries(
 			}
 			if (ext === ".ipa" || ext === ".tipa") {
 				ipaPaths.push(fullPath);
+				continue;
+			}
+			// A static framework's binary is extensionless like an executable,
+			// and a universal one even shares the fat Mach-O magic.
+			if ((ext === "" || ext === ".a") && isStaticLibraryFile(fullPath)) {
+				staticLibPaths.push(fullPath);
 				continue;
 			}
 			// Mach-O executables are often extensionless; .dylib is the other
@@ -175,6 +201,18 @@ export async function discoverFolderBinaries(
 		);
 		await yieldToEventLoop();
 		for (const binary of await discoverIpaBinaries(ipaPath, rootPath)) {
+			addBinary(binaries, seenRealPaths, binary.name, binary.path, binary.type);
+		}
+	}
+
+	for (let i = 0; i < staticLibPaths.length; i++) {
+		const libPath = staticLibPaths[i]!;
+		progressCallback(
+			`Extracting ${path.basename(libPath)}...`,
+			20 + Math.round((i / staticLibPaths.length) * 10)
+		);
+		await yieldToEventLoop();
+		for (const binary of await discoverStaticLibraryMembers(libPath, rootPath)) {
 			addBinary(binaries, seenRealPaths, binary.name, binary.path, binary.type);
 		}
 	}

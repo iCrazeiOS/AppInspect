@@ -155,7 +155,7 @@ server.registerTool(
 		description:
 			"Analyse an iOS/macOS input: an IPA, Mach-O, DEB, .app bundle, .xcframework, " +
 			"static library (.a; each object file becomes a binary), " +
-			"or a folder (scanned for Mach-O binaries and .deb packages). " +
+			"or a folder (scanned for Mach-O binaries, static libraries and .deb packages). " +
 			"A macOS Electron .app is analysed down to its app.asar archive too " +
 			"(use list_asar and read_asar_file for its files). " +
 			"Must be called before any other tool. Returns an overview summary " +

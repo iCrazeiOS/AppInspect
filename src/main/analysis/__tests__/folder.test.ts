@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { zipSync } from "fflate";
-import { buildMachHeader64 } from "../../parser/__tests__/fixtures";
+import { arArchive, buildMachHeader64, buildObjectFile } from "../../parser/__tests__/fixtures";
 import { getCacheDir } from "../cache";
 import { detectFileType } from "../file-type";
 import { discoverFolderBinaries } from "../folder";
@@ -120,6 +120,25 @@ describe("discoverFolderBinaries", () => {
 
 		expect(names).toContain("Sample.ipa/TestApp");
 		expect(names).toContain("Sample.ipa/Kit");
+	});
+
+	it("extracts static libraries, including a static framework's binary", async () => {
+		const root = makeTempDir();
+		const object = Buffer.from(
+			buildObjectFile({
+				sections: [{ segname: "__TEXT", sectname: "__text", data: new Uint8Array(4) }]
+			}).buffer
+		);
+		const lib = Buffer.from(arArchive([{ name: "Member.o", data: object }]));
+		const archive = write(root, "libs/libKit.a", lib);
+		const framework = write(root, "Static.framework/Static", lib);
+		cacheDirs.push(getCacheDir(archive), getCacheDir(framework));
+
+		const binaries = await discoverFolderBinaries(root, noop);
+		expect(binaries.map((b) => [b.name, b.type])).toEqual([
+			["libs/libKit.a/Member.o", "object"],
+			["Static.framework/Static/Member.o", "object"]
+		]);
 	});
 
 	it("returns an empty list when the folder has no binaries", async () => {
