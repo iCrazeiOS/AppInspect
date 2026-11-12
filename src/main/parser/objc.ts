@@ -16,7 +16,7 @@
  * fixup bind map's `_OBJC_CLASS_$_` imports when they live in another image.
  */
 
-import { vmaddrToFileOffset } from "./address";
+import { vmaddrToFileBackedOffset, vmaddrToFileOffset } from "./address";
 import type { Section64, Segment64 } from "./load-commands";
 import { readCString } from "./load-commands";
 
@@ -1281,11 +1281,12 @@ function parseIvarList(
 		const entryOffset = entriesStart + i * entrySize;
 		if (entryOffset + entrySize > view.byteLength) break;
 
-		// offset_ptr points to a 4-byte slot holding the ivar's byte offset.
+		// offset_ptr points to a 4-byte slot holding the ivar's byte offset. Swift
+		// classes keep the slot in zerofill storage that the runtime fills in.
 		let offset = 0;
 		const offsetVmaddr = resolvePointer(view, entryOffset, rebaseMap, le, segments, is64Bit);
 		if (offsetVmaddr !== 0n) {
-			const offsetFileOffset = vmaddrToFileOffset(offsetVmaddr, segments);
+			const offsetFileOffset = vmaddrToFileBackedOffset(offsetVmaddr, segments);
 			if (offsetFileOffset !== null && offsetFileOffset + 4 <= view.byteLength) {
 				offset = view.getUint32(offsetFileOffset, le);
 			}

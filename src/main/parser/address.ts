@@ -16,3 +16,17 @@ export function vmaddrToFileOffset(vmaddr: bigint, segments: Segment64[]): numbe
 	}
 	return null;
 }
+
+/**
+ * Like `vmaddrToFileOffset`, but null when the address lies past the segment's file
+ * data — zerofill storage such as `__bss` and `__common`, which holds zero on disk.
+ */
+export function vmaddrToFileBackedOffset(vmaddr: bigint, segments: Segment64[]): number | null {
+	for (const seg of segments) {
+		if (vmaddr >= seg.vmaddr && vmaddr < seg.vmaddr + seg.vmsize) {
+			const delta = vmaddr - seg.vmaddr;
+			return delta < seg.filesize ? Number(delta) + Number(seg.fileoff) : null;
+		}
+	}
+	return null;
+}
