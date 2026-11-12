@@ -4,7 +4,7 @@
  * middle, and a member detail sidebar on the right.
  */
 
-import { EmptyState, SearchBar } from "../components";
+import { SearchBar } from "../components";
 import { showToast } from "../components/toast";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
@@ -13,7 +13,9 @@ import {
 	binaryTypeBadge,
 	buildShowAllLink,
 	createCrossBinaryState,
-	doCrossBinarySearch
+	doCrossBinarySearch,
+	mountEmptyBinaryState,
+	showAllAcrossBinaries
 } from "../utils/cross-binary-search";
 import { formatCount, plural } from "../utils/format";
 import { highlightLogos, highlightObjCMethod } from "../utils/highlight";
@@ -99,23 +101,28 @@ export function renderObjC(
 	container: HTMLElement,
 	data: ObjCData | null,
 	binaryCount: number = 1,
-	sessionId: string = ""
+	sessionId: string = "",
+	browseAllBinaries = false
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container");
 
-	const objcData = data;
-	if (
-		!objcData ||
-		(!objcData.classes?.length && !objcData.categories?.length && !objcData.protocols?.length)
-	) {
-		const empty = new EmptyState({
+	const objcData: ObjCData = data ?? {
+		classes: [],
+		categories: [],
+		protocols: [],
+		protocolDetails: []
+	};
+	const isEmpty =
+		!objcData.classes?.length && !objcData.categories?.length && !objcData.protocols?.length;
+	if (isEmpty && !(browseAllBinaries && binaryCount > 1)) {
+		mountEmptyBinaryState(container, {
 			icon: "\u{1F3D7}",
-			message:
-				"No Objective-C classes, categories, or protocols defined in this binary. " +
-				"Hook tweaks that only call into existing classes define none of their own."
+			message: "No Objective-C classes, categories or protocols in this binary.",
+			binaryCount,
+			label: "classes",
+			onBrowseAll: () => renderObjC(container, data, binaryCount, sessionId, true)
 		});
-		empty.mount(container);
 		return;
 	}
 
@@ -189,7 +196,9 @@ export function renderObjC(
 		formatCount(totalMethods, "method"),
 		formatCount(allProtocols.length, "protocol")
 	];
-	stats.textContent = statParts.join(" \u00B7 ");
+	stats.textContent = isEmpty
+		? `Classes from all ${formatCount(binaryCount, "binary", "binaries")} \u00B7 this binary defines none`
+		: statParts.join(" \u00B7 ");
 	statsBar.appendChild(stats);
 
 	const exportBtn = document.createElement("button");
@@ -215,7 +224,8 @@ export function renderObjC(
 			exportBtn.disabled = false;
 		}
 	});
-	statsBar.appendChild(exportBtn);
+	// Nothing in this binary to write headers for
+	if (!isEmpty) statsBar.appendChild(exportBtn);
 
 	// Navigation functions
 	function updateNavButtons(): void {
@@ -361,7 +371,14 @@ export function renderObjC(
 	registerSearchBar(sessionId, "objc", searchBar);
 	searchBar.updateCount(filteredClasses.length, allClasses.length);
 
-	addAllBinariesToggle(searchBar, binaryCount, xbin, () => {
+	// Browsing from the empty state: open with every binary's classes listed
+	if (isEmpty) xbin.active = true;
+	addAllBinariesToggle(searchBar, binaryCount, xbin, (active) => {
+		// Nothing of its own to fall back to: return to the empty state
+		if (!active && isEmpty) {
+			renderObjC(container, data, binaryCount, sessionId);
+			return;
+		}
 		const t = searchBar.getValue();
 		searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
 	});
@@ -1749,4 +1766,10 @@ export function renderObjC(
 	renderList();
 	renderDetail();
 	renderSidebar();
+	if (isEmpty && !searchBar.getValue()) {
+		showAllAcrossBinaries(sessionId, "objc", xbin, () => {
+			searchBar.updateCount(xbin.results.length, xbin.results.length);
+			renderList();
+		});
+	}
 }

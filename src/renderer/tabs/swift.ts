@@ -10,7 +10,7 @@ import type {
 	SwiftType,
 	SwiftTypeKind
 } from "../../shared/types";
-import { EmptyState, SearchBar } from "../components";
+import { SearchBar } from "../components";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { copyText } from "../utils/clipboard";
 import {
@@ -18,7 +18,9 @@ import {
 	binaryTypeBadge,
 	buildShowAllLink,
 	createCrossBinaryState,
-	doCrossBinarySearch
+	doCrossBinarySearch,
+	mountEmptyBinaryState,
+	showAllAcrossBinaries
 } from "../utils/cross-binary-search";
 import { formatCount, plural } from "../utils/format";
 import { initPanelResize } from "../utils/panel-resize";
@@ -73,22 +75,34 @@ function countByKind(types: SwiftType[], kind: SwiftTypeKind): number {
 
 export function renderSwift(
 	container: HTMLElement,
-	data: SwiftMetadata | null,
+	metadata: SwiftMetadata | null,
 	sessionId: string,
 	binary?: BinaryInfo,
-	binaryCount: number = 1
+	binaryCount: number = 1,
+	browseAllBinaries = false
 ): void {
 	container.innerHTML = "";
 	container.classList.add("cls-container", "swift-container");
 
-	if (!data?.present || (data.types.length === 0 && data.protocols.length === 0)) {
-		const empty = new EmptyState({
+	const data: SwiftMetadata = metadata ?? {
+		types: [],
+		protocols: [],
+		conformances: [],
+		present: false,
+		unresolvedConformances: 0
+	};
+	const isEmpty = data.types.length === 0 && data.protocols.length === 0;
+	if (isEmpty && !(browseAllBinaries && binaryCount > 1)) {
+		mountEmptyBinaryState(container, {
 			icon: "\u{1F9E9}",
-			message: data?.present
-				? "Swift metadata sections are present, but no types or protocols were decoded."
-				: "No Swift metadata found. This binary may be Objective-C/C++ only, or built without Swift reflection metadata."
+			message: data.present
+				? "Swift metadata sections are present in this binary, but no types or protocols were decoded."
+				: "No Swift types or protocols in this binary.",
+			binaryCount,
+			label: "Swift types",
+			onBrowseAll: () =>
+				renderSwift(container, metadata, sessionId, binary, binaryCount, true)
 		});
-		empty.mount(container);
 		pendingSwiftSelect = null;
 		return;
 	}
@@ -133,13 +147,14 @@ export function renderSwift(
 	const stats = document.createElement("div");
 	stats.className = "cls-stats";
 	const external = data.unresolvedConformances;
-	stats.textContent =
-		`${formatCount(allTypes.length, "type")} \u00B7 ` +
-		`${formatCount(countByKind(allTypes, "class"), "class", "classes")} \u00B7 ` +
-		`${formatCount(countByKind(allTypes, "struct"), "struct")} \u00B7 ` +
-		`${formatCount(countByKind(allTypes, "enum"), "enum")} \u00B7 ` +
-		`${formatCount(data.protocols.length, "protocol")} \u00B7 ` +
-		`${formatCount(allConformances.length, "conformance")}`;
+	stats.textContent = isEmpty
+		? `Swift types from all ${formatCount(binaryCount, "binary", "binaries")} \u00B7 this binary defines none`
+		: `${formatCount(allTypes.length, "type")} \u00B7 ` +
+			`${formatCount(countByKind(allTypes, "class"), "class", "classes")} \u00B7 ` +
+			`${formatCount(countByKind(allTypes, "struct"), "struct")} \u00B7 ` +
+			`${formatCount(countByKind(allTypes, "enum"), "enum")} \u00B7 ` +
+			`${formatCount(data.protocols.length, "protocol")} \u00B7 ` +
+			`${formatCount(allConformances.length, "conformance")}`;
 	if (external > 0) {
 		stats.title = `${formatCount(external, "additional conformance record")} ${
 			external === 1 ? "references" : "reference"
@@ -215,7 +230,14 @@ export function renderSwift(
 	searchBar.mount(leftPanel);
 	registerSearchBar(sessionId, "swift", searchBar);
 
+	// Browsing from the empty state: open with every binary's types listed
+	if (isEmpty) xbin.active = true;
 	addAllBinariesToggle(searchBar, binaryCount, xbin, (active) => {
+		// Nothing of its own to fall back to: return to the empty state
+		if (!active && isEmpty) {
+			renderSwift(container, metadata, sessionId, binary, binaryCount);
+			return;
+		}
 		updateFilterBarDisabled();
 		if (!active) selectedIndex = selectedType ? filteredTypes.indexOf(selectedType) : -1;
 		else selectedIndex = -1;
@@ -933,6 +955,14 @@ export function renderSwift(
 
 	renderList();
 	renderDetail();
+	if (isEmpty && !searchBar.getValue()) {
+		updateFilterBarDisabled();
+		showAllAcrossBinaries(sessionId, "swift", xbin, () => {
+			if (!xbin.active) return;
+			searchBar.updateCount(xbin.results.length, xbin.results.length);
+			renderList();
+		});
+	}
 
 	// Pending selection from a cross-binary click on a different binary.
 	if (pendingSwiftSelect) {

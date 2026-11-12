@@ -4,7 +4,8 @@
  */
 
 import type { CrossBinarySearchResult, SearchableTab } from "../../shared/ipc-types";
-import type { SearchBar } from "../components";
+import { EmptyState, type SearchBar } from "../components";
+import { formatCount } from "./format";
 
 export interface CrossBinaryState {
 	active: boolean;
@@ -35,6 +36,7 @@ export function addAllBinariesToggle(
 	const btn = document.createElement("button");
 	btn.textContent = "All";
 	btn.title = "Search across all binaries and frameworks";
+	btn.classList.toggle("sb-extra-toggle--active", state.active);
 	btn.addEventListener("click", () => {
 		state.active = !state.active;
 		btn.classList.toggle("sb-extra-toggle--active", state.active);
@@ -105,7 +107,7 @@ export function buildShowAllLink(
 	link.href = "#";
 	link.addEventListener("click", (e) => {
 		e.preventDefault();
-		doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
+		showAllAcrossBinaries(sessionId, tab, state, onResults);
 	});
 	return link;
 }
@@ -168,4 +170,42 @@ export function updateCrossBinaryHint(
 	} else {
 		hint.style.display = "none";
 	}
+}
+
+/**
+ * Empty state for a tab whose active binary has nothing to list. When the
+ * container holds other binaries it offers to browse all of them instead of
+ * leaving a dead end; `onBrowseAll` re-renders the tab in all-binaries mode.
+ */
+export function mountEmptyBinaryState(
+	container: HTMLElement,
+	options: {
+		icon: string;
+		message: string;
+		binaryCount: number;
+		/** What gets listed, e.g. "classes" → "Browse classes in all 3 binaries" */
+		label: string;
+		onBrowseAll: () => void;
+	}
+): void {
+	const { icon, message, binaryCount, label, onBrowseAll } = options;
+	const others = binaryCount > 1;
+	new EmptyState({
+		icon,
+		message: others ? `${message} Other binaries in this file may define some.` : message,
+		...(others && {
+			actionLabel: `Browse ${label} in all ${formatCount(binaryCount, "binary", "binaries")}`,
+			onAction: onBrowseAll
+		})
+	}).mount(container);
+}
+
+/** List every entry across binaries, as the "Show all" link does. */
+export function showAllAcrossBinaries(
+	sessionId: string,
+	tab: SearchableTab,
+	state: CrossBinaryState,
+	onResults: () => void
+): void {
+	doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
 }
