@@ -196,6 +196,9 @@ export interface ObjectRelocSpec {
 	pcrel?: boolean;
 	/** Defaults to true */
 	extern?: boolean;
+	/** Scattered entry (32-bit objects): `value` is the target address */
+	scattered?: boolean;
+	value?: number;
 }
 
 export interface ObjectSectionSpec {
@@ -220,22 +223,26 @@ export const N_EXT = 0x01;
 export const N_SECT = 0x0e;
 
 /**
- * Build a little-endian 64-bit relocatable object: one LC_SEGMENT_64 holding every
- * section (laid out back to back from address 0, 16-byte aligned) plus LC_SYMTAB.
- * Section file offsets track their addresses linearly, as an assembler lays them out.
- * Returns the buffer and each section's address so tests can compute expectations.
+ * Build a little-endian relocatable object: one LC_SEGMENT(_64) holding every section
+ * (laid out back to back from address 0, 16-byte aligned) plus LC_SYMTAB. Section file
+ * offsets track their addresses linearly, as an assembler lays them out. 64-bit unless
+ * `bits32` is set. Returns the buffer and each section's address for expectations.
  */
 export function buildObjectFile(opts: {
 	cputype?: number;
 	cpusubtype?: number;
+	bits32?: boolean;
 	sections: ObjectSectionSpec[];
 	symbols?: ObjectSymbolSpec[];
 }): { buffer: ArrayBuffer; sectionAddrs: number[] } {
 	const sections = opts.sections;
 	const symbols = opts.symbols ?? [];
-	const segCmdSize = 72 + 80 * sections.length;
+	const is32 = opts.bits32 === true;
+	const headerSize = is32 ? 28 : 32;
+	const segCmdSize = is32 ? 56 + 68 * sections.length : 72 + 80 * sections.length;
+	const nlistSize = is32 ? 12 : 16;
 	const symtabCmdSize = 24;
-	const dataStart = 32 + segCmdSize + symtabCmdSize;
+	const dataStart = headerSize + segCmdSize + symtabCmdSize;
 	const align = (n: number) => Math.ceil(n / 16) * 16;
 
 	const sectionAddrs: number[] = [];
@@ -259,15 +266,18 @@ export function buildObjectFile(opts: {
 		strtab += `${sym.name}\0`;
 		return index;
 	});
-	const stroff = symoff + symbols.length * 16;
+	const stroff = symoff + symbols.length * nlistSize;
 	const total = stroff + strtab.length;
 
 	const buffer = new ArrayBuffer(total);
 	const view = new DataView(buffer);
 	const bytes = new Uint8Array(buffer);
 	const le = true;
+	const writeName = (offset: number, name: string) => {
+		for (let c = 0; c < name.length; c++) bytes[offset + c] = name.charCodeAt(c);
+	};
 
-	view.setUint32(0, MH_MAGIC_64, le);
+	view.setUint32(0, is32 ? MH_MAGIC : MH_MAGIC_64, le);
 	view.setUint32(4, opts.cputype ?? CPU_TYPE_ARM64, le);
 	view.setUint32(8, opts.cpusubtype ?? 0, le);
 	view.setUint32(12, 1, le); // MH_OBJECT
@@ -275,35 +285,58 @@ export function buildObjectFile(opts: {
 	view.setUint32(20, segCmdSize + symtabCmdSize, le);
 	view.setUint32(24, 0x2000, le); // MH_SUBSECTIONS_VIA_SYMBOLS
 
-	// LC_SEGMENT_64 (unnamed, as in every object file)
-	let lc = 32;
-	view.setUint32(lc, 0x19, le);
+	// LC_SEGMENT(_64), unnamed as in every object file
+	let lc = headerSize;
+	view.setUint32(lc, is32 ? 0x1 : 0x19, le);
 	view.setUint32(lc + 4, segCmdSize, le);
-	view.setBigUint64(lc + 24, 0n, le);
-	view.setBigUint64(lc + 32, BigInt(dataSize), le);
-	view.setBigUint64(lc + 40, BigInt(dataStart), le);
-	view.setBigUint64(lc + 48, BigInt(dataSize), le);
-	view.setUint32(lc + 56, 7, le);
-	view.setUint32(lc + 60, 7, le);
-	view.setUint32(lc + 64, sections.length, le);
+	if (is32) {
+		view.setUint32(lc + 28, dataSize, le);
+		view.setUint32(lc + 32, dataStart, le);
+		view.setUint32(lc + 36, dataSize, le);
+		view.setUint32(lc + 40, 7, le);
+		view.setUint32(lc + 44, 7, le);
+		view.setUint32(lc + 48, sections.length, le);
+	} else {
+		view.setBigUint64(lc + 32, BigInt(dataSize), le);
+		view.setBigUint64(lc + 40, BigInt(dataStart), le);
+		view.setBigUint64(lc + 48, BigInt(dataSize), le);
+		view.setUint32(lc + 56, 7, le);
+		view.setUint32(lc + 60, 7, le);
+		view.setUint32(lc + 64, sections.length, le);
+	}
 	sections.forEach((s, i) => {
-		const base = lc + 72 + i * 80;
-		const writeName = (offset: number, name: string) => {
-			for (let c = 0; c < name.length; c++) bytes[offset + c] = name.charCodeAt(c);
-		};
+		const base = is32 ? lc + 56 + i * 68 : lc + 72 + i * 80;
 		writeName(base, s.sectname);
 		writeName(base + 16, s.segname);
-		view.setBigUint64(base + 32, BigInt(sectionAddrs[i]!), le);
-		view.setBigUint64(base + 40, BigInt(s.data.length), le);
-		view.setUint32(base + 48, dataStart + sectionAddrs[i]!, le);
-		view.setUint32(base + 52, 4, le);
-		view.setUint32(base + 56, s.relocs?.length ? relocOffsets[i]! : 0, le);
-		view.setUint32(base + 60, s.relocs?.length ?? 0, le);
-		view.setUint32(base + 64, s.flags ?? 0, le);
+		// Fields after the names: addr, size, then offset/align/reloff/nreloc/flags
+		const tail = is32 ? base + 40 : base + 48;
+		if (is32) {
+			view.setUint32(base + 32, sectionAddrs[i]!, le);
+			view.setUint32(base + 36, s.data.length, le);
+		} else {
+			view.setBigUint64(base + 32, BigInt(sectionAddrs[i]!), le);
+			view.setBigUint64(base + 40, BigInt(s.data.length), le);
+		}
+		view.setUint32(tail, dataStart + sectionAddrs[i]!, le);
+		view.setUint32(tail + 4, 4, le);
+		view.setUint32(tail + 8, s.relocs?.length ? relocOffsets[i]! : 0, le);
+		view.setUint32(tail + 12, s.relocs?.length ?? 0, le);
+		view.setUint32(tail + 16, s.flags ?? 0, le);
 		bytes.set(s.data, dataStart + sectionAddrs[i]!);
 
 		(s.relocs ?? []).forEach((r, j) => {
 			const at = relocOffsets[i]! + j * 8;
+			if (r.scattered) {
+				const word =
+					0x80000000 |
+					((r.pcrel ? 1 : 0) << 30) |
+					((r.length & 3) << 28) |
+					((r.type & 0xf) << 24) |
+					(r.address & 0xffffff);
+				view.setUint32(at, word >>> 0, le);
+				view.setUint32(at + 4, r.value ?? 0, le);
+				return;
+			}
 			view.setUint32(at, r.address, le);
 			const info =
 				(r.symbolnum & 0xffffff) |
@@ -325,13 +358,14 @@ export function buildObjectFile(opts: {
 	view.setUint32(lc + 20, strtab.length, le);
 
 	symbols.forEach((sym, i) => {
-		const base = symoff + i * 16;
+		const base = symoff + i * nlistSize;
 		const defined = sym.sect > 0;
 		view.setUint32(base, strx[i]!, le);
 		view.setUint8(base + 4, (defined ? N_SECT : 0) | (sym.external || !defined ? N_EXT : 0));
 		view.setUint8(base + 5, sym.sect);
 		const value = defined ? sectionAddrs[sym.sect - 1]! + (sym.offset ?? 0) : 0;
-		view.setBigUint64(base + 8, BigInt(value), le);
+		if (is32) view.setUint32(base + 8, value, le);
+		else view.setBigUint64(base + 8, BigInt(value), le);
 	});
 	for (let c = 0; c < strtab.length; c++) bytes[stroff + c] = strtab.charCodeAt(c);
 

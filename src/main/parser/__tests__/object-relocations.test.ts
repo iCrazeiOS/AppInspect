@@ -40,21 +40,23 @@ function words(...values: number[]): Uint8Array {
 
 function build(spec: {
 	cputype: number;
+	bits32?: boolean;
 	sections: ObjectSectionSpec[];
 	symbols: ObjectSymbolSpec[];
 }) {
 	const { buffer, sectionAddrs } = buildObjectFile(spec);
 	const header = parseMachOHeader(buffer, 0);
 	if (!header.ok) throw new Error(header.error);
+	const is64 = !spec.bits32;
 	const lc = parseLoadCommands(
 		buffer,
-		32,
+		is64 ? 32 : 28,
 		header.data.header.ncmds,
 		header.data.header.sizeofcmds,
 		true,
-		true
+		is64
 	);
-	const image = buildObjectImage(buffer, lc, spec.cputype, true, true);
+	const image = buildObjectImage(buffer, lc, spec.cputype, true, is64);
 	const sections = lc.segments.flatMap((s) => s.sections);
 	return { buffer, lc, image, sections, sectionAddrs, view: new DataView(image.buffer) };
 }
@@ -321,6 +323,67 @@ describe("buildObjectImage (x86_64)", () => {
 
 	it("resolves A - B relative offsets", () => {
 		expect(view.getInt32(sections[1]!.offset + 4, true)).toBe(cstrAddr - constAddr);
+	});
+});
+
+describe("buildObjectImage (armv7 / i386)", () => {
+	it("resolves symbol pointers and records absolute ones, leaving precomputed values", () => {
+		const data = new Uint8Array(0x18);
+		const dv = new DataView(data.buffer);
+		dv.setUint32(0, 2, true); // addend: l_.str + 2
+		dv.setUint32(0x10, 0x1234, true); // section difference, already final
+		// Section-relative and scattered pointers hold the target address; the string
+		// section sits at 0x20 once laid out after this 0x18-byte section
+		dv.setUint32(0x8, 0x20, true);
+		dv.setUint32(0xc, 0x21, true);
+		const { image, view, sections, sectionAddrs } = build({
+			cputype: CPU_TYPE_ARM,
+			bits32: true,
+			symbols: [
+				{ name: "l_.str", sect: 2 },
+				{ name: "_OBJC_CLASS_$_NSObject", sect: 0 }
+			],
+			sections: [
+				{
+					segname: "__DATA",
+					sectname: "__data",
+					data,
+					relocs: [
+						{ address: 0, symbolnum: 0, type: 0, length: 2 },
+						{ address: 4, symbolnum: 1, type: 0, length: 2 },
+						{ address: 8, symbolnum: 2, type: 0, length: 2, extern: false },
+						{
+							address: 0xc,
+							symbolnum: 0,
+							type: 0,
+							length: 2,
+							scattered: true,
+							value: 0x20
+						},
+						{
+							address: 0x10,
+							symbolnum: 0,
+							type: 2,
+							length: 2,
+							scattered: true,
+							value: 0x20
+						},
+						{ address: 0, symbolnum: 0, type: 1, length: 2, scattered: true, value: 0 }
+					]
+				},
+				{ segname: "__TEXT", sectname: "__cstring", data: new TextEncoder().encode("hi\0") }
+			]
+		});
+		const base = sections[0]!.offset;
+		const str = sectionAddrs[1]!;
+		expect(str).toBe(0x20);
+		expect(image.rebaseMap.get(base)).toBe(BigInt(str + 2));
+		expect(view.getUint32(base, true)).toBe(str + 2);
+		expect(image.bindMap.get(base + 4)?.symbolName).toBe("_OBJC_CLASS_$_NSObject");
+		expect(image.rebaseMap.get(base + 8)).toBe(BigInt(str));
+		expect(image.rebaseMap.get(base + 0xc)).toBe(BigInt(str + 1));
+		expect(view.getUint32(base + 0x10, true)).toBe(0x1234);
+		expect(image.rebaseMap.has(base + 0x10)).toBe(false);
 	});
 });
 

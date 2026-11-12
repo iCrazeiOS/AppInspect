@@ -24,13 +24,15 @@
  * linked image. File offsets of existing data are unchanged — only the GOT is appended —
  * so string offsets and hex locations still match the file on disk.
  *
- * arm64 (including arm64e and arm64_32) and x86_64 relocations are applied; other
- * architectures only get the regrouped segments.
+ * arm64 (including arm64e and arm64_32) and x86_64 relocations are applied. For i386
+ * and armv7 objects, whose assemblers precompute most values in the object's layout,
+ * symbol pointers are resolved and absolute pointers recorded. Other architectures
+ * only get the regrouped segments.
  *
  * Reference: <mach-o/reloc.h>, <mach-o/arm64/reloc.h>, <mach-o/x86_64/reloc.h>.
  */
 
-import { CPU_TYPE_ARM64, CPU_TYPE_X86_64 } from "../../shared/arch";
+import { CPU_TYPE_ARM, CPU_TYPE_ARM64, CPU_TYPE_X86, CPU_TYPE_X86_64 } from "../../shared/arch";
 import type { BindEntry } from "./classic-fixups";
 import type { LoadCommandsResult, Section64, Segment64 } from "./load-commands";
 import { readCString } from "./load-commands";
@@ -41,6 +43,10 @@ const CPU_TYPE_ARM64_32 = 0x0200000c;
 // Generic relocation_info layout (little-endian bitfields)
 const RELOC_SIZE = 8;
 const R_SCATTERED = 0x80000000;
+
+// Classic 32-bit relocation types (GENERIC_* for i386, ARM_* share the values)
+const GENERIC_RELOC_VANILLA = 0;
+const RELOC_PAIR = 1;
 
 // arm64 relocation types
 const ARM64_RELOC_UNSIGNED = 0;
@@ -117,6 +123,7 @@ interface RelocationEntry {
 	length: number;
 	extern: boolean;
 	type: number;
+	scattered?: boolean;
 }
 
 /** A resolved relocation target: an address inside the object, or an imported symbol. */
@@ -173,15 +180,17 @@ function readRelocations(view: DataView, section: Section64, le: boolean): Reloc
 		if (offset + RELOC_SIZE > view.byteLength) break;
 		const address = view.getUint32(offset, le);
 		const info = view.getUint32(offset + 4, le);
-		// Scattered relocations only occur in 32-bit objects; carry them as unresolvable.
+		// Scattered (32-bit only): r_address and the bitfields share the first word;
+		// the second holds the target's address in the object's layout.
 		if ((address & R_SCATTERED) !== 0) {
 			entries.push({
-				address: -1,
+				address: address & 0x00ffffff,
 				symbolnum: 0,
-				pcrel: false,
-				length: 0,
+				pcrel: ((address >>> 30) & 1) === 1,
+				length: (address >>> 28) & 3,
 				extern: false,
-				type: -1
+				type: (address >>> 24) & 0xf,
+				scattered: true
 			});
 			continue;
 		}
@@ -332,7 +341,8 @@ export function buildObjectImage(
 	const bindMap = new Map<number, BindEntry>();
 
 	const isArm64 = cputype === CPU_TYPE_ARM64 || cputype === CPU_TYPE_ARM64_32;
-	if ((!isArm64 && cputype !== CPU_TYPE_X86_64) || !littleEndian) {
+	const isClassic32 = !is64Bit && (cputype === CPU_TYPE_ARM || cputype === CPU_TYPE_X86);
+	if ((!isArm64 && !isClassic32 && cputype !== CPU_TYPE_X86_64) || !littleEndian) {
 		return { buffer, segments, sectionSegments, rebaseMap, bindMap };
 	}
 
@@ -350,6 +360,7 @@ export function buildObjectImage(
 	const gotSlots = new Map<number, number>(); // symbol index → slot index
 	for (const { entries } of relocSections) {
 		for (const r of entries) {
+			if (isClassic32) break; // classic 32-bit objects reference imports without a GOT
 			if (r.extern && needsGot(cputype, r.type) && !gotSlots.has(r.symbolnum)) {
 				if (symbols[r.symbolnum]) gotSlots.set(r.symbolnum, gotSlots.size);
 			}
@@ -458,6 +469,24 @@ export function buildObjectImage(
 			}
 			const offset = section.offset + r.address;
 			const pc = section.addr + BigInt(r.address);
+
+			if (isClassic32) {
+				// i386 and armv7 assemblers store values already computed in the object's
+				// layout (differences, branches, section-relative pointers), so only
+				// symbol pointers need resolving; absolute pointers feed the rebase map.
+				if (r.type === GENERIC_RELOC_VANILLA && r.length === 2 && !r.pcrel) {
+					if (r.scattered) rebaseMap.set(offset, BigInt(view.getUint32(offset, true)));
+					else {
+						const content = r.extern
+							? BigInt(view.getInt32(offset, true))
+							: BigInt(view.getUint32(offset, true));
+						applyPointer(r, offset, 2, content);
+					}
+				}
+				// Difference and half-word relocations are followed by their PAIR entry
+				if (r.type !== RELOC_PAIR && entries[i + 1]?.type === RELOC_PAIR) i++;
+				continue;
+			}
 
 			const isSubtractor = isArm64
 				? r.type === ARM64_RELOC_SUBTRACTOR
