@@ -654,8 +654,10 @@ async function handleBinaryChange(): Promise<void> {
 		tab.loadedSectionTabs.add(tab.currentSectionTab);
 		await loadTabData(tab.currentSectionTab);
 
+		// Stay on the previously selected architecture when the new binary has it
 		const newArchs = result.overview?.fatArchs as FatArchInfo[] | undefined;
-		let matchedIdx = 0;
+		const analysedIdx = analysedArchIndex(result);
+		let matchedIdx = analysedIdx;
 		if (prevArch && newArchs) {
 			const found = newArchs.findIndex(
 				(a) => a.cputype === prevArch.cputype && a.cpusubtype === prevArch.cpusubtype
@@ -670,7 +672,7 @@ async function handleBinaryChange(): Promise<void> {
 			archSelector.classList.add("hidden");
 		}
 
-		if (matchedIdx > 0 && newArchs?.[matchedIdx]) {
+		if (matchedIdx !== analysedIdx && newArchs?.[matchedIdx]) {
 			const arch = newArchs[matchedIdx]!;
 			const archResult = await window.api.analyseBinary(
 				tab.sessionId,
@@ -718,6 +720,22 @@ interface FatArchInfo {
 	offset: number;
 	size: number;
 	align: number;
+}
+
+/**
+ * Index of the fat slice the analysis parsed. With no architecture requested the
+ * main process picks arm64 when present, which need not be the first slice.
+ */
+function analysedArchIndex(result: AnalysisResult): number {
+	const header = result.overview?.header;
+	const archs = (result.overview?.fatArchs ?? []) as FatArchInfo[];
+	if (!header) return 0;
+	const index = archs.findIndex(
+		(a) =>
+			a.cputype === header.cputype &&
+			(a.cpusubtype & 0x00ffffff) === (header.cpusubtype & 0x00ffffff)
+	);
+	return Math.max(0, index);
 }
 
 function populateArchSelector(fatArchs: FatArchInfo[]): void {
@@ -914,6 +932,8 @@ async function startAnalysis(filePath: string): Promise<void> {
 		tab.appState = "content";
 		tab.loadedSectionTabs.add("overview");
 		setTabLoading(filePath, false);
+
+		tab.currentArchIndex = analysedArchIndex(result);
 
 		// Only update UI if this tab is still active
 		if (activeFileTabId === filePath) {
