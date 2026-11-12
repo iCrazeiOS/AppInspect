@@ -8,7 +8,13 @@
 
 import * as fs from "node:fs";
 
-import { type ArchPreference, archMatches, describeArchs, formatArch } from "../../shared/arch";
+import {
+	type ArchPreference,
+	archMatches,
+	CPU_TYPE_ARM64,
+	describeArchs,
+	formatArch
+} from "../../shared/arch";
 import type {
 	AnalysisResult,
 	BinaryHardening,
@@ -39,7 +45,7 @@ import { parseCodeSignature } from "../parser/codesign";
 import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { parseLoadCommands } from "../parser/load-commands";
 import type { MachOFile } from "../parser/macho";
-import { CPU_TYPE_ARM64, parseFatHeader, parseMachOHeader } from "../parser/macho";
+import { parseFatHeader, parseMachOHeader } from "../parser/macho";
 import {
 	buildMsgSendSelectorMap,
 	describeUnnamedMethod,

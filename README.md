@@ -178,7 +178,7 @@ All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `
 
 `get_overview`, `get_section`, `read_hex`, and `search_hex` also accept an optional `binary` index (from `overview.ipa.binaries`) to query any binary in the container directly, without `switch_binary` changing the active one.
 
-Fat binaries default to the arm64 slice (or the first slice when arm64 is absent). Pass `arch` to `analyse_file` or `switch_binary` to choose a slice by name: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e`. Requesting an architecture the binary does not contain is an error that lists the available slices.
+Fat binaries default to the arm64 slice (or the first slice when arm64 is absent). Pass `arch` to `analyse_file` or `switch_binary` to choose a slice by name: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e`, `arm64e.x1`. Requesting an architecture the binary does not contain is an error that lists the available slices.
 
 ### Example workflow
 
@@ -239,7 +239,7 @@ bun run cli -- /path/App.ipa --binary 1 --arch arm64e --sarif  # both are compos
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
 | `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
-| `--arch <name>` | Analyse a specific architecture slice of a fat binary: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e` (default: arm64 when present, otherwise the first slice) |
+| `--arch <name>` | Analyse a specific architecture slice of a fat binary: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e`, `arm64e.x1` (default: arm64 when present, otherwise the first slice) |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |
 | `--no-clobber` | Refuse to overwrite an existing `--out` file (exits 1) |
 | `--pretty` / `--no-pretty` | Pretty-print or minify JSON (default: pretty) |

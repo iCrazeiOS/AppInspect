@@ -7,8 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ArchPreference } from "../../shared/arch";
-import { archMatches } from "../../shared/arch";
+import { type ArchPreference, archMatches, CPU_TYPE_ARM64 } from "../../shared/arch";
 import type {
 	AnalysisResult,
 	LibraryGraphData,
@@ -18,7 +17,7 @@ import type {
 } from "../../shared/types";
 import type { BinaryInfo } from "../ipa/extractor";
 import { parseLoadCommands } from "../parser/load-commands";
-import { CPU_TYPE_ARM64, parseFatHeader, parseMachOHeader } from "../parser/macho";
+import { parseFatHeader, parseMachOHeader } from "../parser/macho";
 
 export function classifyLib(name: string): "system" | "framework" | "swift" | "embedded" {
 	if (name.startsWith("/usr/lib/swift") || name.includes("libswift")) return "swift";

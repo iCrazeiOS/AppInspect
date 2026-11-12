@@ -65,6 +65,10 @@ describe("parseArgs", () => {
 			cpuType: 0x01000007,
 			cpuSubtype: 8
 		});
+		expect(parseArgs(["--arch", "arm64e.x1", "/tmp/App.ipa"]).arch).toEqual({
+			cpuType: 0x0100000c,
+			cpuSubtype: 12
+		});
 	});
 
 	it("rejects an unknown or missing --arch", () => {

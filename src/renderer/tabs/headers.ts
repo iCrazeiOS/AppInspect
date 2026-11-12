@@ -2,6 +2,12 @@
  * Headers tab renderer — Mach-O header summary, load commands table, segments tree.
  */
 
+import {
+	CPU_SUBTYPE_X86_64_ALL,
+	CPU_SUBTYPE_X86_ALL,
+	CPU_TYPE_X86,
+	CPU_TYPE_X86_64
+} from "../../shared/arch";
 import { decodeLCName } from "../../shared/macho";
 import type { AnalysisResult, LoadCommand } from "../../shared/types";
 import { EmptyState } from "../components";
@@ -44,7 +50,8 @@ function decodeCpuSubtype(cputype: number, cpusubtype: number): string {
 	const name = cpuSubtypeName(cputype, cpusubtype);
 	if (name) return name;
 	if (sub === 0) return "ALL";
-	if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return "ALL";
+	if (cputype === CPU_TYPE_X86 && sub === CPU_SUBTYPE_X86_ALL) return "ALL";
+	if (cputype === CPU_TYPE_X86_64 && sub === CPU_SUBTYPE_X86_64_ALL) return "ALL";
 	return String(sub);
 }
 

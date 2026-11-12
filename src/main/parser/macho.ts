@@ -21,10 +21,14 @@ export const MH_CIGAM = 0xcefaedfe; // 32-bit Mach-O, swapped endian
 export const FAT_MAGIC = 0xcafebabe; // Fat binary, big-endian
 export const FAT_CIGAM = 0xbebafeca; // Fat binary, little-endian (rare)
 
-export const CPU_TYPE_ARM64 = 0x0100000c;
-export const CPU_TYPE_X86_64 = 0x01000007;
-export const CPU_TYPE_ARM = 0x0000000c;
-export const CPU_TYPE_X86 = 0x00000007;
+// CPU type constants live with the shared architecture helpers so the parser,
+// analysis pipeline, CLI, MCP server and renderer agree on one set.
+export {
+	CPU_TYPE_ARM,
+	CPU_TYPE_ARM64,
+	CPU_TYPE_X86,
+	CPU_TYPE_X86_64
+} from "../../shared/arch";
 
 export const MH_EXECUTE = 2;
 export const MH_DYLIB = 6;

@@ -1,10 +1,21 @@
 /** Shared Mach-O decoding constants and helpers. */
 
+import {
+	CPU_SUBTYPE_ARM64_V8,
+	CPU_SUBTYPE_ARM64E,
+	CPU_SUBTYPE_ARM64E_X1,
+	CPU_SUBTYPE_X86_64_H,
+	CPU_TYPE_ARM,
+	CPU_TYPE_ARM64,
+	CPU_TYPE_X86,
+	CPU_TYPE_X86_64
+} from "../../shared/arch";
+
 export const CPU_TYPE_NAMES: Record<number, string> = {
-	7: "x86",
-	12: "ARM",
-	16777223: "x86_64",
-	16777228: "ARM64"
+	[CPU_TYPE_X86]: "x86",
+	[CPU_TYPE_ARM]: "ARM",
+	[CPU_TYPE_X86_64]: "x86_64",
+	[CPU_TYPE_ARM64]: "ARM64"
 };
 
 /** LC_BUILD_VERSION platform constants */
@@ -51,21 +62,22 @@ export function decodeCpuType(cputype: number): string {
 /** Returns a human-readable name for a CPU subtype, or null if unknown. */
 export function cpuSubtypeName(cputype: number, cpusubtype: number): string | null {
 	const sub = cpusubtype & 0x00ffffff;
-	if (cputype === 12) {
+	if (cputype === CPU_TYPE_ARM) {
 		// ARM
 		if (sub === 6) return "ARMv6";
 		if (sub === 9) return "ARMv7";
 		if (sub === 11) return "ARMv7s";
 		if (sub === 12) return "ARMv7k";
 	}
-	if (cputype === 0x0100000c) {
+	if (cputype === CPU_TYPE_ARM64) {
 		// ARM64
-		if (sub === 1) return "ARM64v8";
-		if (sub === 2) return "ARM64e";
+		if (sub === CPU_SUBTYPE_ARM64_V8) return "ARM64v8";
+		if (sub === CPU_SUBTYPE_ARM64E) return "ARM64e";
+		if (sub === CPU_SUBTYPE_ARM64E_X1) return "ARM64e.x1";
 	}
-	if (cputype === 0x01000007) {
+	if (cputype === CPU_TYPE_X86_64) {
 		// x86_64
-		if (sub === 8) return "x86_64 (Haswell)";
+		if (sub === CPU_SUBTYPE_X86_64_H) return "x86_64 (Haswell)";
 	}
 	return null;
 }

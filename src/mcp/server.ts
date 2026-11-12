@@ -113,7 +113,7 @@ const archParam = z
 	.string()
 	.optional()
 	.describe(
-		"Architecture slice to analyse from a fat binary (e.g. arm64, arm64e, x86_64, x86_64h). " +
+		"Architecture slice to analyse from a fat binary (e.g. arm64, arm64e, arm64e.x1, x86_64, x86_64h). " +
 			`One of: ${ARCH_NAMES.join(", ")}. Defaults to arm64 when present, otherwise the first slice.`
 	);
 

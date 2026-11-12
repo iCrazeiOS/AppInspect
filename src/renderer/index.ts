@@ -1,6 +1,12 @@
 // Renderer entry point
 /// <reference path="./global.d.ts" />
 
+import {
+	CPU_SUBTYPE_X86_64_ALL,
+	CPU_SUBTYPE_X86_ALL,
+	CPU_TYPE_X86,
+	CPU_TYPE_X86_64
+} from "../shared/arch";
 import type { TabName } from "../shared/ipc-types";
 import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { showToast } from "./components/toast";
@@ -666,6 +672,7 @@ async function handleBinaryChange(): Promise<void> {
 				arch.cputype,
 				arch.cpusubtype
 			);
+			if (!archResult) throw new Error("Architecture analysis returned no result");
 			tab.analysisResult = archResult;
 			clearAllTabContent();
 			tab.loadedSectionTabs.add(tab.currentSectionTab);
@@ -692,7 +699,8 @@ function cpuLabel(cputype: number, cpusubtype: number): string {
 	const base = CPU_TYPE_NAMES[cputype] ?? `CPU(0x${cputype.toString(16)})`;
 	const sub = cpusubtype & 0x00ffffff;
 	if (sub === 0) return base;
-	if ((cputype === 7 || cputype === 0x01000007) && sub === 3) return base;
+	if (cputype === CPU_TYPE_X86 && sub === CPU_SUBTYPE_X86_ALL) return base;
+	if (cputype === CPU_TYPE_X86_64 && sub === CPU_SUBTYPE_X86_64_ALL) return base;
 	const name = cpuSubtypeName(cputype, cpusubtype);
 	if (name) return name;
 	return `${base} (sub ${sub})`;
@@ -736,6 +744,7 @@ async function handleArchChange(): Promise<void> {
 	const fatArchs = tab.analysisResult?.overview?.fatArchs as FatArchInfo[] | undefined;
 	if (!fatArchs?.[idx]) return;
 
+	const prevIdx = tab.currentArchIndex;
 	tab.currentArchIndex = idx;
 	const cpuType = fatArchs[idx].cputype;
 	const cpuSubtype = fatArchs[idx].cpusubtype;
@@ -750,12 +759,15 @@ async function handleArchChange(): Promise<void> {
 			cpuType,
 			cpuSubtype
 		);
+		if (!result) throw new Error("Architecture analysis returned no result");
 		tab.analysisResult = result;
 		clearAllTabContent();
 		tab.loadedSectionTabs.add(tab.currentSectionTab);
 		await loadTabData(tab.currentSectionTab);
 		checkEncryptionBanner(tab, result);
 	} catch (err) {
+		tab.currentArchIndex = prevIdx;
+		archDropdown.value = String(prevIdx);
 		const message = err instanceof Error ? err.message : String(err);
 		showToast(`Architecture switch failed: ${message}`, "error");
 	} finally {
