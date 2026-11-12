@@ -109,6 +109,10 @@
   color: #f85149;
 }
 
+.ov-check--na {
+  color: var(--text-muted);
+}
+
 .ov-hardening-label {
   font-size: 13px;
   color: var(--text);

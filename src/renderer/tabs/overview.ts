@@ -57,12 +57,23 @@ function buildBadge(text: string, variant: "green" | "red" | "yellow"): HTMLElem
 function buildHardeningRow(
 	label: string,
 	enabled: boolean,
-	key?: "pie" | "arc" | "stackCanaries" | "rpath"
+	key?: "pie" | "arc" | "stackCanaries" | "rpath",
+	/** Shown instead of a failure mark when absence is not a weakness */
+	neutralNote?: string
 ): HTMLElement {
 	const row = el("div", "ov-hardening-row");
 	if (key) row.dataset.hardening = key;
-	const indicator = el("span", enabled ? "ov-check ov-check--pass" : "ov-check ov-check--fail");
-	indicator.textContent = enabled ? "\u2713" : "\u2717";
+	const neutral = !enabled && neutralNote !== undefined;
+	const indicator = el(
+		"span",
+		enabled
+			? "ov-check ov-check--pass"
+			: neutral
+				? "ov-check ov-check--na"
+				: "ov-check ov-check--fail"
+	);
+	indicator.textContent = enabled ? "\u2713" : neutral ? "\u2013" : "\u2717";
+	if (neutral) row.title = neutralNote;
 	row.appendChild(indicator);
 	row.appendChild(el("span", "ov-hardening-label", label));
 	return row;
@@ -404,9 +415,24 @@ export function renderOverview(
 		...(isObjectFile
 			? []
 			: [buildHardeningRow("PIE (Position Independent)", hardening.pie, "pie")]),
-		buildHardeningRow("ARC (Automatic Reference Counting)", hardening.arc, "arc"),
-		buildHardeningRow("Stack Canaries", hardening.stackCanaries, "stackCanaries"),
-		buildHardeningRow("Stripped", hardening.stripped)
+		buildHardeningRow(
+			"ARC (Automatic Reference Counting)",
+			hardening.arc,
+			"arc",
+			isObjectFile ? "Not referenced by this object file's code" : undefined
+		),
+		buildHardeningRow(
+			"Stack Canaries",
+			hardening.stackCanaries,
+			"stackCanaries",
+			isObjectFile ? "Not needed by any function in this object file" : undefined
+		),
+		buildHardeningRow(
+			"Stripped",
+			hardening.stripped,
+			undefined,
+			isObjectFile ? "Object files keep their symbols for the linker" : undefined
+		)
 	];
 	const hardeningCard = buildCard("Binary Hardening", ...hardeningItems);
 	hardeningCard.id = "ov-card-hardening";
