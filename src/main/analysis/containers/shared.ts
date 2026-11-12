@@ -1,9 +1,9 @@
 /**
  * Shared container-driver helpers.
  *
- * The two blocks the IPA / DEB / macOS-app drivers repeat verbatim: an
- * optional secondary-binary security sweep and the binary list assembled for
- * the overview.
+ * Blocks several container drivers share: an optional secondary-binary
+ * security sweep, the binary list assembled for the overview, and extracting
+ * a static library's object files into the cache.
  */
 
 import * as fs from "node:fs";
@@ -12,7 +12,9 @@ import type { ArchPreference } from "../../../shared/arch";
 import type { BinaryInfo as ContainerBinary, SecurityFinding } from "../../../shared/types";
 import type { BinaryInfo } from "../../ipa/extractor";
 import { loadSettings } from "../../settings";
+import { extractStaticLibrary } from "../../static-library/extractor";
 import { analyseBinaryFile, yieldToEventLoop } from "../binary-pipeline";
+import { extractToCache, getCacheDir } from "../cache";
 
 /**
  * When the `scanAllBinaries` setting is enabled, run the security scan over
@@ -64,4 +66,17 @@ export function assembleBinaryList(binaries: BinaryInfo[]): ContainerBinary[] {
 			}
 		})()
 	}));
+}
+
+/**
+ * Extract a static library's object files into its cache directory (reusing a
+ * previous extraction) and return the directory. Throws when it holds no objects.
+ */
+export async function extractStaticLibraryToCache(libraryPath: string): Promise<string> {
+	const cacheDir = getCacheDir(libraryPath);
+	const ext = await extractToCache(cacheDir, (dest) => extractStaticLibrary(libraryPath, dest));
+	if (!ext.cached && !ext.result.success) {
+		throw new Error((ext.result as { success: false; error: string }).error);
+	}
+	return cacheDir;
 }

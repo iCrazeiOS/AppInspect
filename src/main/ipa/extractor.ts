@@ -8,7 +8,7 @@ import { removeEscapingSymlinks, safeJoin } from "../util/safe-path";
 export interface BinaryInfo {
 	name: string;
 	path: string;
-	type: "main" | "framework" | "extension";
+	type: "main" | "framework" | "extension" | "object";
 }
 
 export interface ExtractionResult {

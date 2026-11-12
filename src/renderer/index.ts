@@ -278,7 +278,11 @@ function showError(message: string): void {
 // ── Tab visibility based on the analysis result ──
 function updateTabsForResult(result: AnalysisResult): void {
 	const sourceType = result.overview?.sourceType ?? "ipa";
-	const isTweak = sourceType === "deb" || sourceType === "macho" || sourceType === "folder";
+	const isTweak =
+		sourceType === "deb" ||
+		sourceType === "macho" ||
+		sourceType === "staticlib" ||
+		sourceType === "folder";
 	tabBtnInfoPlist.classList.toggle("hidden", isTweak);
 	tabBtnHooks.classList.toggle("hidden", !isTweak);
 	tabBtnElectron.classList.toggle("hidden", result.electron == null);
@@ -571,6 +575,8 @@ function binaryTypeBadge(type: BinaryInfo["type"]): string {
 			return "Framework";
 		case "extension":
 			return "Extension";
+		case "object":
+			return "Object";
 		default:
 			return String(type);
 	}
@@ -1028,7 +1034,7 @@ document.addEventListener("drop", async (e: DragEvent) => {
 	const supported = await window.api.isSupportedFile(filePath);
 	if (!supported) {
 		showToast(
-			"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O, folder",
+			"Unsupported file type. Supported: IPA, .app, .xcframework, DEB, dylib, Mach-O, static library (.a), folder",
 			"warning"
 		);
 		return;

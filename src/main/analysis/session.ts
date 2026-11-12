@@ -54,6 +54,7 @@ import {
 	isMacOSAppBundle
 } from "../ipa/extractor";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
+import { listStaticLibraryMembers, memberArchitectures } from "../static-library/extractor";
 import { discoverXCFramework, findXCFramework, isXCFrameworkPath } from "../xcframework/discovery";
 import type { BinaryAnalysisResult, ScanOptions } from "./binary-pipeline";
 import {
@@ -64,7 +65,11 @@ import {
 } from "./binary-pipeline";
 import { extractLocalisationStrings, readBundleFiles } from "./bundle-files";
 import { extractToCache, getCacheBase, getCacheDir } from "./cache";
-import { assembleBinaryList, scanAdditionalBinaries } from "./containers/shared";
+import {
+	assembleBinaryList,
+	extractStaticLibraryToCache,
+	scanAdditionalBinaries
+} from "./containers/shared";
 import { convertEntitlements } from "./conversion";
 import { findBundleDebugArtifacts } from "./debug-artifacts";
 import { buildFilePreview, readFilePreview } from "./file-preview";
@@ -937,6 +942,78 @@ export class AnalysisSession {
 		return result;
 	}
 
+	// ── Analyse static library ───────────────────────────────────────
+
+	/**
+	 * Analyse a static library (`.a`): extract its object files to the cache and
+	 * parse the first one. Every member stays selectable as its own binary.
+	 */
+	async analyseStaticLibrary(
+		libraryPath: string,
+		progressCallback: (phase: string, percent: number) => void
+	): Promise<AnalysisResult> {
+		this.filePath = libraryPath;
+
+		progressCallback("Extracting static library...", 0);
+		const cacheDir = await extractStaticLibraryToCache(libraryPath);
+		this.extractedDir = cacheDir;
+		this.appBundlePath = cacheDir;
+
+		const members = listStaticLibraryMembers(cacheDir);
+		this.binaries = members.map((m) => ({
+			name: m.name,
+			path: m.path,
+			type: "object" as const
+		}));
+		this.searchIndex = null;
+		if (this.binaries.length === 0) {
+			throw new Error("Static library contains no Mach-O object files");
+		}
+
+		progressCallback("Analysing object file...", 15);
+		const mainBinary = this.binaries[0]!;
+		this.activeBinaryName = mainBinary.name;
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
+		this.fatSliceOffset = binaryResult.fatSliceOffset;
+
+		const extraBinaryFindings = await scanAdditionalBinaries(
+			this.binaries,
+			progressCallback,
+			85,
+			this.preferredArch ?? undefined
+		);
+
+		progressCallback("Building file tree...", 95);
+		await yieldToEventLoop();
+		const files = buildFileTree(cacheDir);
+
+		const result = buildAnalysisResult(
+			binaryResult,
+			{
+				sourceType: "staticlib",
+				filePath: libraryPath,
+				ipa: {
+					bundlePath: cacheDir,
+					appName: path.basename(libraryPath),
+					binaries: assembleBinaryList(this.binaries)
+				},
+				...binaryOverviewFields(binaryResult),
+				staticLibraryArchitectures: memberArchitectures(members)
+			},
+			{
+				security: {
+					findings: [...binaryResult.security.findings, ...extraBinaryFindings],
+					hardening: binaryResult.security.hardening
+				},
+				files
+			}
+		);
+
+		this.result = result;
+		progressCallback("Analysis complete", 100);
+		return result;
+	}
+
 	// ── Electron bundle ──────────────────────────────────────────────
 
 	/**
@@ -1408,6 +1485,8 @@ export class AnalysisSession {
 				return this.analyseApp(filePath, progressCallback);
 			case "xcframework":
 				return this.analyseXCFramework(filePath, progressCallback);
+			case "staticlib":
+				return this.analyseStaticLibrary(filePath, progressCallback);
 			case "folder":
 				return this.analyseFolder(filePath, progressCallback);
 		}

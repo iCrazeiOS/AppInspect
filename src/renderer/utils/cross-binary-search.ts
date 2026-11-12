@@ -112,7 +112,16 @@ export function buildShowAllLink(
 
 /** Format a binary type as a badge label. */
 export function binaryTypeBadge(type: string): string {
-	return type === "main" ? "Main" : type === "framework" ? "Framework" : "Extension";
+	switch (type) {
+		case "main":
+			return "Main";
+		case "framework":
+			return "Framework";
+		case "object":
+			return "Object";
+		default:
+			return "Extension";
+	}
 }
 
 /**

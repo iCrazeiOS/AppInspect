@@ -293,6 +293,21 @@ export function renderOverview(
 		wrapper.appendChild(
 			buildCard(`${plural(libraries.length, "Slice")} (${libraries.length})`, ...sliceItems)
 		);
+	} else if (sourceType === "staticlib") {
+		// ── Static Library card ──
+		const memberCount = ipa?.binaries?.length ?? 0;
+		const architectures = data.staticLibraryArchitectures ?? [];
+		const libraryItems: HTMLElement[] = [
+			buildKV("Library", String(ipa?.appName ?? "N/A")),
+			buildKV(plural(memberCount, "Object File"), String(memberCount)),
+			buildKV(
+				plural(architectures.length, "Architecture"),
+				architectures.length > 0 ? architectures.join(", ") : "N/A"
+			)
+		];
+		if (platformName) libraryItems.push(buildKV("Platform", platformName));
+		libraryItems.push(buildKV(minOSLabel, minOS));
+		wrapper.appendChild(buildCard("Static Library", ...libraryItems));
 	} else if (sourceType === "folder") {
 		// ── Folder Summary card ──
 		const folderName = (data.filePath ?? "").split(/[\\/]/).pop() ?? "N/A";

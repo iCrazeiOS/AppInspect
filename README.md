@@ -1,6 +1,6 @@
 # AppInspect
 
-A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, .xcframework, bare Mach-O/dylib, or a folder and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
+A desktop app for analysing iOS and macOS binaries. Open an IPA, DEB, macOS .app bundle, .xcframework, bare Mach-O/dylib, static library, or a folder and inspect its internals — headers, strings, classes, symbols, entitlements, security findings, and more.
 
 Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript. All analysis runs locally, offline, with no network requests.
 
@@ -13,6 +13,7 @@ Cross-platform for macOS, Windows, and Linux. Built with Electron and TypeScript
 - **Electron .app** — parses the bundled `Resources/app.asar` as a read-only virtual filesystem: browse and preview archive files, extract the whole archive to a folder, read `package.json`, fuses (including `removed`), ASAR header integrity and shipped source maps, split the archive in the Size treemap, and scan archive text files for secrets. Fuses are checked against their default and secure states, and Electron majors outside upstream support are flagged. ASAR integrity compares only the header hash; file contents are not re-hashed by AppInspect. Shipped HTML is checked for missing or weak Content-Security-Policy meta tags; CSP delivered by HTTP headers or set at runtime (`session.webRequest`) is not visible to static analysis. Full analysis currently needs a macOS `.app` bundle; the ASAR, fuse and metadata layers are platform-independent, but PE/ELF executables are not parsed. Runtime-fetched JavaScript is not covered
 - **DEB** — extracts Debian packages (jailbreak tweaks), parses package metadata, discovers dylibs and bundle binaries
 - **Mach-O / dylib** — analyses bare binaries directly (32-bit and 64-bit, fat/universal)
+- **Static library (`.a`)** — extracts the archive's object files (thin or universal) and lets you switch between them; relocations are applied so classes, Swift types, conformances and string references resolve as in a linked binary
 - **XCFramework** — opens `.xcframework` directories or zipped ones (e.g. SwiftPM binary targets), lists every platform slice from `Info.plist`, and lets you switch between the dynamic slices (static-library slices are listed but not analysed)
 - **Folder** — scans any directory for Mach-O binaries (extensionless executables, dylibs, and binaries inside `.app`/`.framework` bundles) and extracts any `.deb` packages found inside; every discovered binary is selectable
 
@@ -159,7 +160,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 
 | Tool | Description |
 |------|-------------|
-| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework) or folder. Must be called first. Optional `arch` picks a fat-binary slice (`arm64`, `arm64e`, `x86_64`, `x86_64h`, `armv7`, ...). |
+| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework, static library) or folder. Must be called first. Optional `arch` picks a fat-binary slice (`arm64`, `arm64e`, `x86_64`, `x86_64h`, `armv7`, ...). |
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules and an Electron `app.asar` split into its packed contents. Optional `maxDepth` (default 3). |

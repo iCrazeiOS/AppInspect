@@ -619,8 +619,8 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				{
 					name: "Supported Files",
 					extensions: isMac
-						? ["ipa", "tipa", "deb", "dylib", "app", "xcframework", "zip"]
-						: ["ipa", "tipa", "deb", "dylib", "zip"]
+						? ["ipa", "tipa", "deb", "dylib", "a", "app", "xcframework", "zip"]
+						: ["ipa", "tipa", "deb", "dylib", "a", "zip"]
 				},
 				...(isMac ? [{ name: "App Bundles", extensions: ["app"] }] : []),
 				...(isMac ? [{ name: "XCFrameworks", extensions: ["xcframework"] }] : []),
@@ -628,6 +628,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				{ name: "IPA Files", extensions: ["ipa", "tipa"] },
 				{ name: "DEB Packages", extensions: ["deb"] },
 				{ name: "Mach-O Binaries", extensions: ["dylib"] },
+				{ name: "Static Libraries", extensions: ["a"] },
 				{ name: "All Files", extensions: ["*"] }
 			];
 

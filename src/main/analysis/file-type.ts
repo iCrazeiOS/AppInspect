@@ -10,6 +10,7 @@ import * as path from "node:path";
 
 import type { SourceType } from "../../shared/types";
 import { MACHO_MAGICS } from "../parser/macho";
+import { isStaticLibraryFile } from "../static-library/extractor";
 import { isXCFrameworkPath } from "../xcframework/discovery";
 
 /** Extensions accepted regardless of the bytes they contain. */
@@ -31,16 +32,17 @@ function sniffMagic(filePath: string): SourceType | null {
 		const buf = Buffer.alloc(8);
 		fs.readSync(fd, buf, 0, 8, 0);
 
-		// DEB: ar archive magic "!<arch>\n"
+		// ar archive magic "!<arch>\n": a static library unless it is a Debian package
 		if (buf.toString("ascii", 0, 8) === "!<arch>\n") {
-			return "deb";
+			return isStaticLibraryFile(filePath) ? "staticlib" : "deb";
 		}
 
-		// Mach-O: check 4-byte magic in both byte orders
+		// Mach-O: check 4-byte magic in both byte orders. A universal static
+		// library shares the fat magic, but its slices are ar archives.
 		const magic = buf.readUInt32BE(0);
 		const magicLE = buf.readUInt32LE(0);
 		if (MACHO_MAGICS.has(magic) || MACHO_MAGICS.has(magicLE)) {
-			return "macho";
+			return isStaticLibraryFile(filePath) ? "staticlib" : "macho";
 		}
 
 		// IPA: ZIP file (PK\x03\x04)
@@ -84,7 +86,8 @@ export function detectFileType(filePath: string): SourceType {
 	const ext = path.extname(filePath).toLowerCase();
 	if (ext === ".ipa" || ext === ".tipa") return "ipa";
 	if (ext === ".deb") return "deb";
-	if (ext === ".dylib" || ext === ".a") return "macho";
+	if (ext === ".a") return "staticlib";
+	if (ext === ".dylib") return "macho";
 
 	// Default to macho for extensionless files (common for executables)
 	return "macho";

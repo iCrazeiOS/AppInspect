@@ -34,6 +34,7 @@ const NODE_RADIUS: Record<string, number> = {
 	"binary:main": 24,
 	"binary:framework": 18,
 	"binary:extension": 18,
+	"binary:object": 14,
 	"binary:tweak": 18,
 	"library:system": 10,
 	"library:framework": 12,
@@ -59,6 +60,7 @@ const NODE_COLOR: Record<string, string> = {
 	"binary:main": "#58a6ff",
 	"binary:framework": "#8b5cf6",
 	"binary:extension": "#8b5cf6",
+	"binary:object": "#8b5cf6",
 	"binary:tweak": "#e05d44",
 	"library:system": "#2b5ea7",
 	"library:framework": "#1f8ecd",
@@ -717,6 +719,12 @@ function buildLegend(data: LibraryGraphData, onToggle: () => void): LegendResult
 			"Frameworks",
 			() => hasType.has("binary:framework") || hasType.has("binary:extension"),
 			["binary:framework", "binary:extension"]
+		],
+		[
+			"gr-legend-dot--binary-fw",
+			"Object Files",
+			() => hasType.has("binary:object"),
+			["binary:object"]
 		],
 		[
 			"gr-legend-dot--binary-tweak",

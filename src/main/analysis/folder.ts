@@ -22,7 +22,8 @@ const SKIPPED_DIRS = new Set([".git", ".hg", ".svn", "node_modules", "_CodeSigna
 const TYPE_PRIORITY: Record<BinaryInfo["type"], number> = {
 	main: 0,
 	framework: 1,
-	extension: 2
+	extension: 2,
+	object: 3
 };
 
 /** Relative path with forward slashes — stable across platforms and unique. */

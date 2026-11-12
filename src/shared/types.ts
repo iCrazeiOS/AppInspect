@@ -1,7 +1,7 @@
 // ── Shared analysis data types for AppInspect ──
 
 /** What kind of input was loaded */
-export type SourceType = "ipa" | "macho" | "deb" | "app" | "xcframework" | "folder";
+export type SourceType = "ipa" | "macho" | "deb" | "app" | "xcframework" | "staticlib" | "folder";
 
 /** One platform slice declared in an .xcframework's Info.plist (AvailableLibraries) */
 export interface XCFrameworkLibrary {
@@ -43,7 +43,8 @@ export interface IPAInfo {
 export interface BinaryInfo {
 	name: string;
 	path: string;
-	type: "main" | "framework" | "extension";
+	/** "object" is a relocatable object file, e.g. a static library member */
+	type: "main" | "framework" | "extension" | "object";
 	size: number;
 }
 
@@ -417,7 +418,7 @@ export interface LibraryGraphNode {
 	/** 'binary' = analysable binary in the container; 'library' = external dependency */
 	type: "binary" | "library";
 	/** Only for binary nodes */
-	binaryType?: "main" | "framework" | "extension" | "tweak";
+	binaryType?: "main" | "framework" | "extension" | "object" | "tweak";
 	/** Only for library nodes */
 	category?: "system" | "framework" | "swift" | "embedded";
 	weak?: boolean;
@@ -654,6 +655,8 @@ export interface AnalysisResult {
 		infoPlist?: { [key: string]: PlistValue };
 		debControl?: DEBControlInfo;
 		xcframeworkLibraries?: XCFrameworkLibrary[];
+		/** Architectures of a static library (from its universal header, or its members) */
+		staticLibraryArchitectures?: string[];
 		/** Detected app frameworks (React Native, Flutter, etc.) — undefined means native */
 		appFrameworks?: string[];
 	};

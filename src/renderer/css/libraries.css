@@ -256,7 +256,8 @@
 }
 
 .gr-node--binary-framework .gr-node-circle,
-.gr-node--binary-extension .gr-node-circle {
+.gr-node--binary-extension .gr-node-circle,
+.gr-node--binary-object .gr-node-circle {
   fill: #8b5cf6;
   stroke: #a78bfa;
 }
@@ -321,6 +322,7 @@
 .gr-node--binary-main .gr-node-label,
 .gr-node--binary-framework .gr-node-label,
 .gr-node--binary-extension .gr-node-label,
+.gr-node--binary-object .gr-node-label,
 .gr-node--binary-tweak .gr-node-label {
   fill: var(--text);
   font-size: 13px;

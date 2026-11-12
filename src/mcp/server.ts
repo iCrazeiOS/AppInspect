@@ -15,7 +15,7 @@
  *   set the APPINSPECT_ALLOW_ROOT environment variable (see below).
  *
  * Tools:
- *   analyse_file   — Load and analyse a file or folder (IPA, Mach-O, DEB, .app, .xcframework)
+ *   analyse_file   — Load and analyse a file or folder (IPA, Mach-O, DEB, .app, .xcframework, .a)
  *   get_overview    — Analysis summary (header, hardening, hooks, etc.)
  *   get_section     — Detailed data for a specific section with filtering
  *   search          — Cross-binary search (objc, strings, symbols, libraries, swift)
@@ -154,6 +154,7 @@ server.registerTool(
 	{
 		description:
 			"Analyse an iOS/macOS input: an IPA, Mach-O, DEB, .app bundle, .xcframework, " +
+			"static library (.a; each object file becomes a binary), " +
 			"or a folder (scanned for Mach-O binaries and .deb packages). " +
 			"A macOS Electron .app is analysed down to its app.asar archive too " +
 			"(use list_asar and read_asar_file for its files). " +
