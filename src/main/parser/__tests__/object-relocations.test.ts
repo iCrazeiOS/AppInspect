@@ -407,4 +407,54 @@ describe("object files through the readers", () => {
 		);
 		expect(xrefs.get(cstring.offset)).toEqual(["_main"]);
 	});
+
+	it("attributes x86_64 RIP-relative loads, including Swift's biased literals", () => {
+		const code = new Uint8Array(0x20);
+		code.set([0x48, 0x8d, 0x05], 0); // _c: lea rax, [rip + l_.str]
+		code.set([0xc3], 7);
+		code.set([0x48, 0x8d, 0x05], 0x10); // _$sSwift: lea rax, [rip + l_.str.1 - 32]
+		new DataView(code.buffer).setInt32(0x13, -32, true);
+		const { image, lc } = build({
+			cputype: CPU_TYPE_X86_64,
+			symbols: [
+				{ name: "_c", sect: 1, external: true },
+				{ name: "_$s4Demo5swiftyyF", sect: 1, offset: 0x10, external: true },
+				{ name: "l_.str", sect: 2 },
+				{ name: "l_.str.1", sect: 2, offset: 0x20 }
+			],
+			sections: [
+				{
+					segname: "__TEXT",
+					sectname: "__text",
+					flags: S_ATTR_CODE,
+					data: code,
+					relocs: [
+						{ address: 3, symbolnum: 2, type: X86_SIGNED, length: 2, pcrel: true },
+						{ address: 0x13, symbolnum: 3, type: X86_SIGNED, length: 2, pcrel: true }
+					]
+				},
+				{
+					segname: "__TEXT",
+					sectname: "__cstring",
+					data: new TextEncoder().encode(
+						`${"c string".padEnd(31, "\0")}\0swift literal\0`
+					)
+				}
+			]
+		});
+		const symbols = parseSymbolTable(image.buffer, lc.symtabInfo, true, true);
+		const cstring = image.segments[0]!.sections[1]!;
+		const xrefs = buildStringXrefMap(
+			image.buffer,
+			image.segments,
+			[],
+			symbols,
+			true,
+			image.rebaseMap,
+			CPU_TYPE_X86_64,
+			true
+		);
+		expect(xrefs.get(cstring.offset)).toEqual(["_c"]);
+		expect(xrefs.get(cstring.offset + 0x20)).toEqual(["_$s4Demo5swiftyyF"]);
+	});
 });

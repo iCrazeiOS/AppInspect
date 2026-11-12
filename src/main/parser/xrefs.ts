@@ -824,6 +824,68 @@ function scanX86(ctx: XrefContext): void {
 	}
 }
 
+// ── x86_64 scanner ───────────────────────────────────────────────────
+
+/**
+ * Scan x86_64 code for RIP-relative memory operands, which is how compilers load
+ * string and data addresses: `lea`/`mov reg, [rip + disp32]` (opcodes 8D/8B with an
+ * optional REX prefix) and `cmp`/`push`-style forms are covered by the same ModR/M
+ * pattern. Instructions are not fully decoded; a candidate only counts when its
+ * target lands in a string section or a pointer to one, which filters stray matches.
+ */
+function scanX86_64(ctx: XrefContext): void {
+	const { textSection, buffer, textFileOffset } = ctx;
+	const bytes = new Uint8Array(buffer);
+	const scanSize = Math.min(Number(textSection.size), 80_000_000);
+	const end = Math.min(textFileOffset + scanSize, bytes.length);
+	const view = new DataView(buffer);
+
+	for (let off = textFileOffset; off + 6 <= end; off++) {
+		const opcode = bytes[off]!;
+		if (opcode !== 0x8d && opcode !== 0x8b) continue;
+		// ModR/M with mod=00, rm=101: [rip + disp32]
+		if ((bytes[off + 1]! & 0xc7) !== 0x05) continue;
+		const disp = view.getInt32(off + 2, true);
+		const next = off + 6; // no immediate follows these forms
+		const pos = off - textFileOffset;
+		const hasRex = pos > 0 && (bytes[off - 1]! & 0xf0) === 0x40;
+		const pc = textSection.addr + BigInt(hasRex ? pos - 1 : pos);
+		const target = textSection.addr + BigInt(next - textFileOffset) + BigInt(disp);
+		recordXrefForTarget(ctx, swiftLiteralTarget(ctx, bytes, target, pc), pc);
+	}
+}
+
+/** Offset Swift subtracts from a string literal's address to form its object pointer. */
+const SWIFT_LITERAL_BIAS = 32n;
+
+/** True when `vmaddr` is the first byte of a C string in a string section. */
+function isStringStart(ctx: XrefContext, bytes: Uint8Array, vmaddr: bigint): boolean {
+	for (const r of ctx.strRanges) {
+		if (r.isCFString || vmaddr < r.vmStart || vmaddr >= r.vmEnd) continue;
+		return vmaddr === r.vmStart || bytes[r.fileStart + Number(vmaddr - r.vmStart) - 1] === 0;
+	}
+	return false;
+}
+
+/**
+ * Swift loads a literal as `lea reg, [rip + str - 32]` on x86_64 (arm64 subtracts
+ * in a separate instruction), so the raw target sits 32 bytes before the string.
+ * Shift such targets onto the string they name: when the target is not itself a
+ * string start, or when the referencing function is Swift code.
+ */
+function swiftLiteralTarget(
+	ctx: XrefContext,
+	bytes: Uint8Array,
+	target: bigint,
+	pc: bigint
+): bigint {
+	const shifted = target + SWIFT_LITERAL_BIAS;
+	if (!isStringStart(ctx, bytes, shifted)) return target;
+	if (!isStringStart(ctx, bytes, target)) return shifted;
+	const fn = findContainingFunction(pc, ctx.funcRanges) ?? "";
+	return /^_?\$s/.test(fn) ? shifted : target;
+}
+
 // ── Main xref builder ────────────────────────────────────────────────
 
 /**
@@ -832,7 +894,7 @@ function scanX86(ctx: XrefContext): void {
  * Dispatches to architecture-specific scanners based on CPU type:
  *   - ARM64: ADRP+ADD, ADRP+LDR, ADR patterns
  *   - ARM32 (Thumb): LDR [PC], MOVW+MOVT patterns
- *   - x86_64: Same as ARM64 (RIP-relative addressing is similar)
+ *   - x86_64: RIP-relative LEA/MOV operands
  *   - x86: Absolute addressing patterns
  */
 export function buildStringXrefMap(
@@ -859,9 +921,10 @@ export function buildStringXrefMap(
 	// Dispatch to architecture-specific scanner
 	switch (cputype) {
 		case CPU_TYPE_ARM64:
-		case CPU_TYPE_X86_64:
-			// ARM64 and x86_64 both use PC-relative addressing that our ARM64 scanner handles
 			scanARM64(ctx);
+			break;
+		case CPU_TYPE_X86_64:
+			scanX86_64(ctx);
 			break;
 		case CPU_TYPE_ARM:
 			scanARM32(ctx);
