@@ -57,6 +57,21 @@ describe("parseArgs", () => {
 		expect(() => parseArgs(["/tmp/App.ipa", "--binary"])).toThrow(UsageError);
 	});
 
+	it("parses --arch by name", () => {
+		expect(parseArgs(["--arch", "arm64", "/tmp/App.ipa"]).arch).toEqual({
+			cpuType: 0x0100000c
+		});
+		expect(parseArgs(["--arch", "x86_64h", "/tmp/App.ipa"]).arch).toEqual({
+			cpuType: 0x01000007,
+			cpuSubtype: 8
+		});
+	});
+
+	it("rejects an unknown or missing --arch", () => {
+		expect(() => parseArgs(["--arch", "riscv64", "/tmp/App.ipa"])).toThrow(UsageError);
+		expect(() => parseArgs(["/tmp/App.ipa", "--arch"])).toThrow(UsageError);
+	});
+
 	it("rejects unknown flags as a usage error", () => {
 		expect(() => parseArgs(["--nope", "/tmp/App.ipa"])).toThrow(UsageError);
 	});

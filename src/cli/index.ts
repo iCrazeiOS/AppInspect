@@ -8,10 +8,11 @@
  */
 
 import * as fs from "node:fs";
-
 import { AnalysisSession } from "../main/analysis/orchestrator";
 import { exportAnalysis } from "../main/export/json";
 import { exportSarif, findingsAtOrAbove } from "../main/export/sarif";
+import type { ArchPreference } from "../shared/arch";
+import { ARCH_NAMES, parseArch } from "../shared/arch";
 import type { TabName } from "../shared/ipc-types";
 import type { AnalysisResult } from "../shared/types";
 
@@ -42,6 +43,7 @@ export interface CliOptions {
 	format: OutputFormat;
 	sections?: TabName[];
 	binary?: number;
+	arch?: ArchPreference;
 	out?: string;
 	noClobber: boolean;
 	pretty: boolean;
@@ -65,6 +67,8 @@ Options:
                         overview|strings|headers|libraries|symbols|classes|swift|
                         entitlements|infoPlist|electron|hooks|security|files|size
   --binary <index>      Analyse a specific binary index instead of the main one
+  --arch <name>         Analyse a specific architecture slice of fat binaries:
+                        ${ARCH_NAMES.join("|")}
   --out <path>          Write output to a file (overwrites if it exists; default: stdout)
   --no-clobber          Refuse to overwrite an existing --out file
   --pretty              Pretty-print JSON (default)
@@ -127,6 +131,15 @@ export function parseArgs(argv: string[]): CliOptions {
 					throw new UsageError("--binary must be a non-negative integer");
 				}
 				options.binary = Number.parseInt(value, 10);
+				break;
+			}
+			case "--arch": {
+				const value = argv[++i];
+				const arch = value ? parseArch(value) : null;
+				if (!arch) {
+					throw new UsageError(`--arch requires one of: ${ARCH_NAMES.join(", ")}`);
+				}
+				options.arch = arch;
 				break;
 			}
 			case "--out": {
@@ -202,6 +215,7 @@ async function main(argv: string[]): Promise<number> {
 		: (phase: string, percent: number) => process.stderr.write(`${phase} (${percent}%)\n`);
 
 	const session = new AnalysisSession();
+	if (options.arch) session.setPreferredArch(options.arch);
 	let result: AnalysisResult;
 	try {
 		result = await session.analyseFile(file, progress);

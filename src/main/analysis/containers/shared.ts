@@ -8,6 +8,7 @@
 
 import * as fs from "node:fs";
 
+import type { ArchPreference } from "../../../shared/arch";
 import type { BinaryInfo as ContainerBinary, SecurityFinding } from "../../../shared/types";
 import type { BinaryInfo } from "../../ipa/extractor";
 import { loadSettings } from "../../settings";
@@ -17,11 +18,13 @@ import { analyseBinaryFile, yieldToEventLoop } from "../binary-pipeline";
  * When the `scanAllBinaries` setting is enabled, run the security scan over
  * every binary past the main one and return their findings tagged with the
  * source binary name. Returns an empty list when disabled or single-binary.
+ * Binaries without the requested architecture slice are skipped.
  */
 export async function scanAdditionalBinaries(
 	binaries: BinaryInfo[],
 	progressCallback: (phase: string, percent: number) => void,
-	progressPercent: number
+	progressPercent: number,
+	preferredArch?: ArchPreference
 ): Promise<SecurityFinding[]> {
 	const findings: SecurityFinding[] = [];
 	if (!loadSettings().scanAllBinaries || binaries.length <= 1) return findings;
@@ -30,7 +33,13 @@ export async function scanAdditionalBinaries(
 	await yieldToEventLoop();
 	for (let i = 1; i < binaries.length; i++) {
 		try {
-			const extraResult = await analyseBinaryFile(binaries[i]!.path, () => {}, 0);
+			const extraResult = await analyseBinaryFile(
+				binaries[i]!.path,
+				() => {},
+				0,
+				preferredArch?.cpuType,
+				preferredArch?.cpuSubtype
+			);
 			for (const finding of extraResult.security.findings) {
 				findings.push({ ...finding, source: binaries[i]!.name });
 			}

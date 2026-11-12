@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
+import type { ArchPreference } from "../../shared/arch";
 import {
 	FILE_PREVIEW_BYTES,
 	FILE_PREVIEW_FULL_BYTES,
@@ -55,7 +55,7 @@ import {
 } from "../ipa/extractor";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
 import { discoverXCFramework, findXCFramework, isXCFrameworkPath } from "../xcframework/discovery";
-import type { BinaryAnalysisResult } from "./binary-pipeline";
+import type { BinaryAnalysisResult, ScanOptions } from "./binary-pipeline";
 import {
 	analyseBinaryFile,
 	binaryOverviewFields,
@@ -90,10 +90,46 @@ export class AnalysisSession {
 	private searchIndex: Map<number, BinarySearchIndex> | null = null;
 	private asarArchive: AsarArchive | null = null;
 	private electronFindings: SecurityFinding[] = [];
+	/** Architecture slice requested for every binary parsed in this session. */
+	private preferredArch: ArchPreference | null = null;
 	/** Lazily-computed results for non-active binaries, keyed by binary index. */
 	private binaryCache = new Map<number, { result: AnalysisResult; fatSliceOffset: number }>();
 
 	// ── Getters ────────────────────────────────────────────────────────
+
+	/**
+	 * Choose which architecture slice to analyse for every binary in this
+	 * session (fat binaries only; thin binaries must already match). Passing
+	 * null restores the default: arm64 when present, otherwise the first slice.
+	 */
+	setPreferredArch(arch: ArchPreference | null): void {
+		this.preferredArch = arch;
+		// Cached per-binary results were produced from the previous slice.
+		this.binaryCache.clear();
+		this.searchIndex = null;
+	}
+
+	/** The architecture slice requested for this session, if any. */
+	getPreferredArch(): ArchPreference | null {
+		return this.preferredArch;
+	}
+
+	/** Analyse a binary using the session's preferred architecture slice. */
+	private analyseSlice(
+		binaryPath: string,
+		progressCallback: (phase: string, percent: number) => void,
+		basePercent: number,
+		options: ScanOptions = {}
+	): Promise<BinaryAnalysisResult> {
+		return analyseBinaryFile(
+			binaryPath,
+			progressCallback,
+			basePercent,
+			this.preferredArch?.cpuType,
+			this.preferredArch?.cpuSubtype,
+			options
+		);
+	}
 
 	/** Return the cached analysis result, or null if no file has been analysed. */
 	getResult(): AnalysisResult | null {
@@ -225,7 +261,12 @@ export class AnalysisSession {
 
 	/** Build a dependency graph across all binaries in the container. */
 	async getLibraryGraph(): Promise<LibraryGraphData> {
-		return buildLibraryGraph(this.binaries, this.result, this.activeBinaryName);
+		return buildLibraryGraph(
+			this.binaries,
+			this.result,
+			this.activeBinaryName,
+			this.preferredArch ?? undefined
+		);
 	}
 
 	// ── Electron bundle ────────────────────────────────────────────────
@@ -371,19 +412,12 @@ export class AnalysisSession {
 				// Index-only light path: the index keeps solely names, so skip the
 				// terminal steps (codesign/security/hooks) that feed none of them.
 				// Every other caller passes no options and gets the full result.
-				const result = await analyseBinaryFile(
-					bin.path,
-					() => {},
-					0,
-					undefined,
-					undefined,
-					{
-						skipCodesign: true,
-						skipSecurity: true,
-						skipHooks: true,
-						skipSize: true
-					}
-				);
+				const result = await this.analyseSlice(bin.path, () => {}, 0, {
+					skipCodesign: true,
+					skipSecurity: true,
+					skipHooks: true,
+					skipSize: true
+				});
 				this.searchIndex.set(i, {
 					objc: result.classes.map((c) => c.name),
 					strings: result.strings.map((s) => s.value),
@@ -519,7 +553,7 @@ export class AnalysisSession {
 		progressCallback("Reading binary...", 25);
 		const mainBinary = binaries[0]!;
 		this.activeBinaryName = mainBinary.name;
-		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 25);
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 25);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		// If code-signature entitlements were empty, try mobileprovision
@@ -572,7 +606,12 @@ export class AnalysisSession {
 		}
 
 		// Step 15: Scan additional binaries if setting enabled
-		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const extraBinaryFindings = await scanAdditionalBinaries(
+			binaries,
+			progressCallback,
+			85,
+			this.preferredArch ?? undefined
+		);
 
 		// Merge all security findings
 		const mergedSecurity = {
@@ -645,8 +684,8 @@ export class AnalysisSession {
 			binary.path,
 			progressCallback,
 			0,
-			cpuType,
-			cpuSubtype
+			cpuType ?? this.preferredArch?.cpuType,
+			cpuSubtype ?? this.preferredArch?.cpuSubtype
 		);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
@@ -678,7 +717,7 @@ export class AnalysisSession {
 
 		let entry = this.binaryCache.get(binaryIndex);
 		if (!entry) {
-			const binaryResult = await analyseBinaryFile(binary.path, () => {}, 0);
+			const binaryResult = await this.analyseSlice(binary.path, () => {}, 0);
 			entry = {
 				result: this.composeBinaryResult(binaryResult),
 				fatSliceOffset: binaryResult.fatSliceOffset
@@ -750,7 +789,7 @@ export class AnalysisSession {
 		this.activeBinaryName = fileName;
 
 		progressCallback("Analysing binary...", 10);
-		const binaryResult = await analyseBinaryFile(filePath, progressCallback, 10);
+		const binaryResult = await this.analyseSlice(filePath, progressCallback, 10);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		const result = buildAnalysisResult(binaryResult, {
@@ -820,11 +859,16 @@ export class AnalysisSession {
 		progressCallback("Analysing binary...", 20);
 		const mainBinary = this.binaries[0]!;
 		this.activeBinaryName = mainBinary.name;
-		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 20);
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 20);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		// Step 3: Scan additional binaries if setting enabled
-		const debExtraFindings = await scanAdditionalBinaries(this.binaries, progressCallback, 80);
+		const debExtraFindings = await scanAdditionalBinaries(
+			this.binaries,
+			progressCallback,
+			80,
+			this.preferredArch ?? undefined
+		);
 
 		const debMergedSecurity = {
 			findings: [...binaryResult.security.findings, ...debExtraFindings],
@@ -1009,7 +1053,7 @@ export class AnalysisSession {
 		progressCallback("Reading binary...", 15);
 		const mainBinary = binaries[0]!;
 		this.activeBinaryName = mainBinary.name;
-		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		// Entitlements from code signature
@@ -1053,7 +1097,12 @@ export class AnalysisSession {
 		}
 
 		// Scan additional binaries if enabled
-		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const extraBinaryFindings = await scanAdditionalBinaries(
+			binaries,
+			progressCallback,
+			85,
+			this.preferredArch ?? undefined
+		);
 
 		const binarySecurityFindings = electronInfo
 			? adjustElectronHardeningFindings(binaryResult.security.findings)
@@ -1171,7 +1220,7 @@ export class AnalysisSession {
 		// Steps 3-12: Analyse main slice binary
 		progressCallback("Reading binary...", 15);
 		this.activeBinaryName = mainBinary.name;
-		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		// Scan the main slice's bundle files for secrets (other slices ship the same resources)
@@ -1203,7 +1252,12 @@ export class AnalysisSession {
 			// Non-critical
 		}
 
-		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const extraBinaryFindings = await scanAdditionalBinaries(
+			binaries,
+			progressCallback,
+			85,
+			this.preferredArch ?? undefined
+		);
 
 		const mergedSecurity = {
 			findings: [
@@ -1273,11 +1327,16 @@ export class AnalysisSession {
 
 		const mainBinary = binaries[0]!;
 		this.activeBinaryName = mainBinary.name;
-		const binaryResult = await analyseBinaryFile(mainBinary.path, progressCallback, 15);
+		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		const electronInfo = await this.loadElectron(folderPath, false, progressCallback, 80);
-		const extraBinaryFindings = await scanAdditionalBinaries(binaries, progressCallback, 85);
+		const extraBinaryFindings = await scanAdditionalBinaries(
+			binaries,
+			progressCallback,
+			85,
+			this.preferredArch ?? undefined
+		);
 		const binarySecurityFindings = electronInfo
 			? adjustElectronHardeningFindings(binaryResult.security.findings)
 			: binaryResult.security.findings;

@@ -159,7 +159,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 
 | Tool | Description |
 |------|-------------|
-| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework) or folder. Must be called first. |
+| `analyse_file` | Analyse a file (IPA, Mach-O, DEB, .app, .xcframework) or folder. Must be called first. Optional `arch` picks a fat-binary slice (`arm64`, `arm64e`, `x86_64`, `x86_64h`, `armv7`, ...). |
 | `get_overview` | Analysis summary — header, hardening, build version, hooks, frameworks |
 | `get_section` | Detailed data for a section (see below). Supports `filter`, `offset`, `limit` for large datasets. |
 | `get_size_tree` | Bundle files as a size tree (what the Blocks treemap shows), with the active binary split into modules and an Electron `app.asar` split into its packed contents. Optional `maxDepth` (default 3). |
@@ -170,13 +170,15 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
-| `switch_binary` | Change the active binary (framework/extension) so later calls default to it |
+| `switch_binary` | Change the active binary (framework/extension) so later calls default to it. Optional `arch` switches the architecture slice at the same time |
 
 **`get_section` sections:** `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `security`, `files`, `hooks`, `size`
 
 All query tools (`get_overview`, `get_section`, `search`, `get_library_graph`, `search_hex`, `switch_binary`) accept an optional `path` parameter to target a specific analysis session. When omitted, they default to the last analysed file.
 
 `get_overview`, `get_section`, `read_hex`, and `search_hex` also accept an optional `binary` index (from `overview.ipa.binaries`) to query any binary in the container directly, without `switch_binary` changing the active one.
+
+Fat binaries default to the arm64 slice (or the first slice when arm64 is absent). Pass `arch` to `analyse_file` or `switch_binary` to choose a slice by name: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e`. Requesting an architecture the binary does not contain is an error that lists the available slices.
 
 ### Example workflow
 
@@ -225,6 +227,8 @@ bun run cli -- /path/App.ipa --json --section security
 bun run cli -- /path/App.ipa --json --section security --section strings
 bun run cli -- /path/App.ipa --json --no-pretty --out analysis.json
 bun run cli -- /path/App.ipa --binary 1 --json        # analyse a specific binary
+bun run cli -- /path/App.ipa --arch x86_64 --json     # analyse the x86_64 slice
+bun run cli -- /path/App.ipa --binary 1 --arch arm64e --sarif  # both are composable
 ```
 
 `appinspect <file> [options]`
@@ -235,6 +239,7 @@ bun run cli -- /path/App.ipa --binary 1 --json        # analyse a specific binar
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
 | `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
+| `--arch <name>` | Analyse a specific architecture slice of a fat binary: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e` (default: arm64 when present, otherwise the first slice) |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |
 | `--no-clobber` | Refuse to overwrite an existing `--out` file (exits 1) |
 | `--pretty` / `--no-pretty` | Pretty-print or minify JSON (default: pretty) |

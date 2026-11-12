@@ -33,6 +33,7 @@ import { MAX_HEX_MATCHES } from "../main/analysis/hex";
 import type { SearchableTab } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
+import { ARCH_NAMES, type ArchPreference, parseArch } from "../shared/arch";
 import { FILE_PREVIEW_BYTES, FILE_PREVIEW_FULL_BYTES } from "../shared/file-preview";
 import type { AnalysisResult, AsarEntry, SizeTreeNode } from "../shared/types";
 import {
@@ -108,6 +109,24 @@ const binaryParam = z
 			"Query any binary directly without switch_binary."
 	);
 
+const archParam = z
+	.string()
+	.optional()
+	.describe(
+		"Architecture slice to analyse from a fat binary (e.g. arm64, arm64e, x86_64, x86_64h). " +
+			`One of: ${ARCH_NAMES.join(", ")}. Defaults to arm64 when present, otherwise the first slice.`
+	);
+
+/** Resolve an arch name, or throw a helpful error for an unknown one. */
+function resolveArch(arch?: string): ArchPreference | null {
+	if (!arch) return null;
+	const preference = parseArch(arch);
+	if (!preference) {
+		throw new Error(`Unknown architecture "${arch}". Supported: ${ARCH_NAMES.join(", ")}`);
+	}
+	return preference;
+}
+
 const noop = () => {};
 
 /** Flatten an ASAR entry tree into its files, sorted by archive path. */
@@ -143,16 +162,21 @@ server.registerTool(
 			"and available binaries. The result is cached for the session — call " +
 			"this once, then use the other tools to query the data. Multiple files " +
 			"can be analysed in parallel; pass the file path to query tools to " +
-			"target a specific analysis. By default this reads any local path the " +
+			"target a specific analysis. Set `arch` to pick a slice from a fat " +
+			"binary (defaults to arm64 when present). By default this reads any " +
+			"local path the " +
 			"client requests, running with your privileges; set APPINSPECT_ALLOW_ROOT " +
 			"to confine reads to a directory tree.",
 		inputSchema: {
-			path: z.string().describe("Absolute path to the file to analyse")
+			path: z.string().describe("Absolute path to the file to analyse"),
+			arch: archParam
 		}
 	},
-	async ({ path }) => {
+	async ({ path, arch }) => {
 		assertAllowed(path);
 		const session = new AnalysisSession();
+		const preference = resolveArch(arch);
+		if (preference) session.setPreferredArch(preference);
 		const result = await session.analyseFile(path, noop);
 		sessions.set(path, session);
 		lastPath = path;
@@ -399,15 +423,19 @@ server.registerTool(
 			"Switch the active binary within the loaded container (e.g. a framework " +
 			"or app extension), so subsequent calls default to it. Use get_overview " +
 			"to see available binaries and their indices in overview.ipa.binaries. " +
+			"Pass `arch` to switch the architecture slice at the same time. " +
 			"To query one binary without changing the active one, pass the `binary` " +
 			"parameter to get_overview, get_section, or read_hex instead.",
 		inputSchema: {
 			binaryIndex: z.number().describe("Index of the binary (from overview.ipa.binaries)"),
+			arch: archParam,
 			path: pathParam
 		}
 	},
-	async ({ binaryIndex, path }) => {
+	async ({ binaryIndex, arch, path }) => {
 		const session = getSession(path);
+		const preference = resolveArch(arch);
+		if (preference) session.setPreferredArch(preference);
 		const result = await session.analyseBinary(binaryIndex, noop);
 		return ok(sanitize({ ...result.overview, hooks: result.hooks, electron: result.electron }));
 	}

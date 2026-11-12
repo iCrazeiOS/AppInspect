@@ -8,6 +8,7 @@
 
 import * as fs from "node:fs";
 
+import { type ArchPreference, archMatches, describeArchs, formatArch } from "../../shared/arch";
 import type {
 	AnalysisResult,
 	BinaryHardening,
@@ -199,24 +200,35 @@ export async function analyseBinaryFile(
 	progressCallback("Parsing Mach-O header...", basePercent + 5);
 	await yieldToEventLoop();
 	let machoFile: MachOFile | null = null;
+	let archError: string | null = null;
+	const preference: ArchPreference | null =
+		preferredCpuType != null
+			? { cpuType: preferredCpuType, cpuSubtype: preferredCpuSubtype }
+			: null;
 
 	try {
 		const fatResult = parseFatHeader(buffer);
 		if (fatResult.ok) {
 			fatArchs = fatResult.data;
 
-			// Select preferred arch, or default to arm64, or first available
-			const preferredArch =
-				preferredCpuType != null
-					? fatArchs.find(
-							(a) =>
-								a.cputype === preferredCpuType &&
-								(preferredCpuSubtype == null ||
-									a.cpusubtype === preferredCpuSubtype)
-						)
-					: undefined;
+			// Select the requested arch when one was supplied, otherwise prefer
+			// arm64 and fall back to the first available slice.
+			const preferredArch = preference
+				? fatArchs.find((a) => archMatches(a, preference))
+				: undefined;
+			// A thin binary is reported as a single cputype-0 placeholder; its real
+			// architecture is only known once the Mach-O header is parsed.
+			const isThinPlaceholder = fatArchs.length === 1 && fatArchs[0]!.cputype === 0;
+			if (preference && !preferredArch && !isThinPlaceholder) {
+				archError = `Requested architecture ${formatArch(
+					preference.cpuType,
+					preference.cpuSubtype
+				)} not present; available: ${describeArchs(fatArchs)}`;
+			}
 			const arm64Arch = fatArchs.find((a) => a.cputype === CPU_TYPE_ARM64);
-			const selectedArch = preferredArch ?? arm64Arch ?? fatArchs[0];
+			const selectedArch = preference
+				? (preferredArch ?? (isThinPlaceholder ? fatArchs[0] : undefined))
+				: (arm64Arch ?? fatArchs[0]);
 
 			if (selectedArch) {
 				// Slice the buffer to the selected architecture so all internal
@@ -234,6 +246,12 @@ export async function analyseBinaryFile(
 				if (headerResult.ok) {
 					machoFile = headerResult.data;
 					header = machoFile.header;
+					if (preference && !archMatches(header, preference)) {
+						archError = `Requested architecture ${formatArch(
+							preference.cpuType,
+							preference.cpuSubtype
+						)} not present; binary is ${formatArch(header.cputype, header.cpusubtype)}`;
+					}
 				} else {
 					errors.push(`Mach-O header parse: ${headerResult.error}`);
 				}
@@ -244,6 +262,12 @@ export async function analyseBinaryFile(
 			if (headerResult.ok) {
 				machoFile = headerResult.data;
 				header = machoFile.header;
+				if (preference && !archMatches(header, preference)) {
+					archError = `Requested architecture ${formatArch(
+						preference.cpuType,
+						preference.cpuSubtype
+					)} not present; binary is ${formatArch(header.cputype, header.cpusubtype)}`;
+				}
 			} else {
 				errors.push(`Mach-O header parse: ${headerResult.error}`);
 			}
@@ -252,6 +276,10 @@ export async function analyseBinaryFile(
 		const msg = err instanceof Error ? err.message : String(err);
 		errors.push(`Header parse error: ${msg}`);
 	}
+
+	// An explicit architecture that does not exist is a caller error, not a
+	// partially parseable binary — fail instead of silently analysing another slice.
+	if (archError) throw new Error(archError);
 
 	if (!machoFile) {
 		return {

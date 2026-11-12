@@ -7,6 +7,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { ArchPreference } from "../../shared/arch";
+import { archMatches } from "../../shared/arch";
 import type {
 	AnalysisResult,
 	LibraryGraphData,
@@ -47,7 +49,10 @@ export function isTweakDep(libName: string): boolean {
  * Lightweight: read a binary and parse only its load commands to extract
  * linked libraries. Skips strings, symbols, ObjC, signatures, etc.
  */
-export function parseLibrariesOnly(binaryPath: string): LinkedLibrary[] {
+export function parseLibrariesOnly(
+	binaryPath: string,
+	preferredArch?: ArchPreference
+): LinkedLibrary[] {
 	try {
 		const fileBuf = fs.readFileSync(binaryPath);
 		let buffer = fileBuf.buffer.slice(
@@ -55,12 +60,15 @@ export function parseLibrariesOnly(binaryPath: string): LinkedLibrary[] {
 			fileBuf.byteOffset + fileBuf.byteLength
 		);
 
-		// Handle fat binary — select arm64 or first arch
+		// Handle fat binary — use the requested slice, else arm64, else first arch
 		const fatResult = parseFatHeader(buffer);
 		const headerOffset = 0;
 		if (fatResult.ok) {
+			const requested = preferredArch
+				? fatResult.data.find((a) => archMatches(a, preferredArch))
+				: undefined;
 			const arm64 = fatResult.data.find((a) => a.cputype === CPU_TYPE_ARM64);
-			const arch = arm64 ?? fatResult.data[0];
+			const arch = requested ?? arm64 ?? fatResult.data[0];
 			if (arch && arch.offset > 0) {
 				buffer = buffer.slice(arch.offset, arch.offset + arch.size);
 			}
@@ -101,7 +109,8 @@ export function parseLibrariesOnly(binaryPath: string): LinkedLibrary[] {
 export function buildLibraryGraph(
 	binaries: BinaryInfo[],
 	activeResult: AnalysisResult | null,
-	activeBinaryName: string
+	activeBinaryName: string,
+	preferredArch?: ArchPreference
 ): LibraryGraphData {
 	const nodes = new Map<string, LibraryGraphNode>();
 	const edges: LibraryGraphEdge[] = [];
@@ -136,7 +145,7 @@ export function buildLibraryGraph(
 		if (bin.name === activeBinaryName && activeResult) {
 			libs = activeResult.libraries;
 		} else {
-			libs = parseLibrariesOnly(bin.path);
+			libs = parseLibrariesOnly(bin.path, preferredArch);
 		}
 
 		// Detect if this binary is a tweak (links a hooking framework)
