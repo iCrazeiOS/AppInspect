@@ -112,6 +112,10 @@ describe("AnalysisSession static libraries", () => {
 		expect(result.overview.header.cputype).toBe(CPU_TYPE_ARM64);
 		expect(result.strings.map((s) => s.value)).toEqual(["alpha arm64"]);
 		expect(result.files.map((f) => f.name).sort()).toEqual(["Alpha.o", "Beta.o"]);
+
+		const tree = session.getSizeTree();
+		expect(tree.name).toBe("libDemo.a");
+		expect(tree.children?.map((c) => c.name).sort()).toEqual(["Alpha.o", "Beta.o"]);
 	});
 
 	it("switches members and architecture slices", async () => {

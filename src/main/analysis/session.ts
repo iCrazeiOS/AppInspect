@@ -107,6 +107,8 @@ export class AnalysisSession {
 	private electronFindings: SecurityFinding[] = [];
 	/** Architecture slice requested for every binary parsed in this session. */
 	private preferredArch: ArchPreference | null = null;
+	/** Static libraries extracted for this session: cache directory → library path. */
+	private staticLibraries = new Map<string, string>();
 	/** Lazily-computed results for non-active binaries, keyed by binary index. */
 	private binaryCache = new Map<number, { result: AnalysisResult; fatSliceOffset: number }>();
 
@@ -396,7 +398,7 @@ export class AnalysisSession {
 		}
 
 		// An XCFramework slice is a build input: show only what embedding it ships
-		return buildSizeTree(
+		const tree = buildSizeTree(
 			root,
 			{ path: activePath, breakdown: this.result.size },
 			new Set(this.binaries.map((b) => path.resolve(b.path))),
@@ -405,6 +407,10 @@ export class AnalysisSession {
 				? { path: this.asarArchive.path, entries: this.asarArchive.entries }
 				: undefined
 		);
+		// Extracted object files live in a cache directory; name the tree after the library
+		const library = this.staticLibraries.get(root);
+		if (library) tree.name = path.basename(library);
+		return tree;
 	}
 
 	// ── Cross-binary search ────────────────────────────────────────────
@@ -966,6 +972,7 @@ export class AnalysisSession {
 
 		progressCallback("Extracting static library...", 0);
 		const cacheDir = await extractStaticLibraryToCache(libraryPath);
+		this.staticLibraries.set(cacheDir, libraryPath);
 		this.extractedDir = cacheDir;
 		this.appBundlePath = cacheDir;
 
@@ -1287,7 +1294,9 @@ export class AnalysisSession {
 			await yieldToEventLoop();
 			let members: StaticLibraryMember[] = [];
 			try {
-				members = listStaticLibraryMembers(await extractStaticLibraryToCache(binaryPath));
+				const cacheDir = await extractStaticLibraryToCache(binaryPath);
+				this.staticLibraries.set(cacheDir, binaryPath);
+				members = listStaticLibraryMembers(cacheDir);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				console.warn(`[xcframework] ${msg} (at ${binaryPath})`);
