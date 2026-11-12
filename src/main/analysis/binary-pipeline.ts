@@ -669,7 +669,8 @@ export async function analyseBinaryFile(
 				platform: buildVersion?.platform,
 				segmentNames: segments.map((s) => s.segname),
 				sectionNames: allSections.map((s) => s.sectname),
-				debugSymbolCount: countStabsSymbols(buffer, lcResult.symtabInfo, machoFile.is64Bit)
+				debugSymbolCount: countStabsSymbols(buffer, lcResult.symtabInfo, machoFile.is64Bit),
+				fileType: header.filetype
 			});
 
 			hardening = getBinaryHardening({

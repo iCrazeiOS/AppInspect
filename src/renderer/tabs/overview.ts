@@ -23,6 +23,8 @@ type OverviewData = AnalysisResult["overview"] & {
 	electron?: AnalysisResult["electron"];
 };
 
+const MH_OBJECT = 1;
+
 /** Display names for XCFramework Info.plist SupportedPlatform / SupportedPlatformVariant */
 const XCF_PLATFORM_NAMES: Record<string, string> = {
 	ios: "iOS",
@@ -381,8 +383,12 @@ export function renderOverview(
 	}
 
 	// ── Binary Hardening card ──
+	// PIE is a property of linked images; an object file (static library member) has none yet
+	const isObjectFile = header.filetype === MH_OBJECT;
 	const hardeningItems = [
-		buildHardeningRow("PIE (Position Independent)", hardening.pie, "pie"),
+		...(isObjectFile
+			? []
+			: [buildHardeningRow("PIE (Position Independent)", hardening.pie, "pie")]),
 		buildHardeningRow("ARC (Automatic Reference Counting)", hardening.arc, "arc"),
 		buildHardeningRow("Stack Canaries", hardening.stackCanaries, "stackCanaries"),
 		buildHardeningRow("Stripped", hardening.stripped)

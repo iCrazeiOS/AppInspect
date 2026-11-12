@@ -22,6 +22,7 @@ import { checkDebugArtifacts } from "./debug-artifacts";
 // ── Constants ──
 
 const MH_PIE = 0x200000;
+const MH_OBJECT = 1;
 
 // ── Credential / secret patterns ──
 
@@ -457,6 +458,8 @@ export interface SecurityScanParams {
 	segmentNames: string[];
 	sectionNames: string[];
 	debugSymbolCount: number;
+	/** Mach-O filetype; an unlinked object (MH_OBJECT) skips link-time hardening checks */
+	fileType?: number;
 }
 
 /**
@@ -521,6 +524,11 @@ function truncate(s: string, max = 500): string {
 
 function checkBinaryHardeningFindings(params: SecurityScanParams): SecurityFinding[] {
 	const findings: SecurityFinding[] = [];
+	// PIE is decided when the object is linked, and an object only references the
+	// canary and ARC runtime symbols when its own functions need them — so none of
+	// these say anything about an unlinked object (or static library member).
+	if (params.fileType === MH_OBJECT) return findings;
+
 	const symbolNames = new Set(params.symbols.map((s) => s.name));
 	const isIOS = params.platform != null && IOS_PLATFORMS.has(params.platform);
 	const isMacOS = params.platform === 1 || params.platform === 6; // macOS, Mac Catalyst

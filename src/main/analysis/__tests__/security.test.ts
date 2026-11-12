@@ -105,6 +105,11 @@ describe("Security Scan Engine", () => {
 
 	// baseParams() already defaults to headerFlags: MH_PIE, so every other test in
 	// this file exercises the PIE-set branch. Only the negative case needs stating.
+	it("skips link-time hardening checks for object files", () => {
+		const findings = runSecurityScan(baseParams({ headerFlags: 0, fileType: 1 }));
+		expect(findings.filter((f) => f.category === "binary-hardening")).toEqual([]);
+	});
+
 	it("does not report PIE when MH_PIE flag is set", () => {
 		const findings = runSecurityScan(baseParams({ headerFlags: MH_PIE }));
 		expect(findings.find((f) => f.message.includes("PIE"))).toBeUndefined();
