@@ -22,6 +22,7 @@ const SECTION_TYPE_MASK = 0xff;
 /** S_ZEROFILL, S_GB_ZEROFILL, S_THREAD_LOCAL_ZEROFILL — occupy no file bytes */
 const ZEROFILL_TYPES = new Set([0x1, 0xc, 0x12]);
 const S_ATTR_PURE_INSTRUCTIONS = 0x80000000;
+const S_ATTR_DEBUG = 0x02000000;
 const S_ATTR_SOME_INSTRUCTIONS = 0x400;
 const TOP_SYMBOL_COUNT = 10;
 const UNATTRIBUTED = "Unattributed";
@@ -366,7 +367,15 @@ function buildSegments(lc: LoadCommandsResult, is64Bit: boolean): SizeSegment[] 
 				["Code signature", lc.codeSignatureInfo?.size ?? 0],
 				["Chained fixups", lc.chainedFixupsInfo?.size ?? 0],
 				["Function starts", lc.functionStartsInfo?.size ?? 0],
-				["Export trie", lc.exportTrieInfo?.size ?? 0]
+				["Export trie", lc.exportTrieInfo?.size ?? 0],
+				// Only unlinked object files carry relocation entries
+				[
+					"Relocations",
+					lc.segments.reduce(
+						(sum, s) => sum + s.sections.reduce((n, sec) => n + sec.nreloc * 8, 0),
+						0
+					)
+				]
 			];
 			for (const [blob, size] of blobs) {
 				if (size > 0) sections.push({ name: blob, size });
@@ -460,7 +469,8 @@ export function buildSizeBreakdown(
 	for (let i = 0; i < sections.length; i++) {
 		const section = sections[i]!;
 		const size = fileBytes(section);
-		if (size === 0) continue;
+		// DWARF in an object file describes the code; it is not module code or data
+		if (size === 0 || (section.flags & S_ATTR_DEBUG) !== 0) continue;
 		const isCode = isCodeSection(section);
 		sectionSize += size;
 		if (isCode) codeSectionSize += size;

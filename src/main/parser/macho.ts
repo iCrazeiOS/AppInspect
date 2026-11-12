@@ -30,6 +30,7 @@ export {
 	CPU_TYPE_X86_64
 } from "../../shared/arch";
 
+export const MH_OBJECT = 1;
 export const MH_EXECUTE = 2;
 export const MH_DYLIB = 6;
 

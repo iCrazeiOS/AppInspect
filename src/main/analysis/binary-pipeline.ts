@@ -45,13 +45,14 @@ import { parseCodeSignature } from "../parser/codesign";
 import type { LoadCommandsResult, Section64 } from "../parser/load-commands";
 import { parseLoadCommands } from "../parser/load-commands";
 import type { MachOFile } from "../parser/macho";
-import { parseFatHeader, parseMachOHeader } from "../parser/macho";
+import { MH_OBJECT, parseFatHeader, parseMachOHeader } from "../parser/macho";
 import {
 	buildMsgSendSelectorMap,
 	describeUnnamedMethod,
 	enrichMethodsFromSymbols,
 	extractObjCMetadata
 } from "../parser/objc";
+import { buildObjectImage, objectSizeSegments } from "../parser/object-relocations";
 import { extractStrings } from "../parser/strings";
 import { extractSwiftMetadata } from "../parser/swift";
 import { demangleSwiftSymbol, initSwiftDemangler } from "../parser/swift-demangle";
@@ -387,8 +388,29 @@ export async function analyseBinaryFile(
 	progressCallback("Building fixup map...", basePercent + 20);
 	let rebaseMap = new Map<number, bigint>();
 	let bindMap = new Map<number, { ordinal: number; symbolName: string; addend: bigint }>();
+	// Segments the parsers walk. A relocatable object keeps every section in one
+	// unnamed segment, so it is regrouped (and its relocations applied) first.
+	let segments = lcResult.segments;
+	let sizeLayout = lcResult;
+	const fileSize = buffer.byteLength;
 	try {
-		if (lcResult.chainedFixupsInfo) {
+		if (header.filetype === MH_OBJECT) {
+			const image = buildObjectImage(
+				buffer,
+				lcResult,
+				header.cputype,
+				machoFile.littleEndian,
+				machoFile.is64Bit
+			);
+			buffer = image.buffer;
+			segments = image.segments;
+			sizeLayout = {
+				...lcResult,
+				segments: objectSizeSegments(lcResult, image.sectionSegments, fileSize)
+			};
+			rebaseMap = image.rebaseMap;
+			bindMap = image.bindMap;
+		} else if (lcResult.chainedFixupsInfo) {
 			const fixups = buildFixupMap(
 				buffer,
 				lcResult.chainedFixupsInfo.offset,
@@ -414,7 +436,7 @@ export async function analyseBinaryFile(
 	}
 
 	// Flatten all sections for convenience
-	const allSections: Section64[] = lcResult.segments.flatMap((seg) => seg.sections);
+	const allSections: Section64[] = segments.flatMap((seg) => seg.sections);
 
 	// Step 8: Extract strings
 	progressCallback("Extracting strings...", basePercent + 25);
@@ -423,7 +445,7 @@ export async function analyseBinaryFile(
 		const rawStrings = extractStrings(
 			buffer,
 			allSections,
-			lcResult.segments,
+			segments,
 			rebaseMap,
 			machoFile.littleEndian,
 			machoFile.is64Bit
@@ -463,7 +485,7 @@ export async function analyseBinaryFile(
 	}
 
 	// Step 9b: Function starts (feed size attribution and string xrefs)
-	const textSeg = lcResult.segments.find((s) => s.segname.trim() === "__TEXT");
+	const textSeg = segments.find((s) => s.segname.trim() === "__TEXT");
 	let funcStarts: bigint[] = [];
 	if (textSeg && lcResult.functionStartsInfo) {
 		funcStarts = parseFunctionStarts(
@@ -481,7 +503,7 @@ export async function analyseBinaryFile(
 		const objcMeta = extractObjCMetadata(
 			buffer,
 			allSections,
-			lcResult.segments,
+			segments,
 			rebaseMap,
 			machoFile.littleEndian,
 			machoFile.is64Bit,
@@ -502,7 +524,7 @@ export async function analyseBinaryFile(
 	try {
 		swift = extractSwiftMetadata(
 			buffer,
-			lcResult.segments,
+			segments,
 			machoFile.littleEndian,
 			machoFile.is64Bit,
 			bindMap,
@@ -520,7 +542,7 @@ export async function analyseBinaryFile(
 	const msgSendSelectors = buildMsgSendSelectorMap(
 		new DataView(buffer),
 		allSections,
-		lcResult.segments,
+		segments,
 		rawSymbols,
 		machoFile.littleEndian,
 		machoFile.is64Bit
@@ -555,10 +577,10 @@ export async function analyseBinaryFile(
 				)
 			);
 			size = buildSizeBreakdown(
-				lcResult,
+				sizeLayout,
 				[...rawSymbols, ...exports, ...methodSymbols],
 				funcStarts,
-				buffer.byteLength,
+				fileSize,
 				machoFile.is64Bit
 			);
 		} catch (err) {
@@ -645,7 +667,7 @@ export async function analyseBinaryFile(
 				encryption: encryptionInfo,
 				loadCommands: lcResult.loadCommands.map((lc) => ({ cmd: lc.cmd })),
 				platform: buildVersion?.platform,
-				segmentNames: lcResult.segments.map((s) => s.segname),
+				segmentNames: segments.map((s) => s.segname),
 				sectionNames: allSections.map((s) => s.sectname),
 				debugSymbolCount: countStabsSymbols(buffer, lcResult.symtabInfo, machoFile.is64Bit)
 			});
@@ -673,7 +695,7 @@ export async function analyseBinaryFile(
 			if (textSeg) {
 				const stringXrefs = buildStringXrefMap(
 					buffer,
-					lcResult.segments,
+					segments,
 					funcStarts,
 					rawSymbols,
 					machoFile.littleEndian,

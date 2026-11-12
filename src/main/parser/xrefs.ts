@@ -59,6 +59,15 @@ interface FunctionRange {
 }
 
 /**
+ * Names that only mark a location: synthesised `sub_` names and the assembler's
+ * section-start (`ltmp0`) and linker-private (`l_…`) labels an object file keeps,
+ * which share an address with the real function symbol.
+ */
+function isPlaceholderName(name: string): boolean {
+	return name.startsWith("sub_") || name.startsWith("l_") || /^ltmp\d+$/.test(name);
+}
+
+/**
  * Build named function ranges from function starts and symbol table.
  * If functionStarts is empty, falls back to deriving ranges from symbol
  * addresses in the __text section (common for stripped frameworks that
@@ -75,7 +84,7 @@ function buildFunctionRanges(
 	for (const sym of symbols) {
 		if (sym.type === "imported") continue;
 		const existing = addrToName.get(sym.address);
-		if (!existing || (existing.startsWith("sub_") && !sym.name.startsWith("sub_"))) {
+		if (!existing || (isPlaceholderName(existing) && !isPlaceholderName(sym.name))) {
 			addrToName.set(sym.address, sym.name);
 		}
 	}

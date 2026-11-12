@@ -7,6 +7,7 @@ import { buildSizeBreakdown, classifySymbol } from "../size-breakdown";
 
 const S_ATTR_PURE_INSTRUCTIONS = 0x80000000;
 const S_ZEROFILL = 0x1;
+const S_ATTR_DEBUG = 0x02000000;
 
 function section(sectname: string, addr: number, size: number, flags = 0): Section64 {
 	return {
@@ -256,6 +257,40 @@ describe("buildSizeBreakdown", () => {
 			name: "Header, load commands & padding",
 			size: 0x100
 		});
+	});
+
+	it("accounts for an object file's relocation entries in __LINKEDIT", () => {
+		const relocated = { ...section("__text", 0, 0x100, S_ATTR_PURE_INSTRUCTIONS), nreloc: 12 };
+		const result = buildSizeBreakdown(
+			loadCommands([
+				segment("__TEXT", 0, 0x100, [relocated]),
+				segment("__LINKEDIT", 0, 0x80, [])
+			]),
+			[],
+			[],
+			0x180,
+			true
+		);
+		const linkedit = result.segments.find((s) => s.name === "__LINKEDIT")!;
+		expect(linkedit.sections).toContainEqual({ name: "Relocations", size: 12 * 8 });
+	});
+
+	it("leaves debug sections out of module attribution", () => {
+		const debugInfo = section("__debug_info", 0x2000, 0x400, S_ATTR_DEBUG);
+		const result = buildSizeBreakdown(
+			loadCommands([
+				segment("__TEXT", 0, 0x200, [text]),
+				segment("__DWARF", 0x2000, 0x400, [debugInfo])
+			]),
+			[sym("_$s5Alpha3fooyyF", 0x1000)],
+			[],
+			0x600,
+			true
+		);
+		expect(result.sectionSize).toBe(0x100);
+		expect(result.segments.find((s) => s.name === "__DWARF")!.sections).toEqual([
+			{ name: "__debug_info", size: 0x400 }
+		]);
 	});
 
 	it("keeps the largest functions per module, demangled", () => {
