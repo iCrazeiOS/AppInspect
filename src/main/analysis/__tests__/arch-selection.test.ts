@@ -52,7 +52,25 @@ function writeFatBinary(): string {
 	return filePath;
 }
 
+/** A minimal thin arm64 Mach-O header with no load commands. */
+function writeThinBinary(): string {
+	const buf = Buffer.alloc(32);
+	buf.writeUInt32LE(0xfeedfacf, 0);
+	buf.writeUInt32LE(CPU_TYPE_ARM64, 4);
+	buf.writeUInt32LE(0, 8);
+	buf.writeUInt32LE(2, 12); // MH_EXECUTE
+	buf.writeUInt32LE(0, 16);
+	buf.writeUInt32LE(0, 20);
+	buf.writeUInt32LE(0, 24);
+	buf.writeUInt32LE(0, 28);
+
+	const filePath = path.join(dir, "thin.bin");
+	fs.writeFileSync(filePath, buf);
+	return filePath;
+}
+
 const fatPath = writeFatBinary();
+const thinPath = writeThinBinary();
 
 afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -81,6 +99,27 @@ describe("analyseBinaryFile architecture selection", () => {
 	it("throws instead of falling back when the slice is absent", async () => {
 		await expect(analyseBinaryFile(fatPath, () => {}, 0, CPU_TYPE_ARM64, 2)).rejects.toThrow(
 			"Requested architecture arm64e not present; available: arm64, x86_64, arm64e.x1"
+		);
+	});
+});
+
+describe("analyseBinaryFile thin binary", () => {
+	it("reports no fat architectures", async () => {
+		const result = await analyseBinaryFile(thinPath, () => {}, 0);
+		expect(result.header.cputype).toBe(CPU_TYPE_ARM64);
+		expect(result.fatArchs).toEqual([]);
+		expect(result.fatSliceOffset).toBe(0);
+	});
+
+	it("accepts a matching architecture request", async () => {
+		const result = await analyseBinaryFile(thinPath, () => {}, 0, CPU_TYPE_ARM64);
+		expect(result.header.cputype).toBe(CPU_TYPE_ARM64);
+		expect(result.fatArchs).toEqual([]);
+	});
+
+	it("rejects a mismatched architecture request", async () => {
+		await expect(analyseBinaryFile(thinPath, () => {}, 0, CPU_TYPE_X86_64)).rejects.toThrow(
+			"Requested architecture x86_64 not present; binary is arm64"
 		);
 	});
 });

@@ -220,26 +220,29 @@ export async function analyseBinaryFile(
 	try {
 		const fatResult = parseFatHeader(buffer);
 		if (fatResult.ok) {
-			fatArchs = fatResult.data;
+			// parseFatHeader reports a thin binary as a single cputype-0 placeholder.
+			// It only locates the Mach-O header below; it is not a fat slice list, so
+			// the result advertises no fat architectures for a thin binary.
+			const parsedSlices = fatResult.data;
+			const isThinPlaceholder = parsedSlices.length === 1 && parsedSlices[0]!.cputype === 0;
+			const thinSlice = isThinPlaceholder ? parsedSlices[0]! : undefined;
+			fatArchs = isThinPlaceholder ? [] : parsedSlices;
 
 			// Select the requested arch when one was supplied, otherwise prefer
 			// arm64 and fall back to the first available slice.
 			const preferredArch = preference
-				? fatArchs.find((a) => archMatches(a, preference))
+				? parsedSlices.find((a) => archMatches(a, preference))
 				: undefined;
-			// A thin binary is reported as a single cputype-0 placeholder; its real
-			// architecture is only known once the Mach-O header is parsed.
-			const isThinPlaceholder = fatArchs.length === 1 && fatArchs[0]!.cputype === 0;
 			if (preference && !preferredArch && !isThinPlaceholder) {
 				archError = `Requested architecture ${formatArch(
 					preference.cpuType,
 					preference.cpuSubtype
-				)} not present; available: ${describeArchs(fatArchs)}`;
+				)} not present; available: ${describeArchs(parsedSlices)}`;
 			}
-			const arm64Arch = fatArchs.find((a) => a.cputype === CPU_TYPE_ARM64);
+			const arm64Arch = parsedSlices.find((a) => a.cputype === CPU_TYPE_ARM64);
 			const selectedArch = preference
-				? (preferredArch ?? (isThinPlaceholder ? fatArchs[0] : undefined))
-				: (arm64Arch ?? fatArchs[0]);
+				? (preferredArch ?? thinSlice)
+				: (arm64Arch ?? thinSlice ?? parsedSlices[0]);
 
 			if (selectedArch) {
 				// Slice the buffer to the selected architecture so all internal
