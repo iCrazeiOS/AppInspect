@@ -442,13 +442,15 @@ export async function analyseBinaryFile(
 	progressCallback("Extracting strings...", basePercent + 25);
 	await yieldToEventLoop();
 	try {
+		const encrypted = encryptionInfo !== null && encryptionInfo.cryptid !== 0;
 		const rawStrings = extractStrings(
 			buffer,
 			allSections,
 			segments,
 			rebaseMap,
 			machoFile.littleEndian,
-			machoFile.is64Bit
+			machoFile.is64Bit,
+			{ cputype: machoFile.header.cputype, skipSmallStrings: encrypted }
 		);
 		strings = convertStrings(rawStrings);
 	} catch (err) {

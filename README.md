@@ -24,7 +24,7 @@ File type is detected automatically by magic bytes.
 | Tab | Description |
 |-----|-------------|
 | **Overview** | Mach-O header summary, binary hardening status (PIE, ARC, stack canaries, encryption, stripped), build version, UUID, team ID, detected frameworks |
-| **Strings** | All embedded strings with section attribution and file offsets |
+| **Strings** | All embedded strings with section attribution and file offsets, including inline Swift small strings from constant data and code immediates |
 | **Headers** | Mach-O header fields, fat architecture list, full load command dump |
 | **Libraries** | Linked frameworks and dylibs with version info and weak-linking flags. Interactive force-directed dependency graph view showing inter-binary relationships, with pan/zoom, node dragging, and category filtering |
 | **Symbols** | Exported, imported, and local symbols with addresses. Swift symbols are demangled for display; the raw name stays searchable |

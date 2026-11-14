@@ -15,6 +15,8 @@
 
 import { vmaddrToFileOffset } from "./address";
 import type { Section64, Segment64 } from "./load-commands";
+import { CPU_TYPE_ARM64 } from "./macho";
+import { scanSwiftSmallStrings } from "./swift-small-strings";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -240,6 +242,13 @@ function parseCFStrings(
 
 // ── Main Entry Point ─────────────────────────────────────────────────
 
+export interface ExtractStringsOptions {
+	/** CPU type used to pick the code scanner; defaults to ARM64. */
+	cputype?: number;
+	/** Skip inline Swift strings (an encrypted image hides them as ciphertext). */
+	skipSmallStrings?: boolean;
+}
+
 /**
  * Extract strings from well-known Mach-O sections.
  *
@@ -250,6 +259,7 @@ function parseCFStrings(
  * @param rebaseMap    Chained fixups rebase map (file offset -> resolved vmaddr)
  * @param littleEndian Byte order
  * @param is64Bit      Whether this is a 64-bit binary (affects CFString struct size)
+ * @param options      Optional CPU type and encrypted-image skip
  * @returns Deduplicated array of StringEntry
  */
 export function extractStrings(
@@ -258,7 +268,8 @@ export function extractStrings(
 	segments: Segment64[],
 	rebaseMap: Map<number, bigint>,
 	littleEndian: boolean,
-	is64Bit: boolean = true
+	is64Bit: boolean = true,
+	options: ExtractStringsOptions = {}
 ): StringEntry[] {
 	const bytes = new Uint8Array(buffer);
 	const view = new DataView(buffer);
@@ -330,6 +341,20 @@ export function extractStrings(
 				is64Bit
 			);
 			addEntries(entries, "__cfstring");
+		}
+	}
+
+	// 4. Inline Swift small strings (__const/__data values, code immediates)
+	if (!options.skipSmallStrings) {
+		const hits = scanSwiftSmallStrings(
+			buffer,
+			segments,
+			options.cputype ?? CPU_TYPE_ARM64,
+			is64Bit,
+			true
+		);
+		for (const hit of hits) {
+			addEntries([{ value: hit.value, offset: hit.offset }], hit.source);
 		}
 	}
 
