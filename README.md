@@ -238,7 +238,7 @@ bun run cli -- /path/App.ipa --binary 1 --arch arm64e --sarif  # both are compos
 |------|-------------|
 | `--json` | Emit the full analysis as JSON (default) |
 | `--sarif` | Emit a SARIF 2.1.0 report of the security findings |
-| `--section <name>` | Limit `--json` output to a section (repeatable): `overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
+| `--section <name>` | Restrict analysis and `--json` output to a section (repeatable), running only the parsers it needs: `overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size` |
 | `--binary <index>` | Analyse a specific binary index instead of the main one |
 | `--arch <name>` | Analyse a specific architecture slice of a fat binary: `x86`, `armv6`, `armv7`, `armv7s`, `armv7k`, `x86_64`, `x86_64h`, `arm64`, `arm64v8`, `arm64e`, `arm64e.x1` (default: arm64 when present, otherwise the first slice) |
 | `--out <path>` | Write output to a file (overwrites an existing file; default: stdout) |

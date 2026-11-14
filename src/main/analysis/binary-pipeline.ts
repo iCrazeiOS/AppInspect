@@ -106,6 +106,10 @@ export interface BinaryAnalysisResult {
  * names — see `ensureSearchIndex`. Defaults to running everything.
  */
 export interface ScanOptions {
+	skipStrings?: boolean; // string extraction
+	skipSymbols?: boolean; // symbol table + Swift demangling
+	skipObjC?: boolean; // ObjC classes, categories, protocols
+	skipSwift?: boolean; // Swift 5 metadata
 	skipCodesign?: boolean; // code signature + entitlements + teamId
 	skipSecurity?: boolean; // security findings + hardening
 	skipHooks?: boolean; // hook detection
@@ -384,8 +388,15 @@ export async function analyseBinaryFile(
 		};
 	}
 
+	// Strings (CFString resolution), ObjC and Swift need the fixup maps.
+	// Header/symbol/size-only scans can skip them.
+	const needsFixups = !options.skipStrings || !options.skipObjC || !options.skipSwift;
+	const needsObjectImage = header.filetype === MH_OBJECT && (needsFixups || !options.skipSize);
+
 	// Step 7: Build chained fixup map
-	progressCallback("Building fixup map...", basePercent + 20);
+	if (needsFixups || needsObjectImage) {
+		progressCallback("Building fixup map...", basePercent + 20);
+	}
 	let rebaseMap = new Map<number, bigint>();
 	let bindMap = new Map<number, { ordinal: number; symbolName: string; addend: bigint }>();
 	// Segments the parsers walk. A relocatable object keeps every section in one
@@ -394,7 +405,7 @@ export async function analyseBinaryFile(
 	let sizeLayout = lcResult;
 	const fileSize = buffer.byteLength;
 	try {
-		if (header.filetype === MH_OBJECT) {
+		if (needsObjectImage) {
 			const image = buildObjectImage(
 				buffer,
 				lcResult,
@@ -410,7 +421,7 @@ export async function analyseBinaryFile(
 			};
 			rebaseMap = image.rebaseMap;
 			bindMap = image.bindMap;
-		} else if (lcResult.chainedFixupsInfo) {
+		} else if (needsFixups && lcResult.chainedFixupsInfo) {
 			const fixups = buildFixupMap(
 				buffer,
 				lcResult.chainedFixupsInfo.offset,
@@ -420,7 +431,7 @@ export async function analyseBinaryFile(
 			);
 			rebaseMap = fixups.rebaseMap;
 			bindMap = fixups.bindMap;
-		} else if (lcResult.bindInfo) {
+		} else if (needsFixups && lcResult.bindInfo) {
 			// Classic LC_DYLD_INFO binaries (older or dual-arch tweaks) describe external
 			// pointer binds with opcodes instead of chained fixups.
 			bindMap = buildClassicBindMap(
@@ -439,57 +450,66 @@ export async function analyseBinaryFile(
 	const allSections: Section64[] = segments.flatMap((seg) => seg.sections);
 
 	// Step 8: Extract strings
-	progressCallback("Extracting strings...", basePercent + 25);
-	await yieldToEventLoop();
-	try {
-		const encrypted = encryptionInfo !== null && encryptionInfo.cryptid !== 0;
-		const rawStrings = extractStrings(
-			buffer,
-			allSections,
-			segments,
-			rebaseMap,
-			machoFile.littleEndian,
-			machoFile.is64Bit,
-			{ cputype: machoFile.header.cputype, skipSmallStrings: encrypted }
-		);
-		strings = convertStrings(rawStrings);
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`String extraction error: ${msg}`);
+	if (!options.skipStrings) {
+		progressCallback("Extracting strings...", basePercent + 25);
+		await yieldToEventLoop();
+		try {
+			const encrypted = encryptionInfo !== null && encryptionInfo.cryptid !== 0;
+			const rawStrings = extractStrings(
+				buffer,
+				allSections,
+				segments,
+				rebaseMap,
+				machoFile.littleEndian,
+				machoFile.is64Bit,
+				{ cputype: machoFile.header.cputype, skipSmallStrings: encrypted }
+			);
+			strings = convertStrings(rawStrings);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`String extraction error: ${msg}`);
+		}
+	}
+
+	// Swift metadata and size attribution demangle names too, so the wasm
+	// demangler has to be ready even when the symbol table is skipped.
+	if (!options.skipSymbols || !options.skipSwift || !options.skipSize) {
+		await initSwiftDemangler();
 	}
 
 	// Step 9: Parse symbols
-	progressCallback("Parsing symbols...", basePercent + 35);
-	await yieldToEventLoop();
-	await initSwiftDemangler();
 	let rawSymbols: ParserSymbol[] = [];
-	try {
-		rawSymbols = parseSymbolTable(
-			buffer,
-			lcResult.symtabInfo
-				? {
-						symoff: lcResult.symtabInfo.symoff,
-						nsyms: lcResult.symtabInfo.nsyms,
-						stroff: lcResult.symtabInfo.stroff,
-						strsize: lcResult.symtabInfo.strsize
-					}
-				: null,
-			machoFile.littleEndian,
-			machoFile.is64Bit
-		);
-		symbols = convertSymbols(rawSymbols).map((s) => {
-			const demangled = demangleSwiftSymbol(s.name);
-			return demangled ? { ...s, demangled } : s;
-		});
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`Symbol table parse error: ${msg}`);
+	if (!options.skipSymbols) {
+		progressCallback("Parsing symbols...", basePercent + 35);
+		await yieldToEventLoop();
+		try {
+			rawSymbols = parseSymbolTable(
+				buffer,
+				lcResult.symtabInfo
+					? {
+							symoff: lcResult.symtabInfo.symoff,
+							nsyms: lcResult.symtabInfo.nsyms,
+							stroff: lcResult.symtabInfo.stroff,
+							strsize: lcResult.symtabInfo.strsize
+						}
+					: null,
+				machoFile.littleEndian,
+				machoFile.is64Bit
+			);
+			symbols = convertSymbols(rawSymbols).map((s) => {
+				const demangled = demangleSwiftSymbol(s.name);
+				return demangled ? { ...s, demangled } : s;
+			});
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`Symbol table parse error: ${msg}`);
+		}
 	}
 
 	// Step 9b: Function starts (feed size attribution and string xrefs)
 	const textSeg = segments.find((s) => s.segname.trim() === "__TEXT");
 	let funcStarts: bigint[] = [];
-	if (textSeg && lcResult.functionStartsInfo) {
+	if ((!options.skipSize || !options.skipSecurity) && textSeg && lcResult.functionStartsInfo) {
 		funcStarts = parseFunctionStarts(
 			buffer,
 			lcResult.functionStartsInfo.offset,
@@ -499,57 +519,67 @@ export async function analyseBinaryFile(
 	}
 
 	// Step 10: Extract ObjC metadata
-	progressCallback("Extracting ObjC metadata...", basePercent + 40);
-	await yieldToEventLoop();
-	try {
-		const objcMeta = extractObjCMetadata(
-			buffer,
+	if (!options.skipObjC) {
+		progressCallback("Extracting ObjC metadata...", basePercent + 40);
+		await yieldToEventLoop();
+		try {
+			const objcMeta = extractObjCMetadata(
+				buffer,
+				allSections,
+				segments,
+				rebaseMap,
+				machoFile.littleEndian,
+				machoFile.is64Bit,
+				bindMap
+			);
+			classes = objcMeta.classes;
+			categories = objcMeta.categories;
+			protocols = objcMeta.protocols;
+			protocolDetails = objcMeta.protocolDetails;
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`ObjC metadata error: ${msg}`);
+		}
+
+		// Step 10b: Recover method selectors from the symbol table when the method
+		// list left them empty (common with dyld_shared_cache extracted binaries).
+		// Shared-cache protocols and categories carry no symbols; passing them in lets the
+		// selector offsets the recovered class methods resolve flow through to them too.
+		const msgSendSelectors = buildMsgSendSelectorMap(
+			new DataView(buffer),
 			allSections,
 			segments,
-			rebaseMap,
+			rawSymbols,
 			machoFile.littleEndian,
-			machoFile.is64Bit,
-			bindMap
+			machoFile.is64Bit
 		);
-		classes = objcMeta.classes;
-		categories = objcMeta.categories;
-		protocols = objcMeta.protocols;
-		protocolDetails = objcMeta.protocolDetails;
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`ObjC metadata error: ${msg}`);
+		enrichMethodsFromSymbols(
+			classes,
+			rawSymbols,
+			categories,
+			protocolDetails,
+			msgSendSelectors
+		);
 	}
 
 	// Step 10a: Extract Swift 5 metadata (nominal types, fields, protocols)
-	progressCallback("Extracting Swift metadata...", basePercent + 45);
-	await yieldToEventLoop();
-	try {
-		swift = extractSwiftMetadata(
-			buffer,
-			segments,
-			machoFile.littleEndian,
-			machoFile.is64Bit,
-			bindMap,
-			rebaseMap
-		);
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		errors.push(`Swift metadata error: ${msg}`);
+	if (!options.skipSwift) {
+		progressCallback("Extracting Swift metadata...", basePercent + 45);
+		await yieldToEventLoop();
+		try {
+			swift = extractSwiftMetadata(
+				buffer,
+				segments,
+				machoFile.littleEndian,
+				machoFile.is64Bit,
+				bindMap,
+				rebaseMap
+			);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			errors.push(`Swift metadata error: ${msg}`);
+		}
 	}
-
-	// Step 10b: Recover method selectors from the symbol table when the method
-	// list left them empty (common with dyld_shared_cache extracted binaries).
-	// Shared-cache protocols and categories carry no symbols; passing them in lets the
-	// selector offsets the recovered class methods resolve flow through to them too.
-	const msgSendSelectors = buildMsgSendSelectorMap(
-		new DataView(buffer),
-		allSections,
-		segments,
-		rawSymbols,
-		machoFile.littleEndian,
-		machoFile.is64Bit
-	);
-	enrichMethodsFromSymbols(classes, rawSymbols, categories, protocolDetails, msgSendSelectors);
 
 	// Step 10c: Size breakdown by segment/section and module
 	if (!options.skipSize) {
@@ -619,9 +649,9 @@ export async function analyseBinaryFile(
 	}
 
 	// Step 11: Parse code signature + entitlements
-	progressCallback("Parsing code signature...", basePercent + 50);
-	await yieldToEventLoop();
 	if (!options.skipCodesign) {
+		progressCallback("Parsing code signature...", basePercent + 50);
+		await yieldToEventLoop();
 		if (lcResult.codeSignatureInfo) {
 			const csResult = parseCodeSignature(
 				buffer,
@@ -643,9 +673,9 @@ export async function analyseBinaryFile(
 	}
 
 	// Step 12: Run security scan (first pass — without xrefs)
-	progressCallback("Running security scan...", basePercent + 52);
-	await yieldToEventLoop();
 	if (!options.skipSecurity) {
+		progressCallback("Running security scan...", basePercent + 52);
+		await yieldToEventLoop();
 		try {
 			// Convert strings back to the format security.ts expects
 			const securityStrings = strings.map((s) => ({

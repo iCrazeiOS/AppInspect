@@ -17,11 +17,13 @@ import {
 	FILE_PREVIEW_IMAGE_BYTES,
 	imageMimeType
 } from "../../shared/file-preview";
+import type { TabName } from "../../shared/ipc-types";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
 	AsarEntry,
 	ElectronInfo,
+	FileEntry,
 	FilePreviewContent,
 	LibraryGraphData,
 	LocalisationString,
@@ -107,6 +109,8 @@ export class AnalysisSession {
 	private electronFindings: SecurityFinding[] = [];
 	/** Architecture slice requested for every binary parsed in this session. */
 	private preferredArch: ArchPreference | null = null;
+	/** Tabs the caller will read; null means run the full analysis. */
+	private requestedSections: Set<TabName> | null = null;
 	/** Static libraries extracted for this session: cache directory → library path. */
 	private staticLibraries = new Map<string, string>();
 	/** Lazily-computed results for non-active binaries, keyed by binary index. */
@@ -131,12 +135,59 @@ export class AnalysisSession {
 		return this.preferredArch;
 	}
 
+	/**
+	 * Restrict analysis to what the given tabs need. Passing null (or omitting)
+	 * restores the full analysis. Every skipped parser yields its empty default,
+	 * so the result shape is unchanged and only the requested tabs are populated.
+	 */
+	setRequestedSections(sections: TabName[] | null): void {
+		this.requestedSections = sections && sections.length > 0 ? new Set(sections) : null;
+		this.binaryCache.clear();
+		this.searchIndex = null;
+	}
+
+	/** True when the full result is needed or one of `tabs` was requested. */
+	private needsSection(...tabs: TabName[]): boolean {
+		if (!this.requestedSections) return true;
+		return tabs.some((tab) => this.requestedSections!.has(tab));
+	}
+
+	/** Skip flags matching the requested tabs, honouring their dependencies. */
+	private scanOptions(): ScanOptions {
+		if (!this.requestedSections) return {};
+		const symbols = this.needsSection(
+			"symbols",
+			"overview",
+			"security",
+			"size",
+			"hooks",
+			"objc"
+		);
+		const objc = this.needsSection("objc", "size", "hooks");
+		const swift = this.needsSection("swift");
+		const strings = this.needsSection("strings", "security", "hooks");
+		const security = this.needsSection("security", "overview");
+		const codesign = this.needsSection("entitlements", "overview");
+		const hooks = this.needsSection("hooks");
+		const size = this.needsSection("size");
+		return {
+			skipStrings: !strings,
+			skipSymbols: !symbols,
+			skipObjC: !objc,
+			skipSwift: !swift,
+			skipCodesign: !codesign,
+			skipSecurity: !security,
+			skipHooks: !hooks,
+			skipSize: !size
+		};
+	}
+
 	/** Analyse a binary using the session's preferred architecture slice. */
 	private analyseSlice(
 		binaryPath: string,
 		progressCallback: (phase: string, percent: number) => void,
 		basePercent: number,
-		options: ScanOptions = {}
+		options: ScanOptions = this.scanOptions()
 	): Promise<BinaryAnalysisResult> {
 		return analyseBinaryFile(
 			binaryPath,
@@ -556,18 +607,20 @@ export class AnalysisSession {
 		}
 
 		// Step 3: Parse Info.plist + mobileprovision
-		progressCallback("Parsing plists...", 20);
 		let infoPlistData: Record<string, PlistValue> = {};
-		try {
-			const plistResult = parseInfoPlist(appBundlePath);
-			if (plistResult?.ok) {
-				infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-			} else if (plistResult && !plistResult.ok) {
-				errors.push(`Info.plist: ${plistResult.error}`);
+		if (this.needsSection("overview", "infoPlist")) {
+			progressCallback("Parsing plists...", 20);
+			try {
+				const plistResult = parseInfoPlist(appBundlePath);
+				if (plistResult?.ok) {
+					infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+				} else if (plistResult && !plistResult.ok) {
+					errors.push(`Info.plist: ${plistResult.error}`);
+				}
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				errors.push(`Info.plist error: ${msg}`);
 			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`Info.plist error: ${msg}`);
 		}
 
 		// Steps 4-12: Analyse main binary (index 0)
@@ -579,7 +632,7 @@ export class AnalysisSession {
 
 		// If code-signature entitlements were empty, try mobileprovision
 		let finalEntitlements = binaryResult.entitlements;
-		if (finalEntitlements.length === 0) {
+		if (this.needsSection("entitlements") && finalEntitlements.length === 0) {
 			try {
 				const mpResult = parseMobileprovision(appBundlePath);
 				if (mpResult?.ok && mpResult.data.Entitlements) {
@@ -592,47 +645,55 @@ export class AnalysisSession {
 
 		// Step 13: Detect app frameworks
 		const libNames = binaryResult.libraries.map((l) => l.name);
-		const appFrameworks = detectAppFrameworks(appBundlePath, libNames);
+		const appFrameworks = this.needsSection("overview")
+			? detectAppFrameworks(appBundlePath, libNames)
+			: [];
 
-		// Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
-		progressCallback("Scanning bundle files...", 80);
-		await yieldToEventLoop();
 		let bundleFindings: SecurityFinding[] = [];
-		try {
-			const bundleFiles = readBundleFiles(appBundlePath);
-			if (bundleFiles.length > 0) {
-				bundleFindings = scanBundleFileContents(bundleFiles);
-			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`Bundle file scan error: ${msg}`);
-		}
-
-		// Step 14c: Flag leaked development artifacts shipped in the bundle
 		let bundleArtifactFindings: SecurityFinding[] = [];
-		try {
-			bundleArtifactFindings = findBundleDebugArtifacts(appBundlePath);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`Debug artifact scan error: ${msg}`);
+		if (this.needsSection("security")) {
+			// Step 14: Scan bundle files for secrets (JS bundles, configs, etc.)
+			progressCallback("Scanning bundle files...", 80);
+			await yieldToEventLoop();
+			try {
+				const bundleFiles = readBundleFiles(appBundlePath);
+				if (bundleFiles.length > 0) {
+					bundleFindings = scanBundleFileContents(bundleFiles);
+				}
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				errors.push(`Bundle file scan error: ${msg}`);
+			}
+
+			// Step 14c: Flag leaked development artifacts shipped in the bundle
+			try {
+				bundleArtifactFindings = findBundleDebugArtifacts(appBundlePath);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				errors.push(`Debug artifact scan error: ${msg}`);
+			}
 		}
 
 		// Step 14b: Extract localisation strings from .lproj directories
 		let localisationStrings: LocalisationString[] = [];
-		try {
-			localisationStrings = extractLocalisationStrings(appBundlePath);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`Localisation extraction error: ${msg}`);
+		if (!this.requestedSections) {
+			try {
+				localisationStrings = extractLocalisationStrings(appBundlePath);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				errors.push(`Localisation extraction error: ${msg}`);
+			}
 		}
 
 		// Step 15: Scan additional binaries if setting enabled
-		const extraBinaryFindings = await scanAdditionalBinaries(
-			binaries,
-			progressCallback,
-			85,
-			this.preferredArch ?? undefined
-		);
+		const extraBinaryFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					binaries,
+					progressCallback,
+					85,
+					this.preferredArch ?? undefined
+				)
+			: [];
 
 		// Merge all security findings
 		const mergedSecurity = {
@@ -646,9 +707,12 @@ export class AnalysisSession {
 		};
 
 		// Step 16: Build file tree (start from the .app bundle directly)
-		progressCallback("Building file tree...", 95);
-		await yieldToEventLoop();
-		const files = buildFileTree(appBundlePath);
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 95);
+			await yieldToEventLoop();
+			files = buildFileTree(appBundlePath);
+		}
 
 		// Assemble final result
 		const appName = path.basename(appBundlePath, ".app");
@@ -706,7 +770,8 @@ export class AnalysisSession {
 			progressCallback,
 			0,
 			cpuType ?? this.preferredArch?.cpuType,
-			cpuSubtype ?? this.preferredArch?.cpuSubtype
+			cpuSubtype ?? this.preferredArch?.cpuSubtype,
+			this.scanOptions()
 		);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
@@ -884,12 +949,14 @@ export class AnalysisSession {
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
 		// Step 3: Scan additional binaries if setting enabled
-		const debExtraFindings = await scanAdditionalBinaries(
-			this.binaries,
-			progressCallback,
-			80,
-			this.preferredArch ?? undefined
-		);
+		const debExtraFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					this.binaries,
+					progressCallback,
+					80,
+					this.preferredArch ?? undefined
+				)
+			: [];
 
 		const debMergedSecurity = {
 			findings: [...binaryResult.security.findings, ...debExtraFindings],
@@ -898,15 +965,20 @@ export class AnalysisSession {
 
 		// Step 3b: Extract localisation strings
 		let localisationStrings: LocalisationString[] = [];
-		try {
-			localisationStrings = extractLocalisationStrings(extraction.dataDir);
-		} catch {
-			// Non-critical
+		if (!this.requestedSections) {
+			try {
+				localisationStrings = extractLocalisationStrings(extraction.dataDir);
+			} catch {
+				// Non-critical
+			}
 		}
 
 		// Step 4: Build file tree from extracted data
-		progressCallback("Building file tree...", 90);
-		const files = buildFileTree(extraction.dataDir);
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 90);
+			files = buildFileTree(extraction.dataDir);
+		}
 
 		const result = buildAnalysisResult(
 			binaryResult,
@@ -929,28 +1001,30 @@ export class AnalysisSession {
 		);
 
 		// Enrich hooks with tweak filter plist data (target bundles)
-		try {
-			const mainBinaryName = path.basename(mainBinary.path, ".dylib");
-			// Look for filter plist next to the dylib
-			const filterPlistPath = path.join(
-				path.dirname(mainBinary.path),
-				`${mainBinaryName}.plist`
-			);
-			if (fs.existsSync(filterPlistPath)) {
-				const filterBuf = fs.readFileSync(filterPlistPath);
-				try {
-					const filterDict = parsePlistBuffer(filterBuf);
-					const filter = filterDict.Filter as Record<string, unknown> | undefined;
-					const bundles = filter?.Bundles as string[] | undefined;
-					if (bundles && bundles.length > 0) {
-						result.hooks.targetBundles = bundles;
+		if (this.needsSection("hooks")) {
+			try {
+				const mainBinaryName = path.basename(mainBinary.path, ".dylib");
+				// Look for filter plist next to the dylib
+				const filterPlistPath = path.join(
+					path.dirname(mainBinary.path),
+					`${mainBinaryName}.plist`
+				);
+				if (fs.existsSync(filterPlistPath)) {
+					const filterBuf = fs.readFileSync(filterPlistPath);
+					try {
+						const filterDict = parsePlistBuffer(filterBuf);
+						const filter = filterDict.Filter as Record<string, unknown> | undefined;
+						const bundles = filter?.Bundles as string[] | undefined;
+						if (bundles && bundles.length > 0) {
+							result.hooks.targetBundles = bundles;
+						}
+					} catch {
+						// Non-critical — skip if filter plist can't be parsed
 					}
-				} catch {
-					// Non-critical — skip if filter plist can't be parsed
 				}
+			} catch {
+				// Non-critical
 			}
-		} catch {
-			// Non-critical
 		}
 
 		this.result = result;
@@ -993,16 +1067,21 @@ export class AnalysisSession {
 		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
-		const extraBinaryFindings = await scanAdditionalBinaries(
-			this.binaries,
-			progressCallback,
-			85,
-			this.preferredArch ?? undefined
-		);
+		const extraBinaryFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					this.binaries,
+					progressCallback,
+					85,
+					this.preferredArch ?? undefined
+				)
+			: [];
 
-		progressCallback("Building file tree...", 95);
-		await yieldToEventLoop();
-		const files = buildFileTree(cacheDir);
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 95);
+			await yieldToEventLoop();
+			files = buildFileTree(cacheDir);
+		}
 
 		const result = buildAnalysisResult(
 			binaryResult,
@@ -1117,29 +1196,31 @@ export class AnalysisSession {
 		}
 
 		// Step 2: Parse Info.plist
-		progressCallback("Parsing plists...", 10);
 		let infoPlistData: Record<string, PlistValue> = {};
 		const plistDir = isMacOS ? path.join(appPath, "Contents") : appPath;
 		// parseInfoPlist signals a malformed plist in-band as { ok: false } and a
 		// missing one as null, so only a thrown error reaches the catch below.
-		try {
-			const plistResult = parseInfoPlist(plistDir);
-			if (plistResult?.ok) {
-				infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-			} else if (plistResult && !plistResult.ok) {
-				console.warn(`[plist] ${plistResult.error} (at ${plistDir})`);
-			}
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			console.warn(`[plist] Failed to read ${plistDir}: ${msg}`);
-			// Try the .app root as fallback
+		if (this.needsSection("overview", "infoPlist")) {
+			progressCallback("Parsing plists...", 10);
 			try {
-				const plistResult = parseInfoPlist(appPath);
+				const plistResult = parseInfoPlist(plistDir);
 				if (plistResult?.ok) {
 					infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+				} else if (plistResult && !plistResult.ok) {
+					console.warn(`[plist] ${plistResult.error} (at ${plistDir})`);
 				}
-			} catch {
-				// Non-critical
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[plist] Failed to read ${plistDir}: ${msg}`);
+				// Try the .app root as fallback
+				try {
+					const plistResult = parseInfoPlist(appPath);
+					if (plistResult?.ok) {
+						infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+					}
+				} catch {
+					// Non-critical
+				}
 			}
 		}
 
@@ -1156,47 +1237,57 @@ export class AnalysisSession {
 		// Detect app frameworks
 		const bundleRoot = isMacOS ? path.join(appPath, "Contents") : appPath;
 		const libNames = binaryResult.libraries.map((l) => l.name);
-		const appFrameworks = detectAppFrameworks(bundleRoot, libNames);
+		const appFrameworks = this.needsSection("overview")
+			? detectAppFrameworks(bundleRoot, libNames)
+			: [];
 
-		// Scan bundle files for secrets
-		progressCallback("Scanning bundle files...", 80);
-		await yieldToEventLoop();
 		let bundleFindings: SecurityFinding[] = [];
-		try {
-			const bundleFiles = readBundleFiles(bundleRoot);
-			if (bundleFiles.length > 0) {
-				bundleFindings = scanBundleFileContents(bundleFiles);
+		let bundleArtifactFindings: SecurityFinding[] = [];
+		if (this.needsSection("security")) {
+			// Scan bundle files for secrets
+			progressCallback("Scanning bundle files...", 80);
+			await yieldToEventLoop();
+			try {
+				const bundleFiles = readBundleFiles(bundleRoot);
+				if (bundleFiles.length > 0) {
+					bundleFindings = scanBundleFileContents(bundleFiles);
+				}
+			} catch {
+				// Non-critical
 			}
-		} catch {
-			// Non-critical
+
+			// Flag leaked development artifacts shipped in the bundle
+			try {
+				bundleArtifactFindings = findBundleDebugArtifacts(bundleRoot);
+			} catch {
+				// Non-critical
+			}
 		}
 
 		// Detect an Electron bundle and scan app.asar.
-		const electronInfo = await this.loadElectron(appPath, isMacOS, progressCallback, 82);
-
-		// Flag leaked development artifacts shipped in the bundle
-		let bundleArtifactFindings: SecurityFinding[] = [];
-		try {
-			bundleArtifactFindings = findBundleDebugArtifacts(bundleRoot);
-		} catch {
-			// Non-critical
-		}
+		const electronInfo = this.needsSection("electron", "security")
+			? await this.loadElectron(appPath, isMacOS, progressCallback, 82)
+			: null;
 
 		// Extract localisation strings from .lproj directories
 		let localisationStrings: LocalisationString[] = [];
-		try {
-			localisationStrings = extractLocalisationStrings(bundleRoot);
-		} catch {
-			// Non-critical
+		if (!this.requestedSections) {
+			try {
+				localisationStrings = extractLocalisationStrings(bundleRoot);
+			} catch {
+				// Non-critical
+			}
 		}
 
 		// Scan additional binaries if enabled
-		const extraBinaryFindings = await scanAdditionalBinaries(
-			binaries,
-			progressCallback,
-			85,
-			this.preferredArch ?? undefined
-		);
+		const extraBinaryFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					binaries,
+					progressCallback,
+					85,
+					this.preferredArch ?? undefined
+				)
+			: [];
 
 		const binarySecurityFindings = electronInfo
 			? adjustElectronHardeningFindings(binaryResult.security.findings)
@@ -1214,17 +1305,20 @@ export class AnalysisSession {
 
 		// Build file tree — for macOS apps where the only top-level entry is
 		// "Contents", promote its children to root so users see the useful stuff
-		progressCallback("Building file tree...", 95);
-		await yieldToEventLoop();
-		let files = buildFileTree(appPath);
-		if (
-			isMacOS &&
-			files.length === 1 &&
-			files[0]!.isDirectory &&
-			files[0]!.name === "Contents" &&
-			files[0]!.children
-		) {
-			files = files[0]!.children;
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 95);
+			await yieldToEventLoop();
+			files = buildFileTree(appPath);
+			if (
+				isMacOS &&
+				files.length === 1 &&
+				files[0]!.isDirectory &&
+				files[0]!.name === "Contents" &&
+				files[0]!.children
+			) {
+				files = files[0]!.children;
+			}
 		}
 
 		const appName = path.basename(appPath, ".app");
@@ -1328,20 +1422,22 @@ export class AnalysisSession {
 			: path.dirname(mainSlice.libraryPath);
 
 		// Step 2: Parse the main slice's Info.plist (flat iOS or macOS Resources/ layout)
-		progressCallback("Parsing plists...", 10);
 		let infoPlistData: Record<string, PlistValue> = {};
-		for (const dir of [libraryDir, path.join(libraryDir, "Resources")]) {
-			try {
-				const plistResult = parseInfoPlist(dir);
-				if (!plistResult) continue;
-				if (plistResult.ok) {
-					infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
-				} else {
-					console.warn(`[plist] ${plistResult.error} (at ${dir})`);
+		if (this.needsSection("overview", "infoPlist")) {
+			progressCallback("Parsing plists...", 10);
+			for (const dir of [libraryDir, path.join(libraryDir, "Resources")]) {
+				try {
+					const plistResult = parseInfoPlist(dir);
+					if (!plistResult) continue;
+					if (plistResult.ok) {
+						infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
+					} else {
+						console.warn(`[plist] ${plistResult.error} (at ${dir})`);
+					}
+					break;
+				} catch {
+					// Non-critical
 				}
-				break;
-			} catch {
-				// Non-critical
 			}
 		}
 
@@ -1351,41 +1447,47 @@ export class AnalysisSession {
 		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
-		// Scan the main slice's bundle files for secrets (other slices ship the same resources)
-		progressCallback("Scanning bundle files...", 80);
-		await yieldToEventLoop();
 		let bundleFindings: SecurityFinding[] = [];
-		try {
-			const bundleFiles = readBundleFiles(libraryDir);
-			if (bundleFiles.length > 0) {
-				bundleFindings = scanBundleFileContents(bundleFiles);
-			}
-		} catch {
-			// Non-critical
-		}
-
-		// Flag leaked development artifacts — walk the whole XCFramework, since
-		// dSYMs sit beside the library in each slice directory
 		let bundleArtifactFindings: SecurityFinding[] = [];
-		try {
-			bundleArtifactFindings = findBundleDebugArtifacts(xcframeworkPath);
-		} catch {
-			// Non-critical
+		if (this.needsSection("security")) {
+			// Scan the main slice's bundle files for secrets (other slices ship the same resources)
+			progressCallback("Scanning bundle files...", 80);
+			await yieldToEventLoop();
+			try {
+				const bundleFiles = readBundleFiles(libraryDir);
+				if (bundleFiles.length > 0) {
+					bundleFindings = scanBundleFileContents(bundleFiles);
+				}
+			} catch {
+				// Non-critical
+			}
+
+			// Flag leaked development artifacts — walk the whole XCFramework, since
+			// dSYMs sit beside the library in each slice directory
+			try {
+				bundleArtifactFindings = findBundleDebugArtifacts(xcframeworkPath);
+			} catch {
+				// Non-critical
+			}
 		}
 
 		let localisationStrings: LocalisationString[] = [];
-		try {
-			localisationStrings = extractLocalisationStrings(libraryDir);
-		} catch {
-			// Non-critical
+		if (!this.requestedSections) {
+			try {
+				localisationStrings = extractLocalisationStrings(libraryDir);
+			} catch {
+				// Non-critical
+			}
 		}
 
-		const extraBinaryFindings = await scanAdditionalBinaries(
-			binaries,
-			progressCallback,
-			85,
-			this.preferredArch ?? undefined
-		);
+		const extraBinaryFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					binaries,
+					progressCallback,
+					85,
+					this.preferredArch ?? undefined
+				)
+			: [];
 
 		const mergedSecurity = {
 			findings: [
@@ -1397,9 +1499,12 @@ export class AnalysisSession {
 			hardening: binaryResult.security.hardening
 		};
 
-		progressCallback("Building file tree...", 95);
-		await yieldToEventLoop();
-		const files = buildFileTree(xcframeworkPath);
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 95);
+			await yieldToEventLoop();
+			files = buildFileTree(xcframeworkPath);
+		}
 
 		const result = buildAnalysisResult(
 			binaryResult,
@@ -1458,13 +1563,17 @@ export class AnalysisSession {
 		const binaryResult = await this.analyseSlice(mainBinary.path, progressCallback, 15);
 		this.fatSliceOffset = binaryResult.fatSliceOffset;
 
-		const electronInfo = await this.loadElectron(folderPath, false, progressCallback, 80);
-		const extraBinaryFindings = await scanAdditionalBinaries(
-			binaries,
-			progressCallback,
-			85,
-			this.preferredArch ?? undefined
-		);
+		const electronInfo = this.needsSection("electron", "security")
+			? await this.loadElectron(folderPath, false, progressCallback, 80)
+			: null;
+		const extraBinaryFindings = this.needsSection("security")
+			? await scanAdditionalBinaries(
+					binaries,
+					progressCallback,
+					85,
+					this.preferredArch ?? undefined
+				)
+			: [];
 		const binarySecurityFindings = electronInfo
 			? adjustElectronHardeningFindings(binaryResult.security.findings)
 			: binaryResult.security.findings;
@@ -1474,15 +1583,20 @@ export class AnalysisSession {
 		};
 
 		let localisationStrings: LocalisationString[] = [];
-		try {
-			localisationStrings = extractLocalisationStrings(folderPath);
-		} catch {
-			// Non-critical
+		if (!this.requestedSections) {
+			try {
+				localisationStrings = extractLocalisationStrings(folderPath);
+			} catch {
+				// Non-critical
+			}
 		}
 
-		progressCallback("Building file tree...", 95);
-		await yieldToEventLoop();
-		const files = buildFileTree(folderPath);
+		let files: FileEntry[] = [];
+		if (this.needsSection("files")) {
+			progressCallback("Building file tree...", 95);
+			await yieldToEventLoop();
+			files = buildFileTree(folderPath);
+		}
 
 		const result = buildAnalysisResult(
 			binaryResult,

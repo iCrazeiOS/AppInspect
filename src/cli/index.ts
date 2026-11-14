@@ -63,8 +63,9 @@ static library), or scan a folder for binaries, static libraries and .deb packag
 Options:
   --json                Emit the full analysis as JSON (default)
   --sarif               Emit a SARIF 2.1.0 report of the security findings
-  --section <name>      Limit --json output to a section (repeatable):
-                        overview|strings|headers|libraries|symbols|classes|swift|
+  --section <name>      Analyse and emit only a section (repeatable), running
+                        just the parsers it needs:
+                        overview|strings|headers|libraries|symbols|objc|swift|
                         entitlements|infoPlist|electron|hooks|security|files|size
   --binary <index>      Analyse a specific binary index instead of the main one
   --arch <name>         Analyse a specific architecture slice of fat binaries:
@@ -216,6 +217,11 @@ async function main(argv: string[]): Promise<number> {
 
 	const session = new AnalysisSession();
 	if (options.arch) session.setPreferredArch(options.arch);
+	// JSON section filtering is applied after analysis, so only run the parsers
+	// those sections need. SARIF always needs the full security scan.
+	if (options.format === "json" && options.sections) {
+		session.setRequestedSections(options.sections);
+	}
 	let result: AnalysisResult;
 	try {
 		result = await session.analyseFile(file, progress);
