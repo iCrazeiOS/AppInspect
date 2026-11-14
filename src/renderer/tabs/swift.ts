@@ -473,28 +473,7 @@ export function renderSwift(
 		if (sameBinary) {
 			const type = allTypes.find((t) => t.fullName === result.match);
 			if (!type) return;
-			xbin.active = false;
-			leftPanel
-				.querySelector(".sb-extra-toggle--active")
-				?.classList.remove("sb-extra-toggle--active");
-			// Reset filters so the selected type cannot be filtered out of the list.
-			kindFilter = "all";
-			moduleFilter = "";
-			for (const [i, btn] of kindButtons.entries()) {
-				btn.classList.toggle("swift-filter-btn--active", KIND_FILTERS[i]?.id === "all");
-			}
-			moduleSelect.value = "";
-			updateFilterBarDisabled();
-			searchBar.setValue("", false);
-			filterTerm = "";
-			filterRegex = false;
-			filterCase = false;
-			applyFilters();
-			selectType(type);
-			const idx = filteredTypes.indexOf(type);
-			selectedIndex = idx;
-			if (idx >= 0) scrollContainer.scrollTop = idx * ROW_HEIGHT;
-			renderVisibleRows();
+			selectAndRevealType(type);
 		} else if (dropdown) {
 			pendingSwiftSelect = result.match;
 			dropdown.value = String(result.binaryIndex);
@@ -718,12 +697,7 @@ export function renderSwift(
 				childBadge.textContent = KIND_BADGE[child.kind];
 				item.appendChild(childBadge);
 				item.appendChild(document.createTextNode(child.name));
-				item.addEventListener("click", () => {
-					selectedType = child;
-					selectedProtocol = null;
-					clearProtocolHighlight();
-					renderDetail();
-				});
+				item.addEventListener("click", () => selectAndRevealType(child));
 				nestedList.appendChild(item);
 			}
 			detailScroll.appendChild(nestedList);
@@ -774,12 +748,7 @@ export function renderSwift(
 			}
 			item.appendChild(document.createTextNode(typeName));
 			if (type) {
-				item.addEventListener("click", () => {
-					selectedType = type;
-					selectedProtocol = null;
-					clearProtocolHighlight();
-					renderDetail();
-				});
+				item.addEventListener("click", () => selectAndRevealType(type));
 			}
 			list.appendChild(item);
 		}
@@ -792,6 +761,41 @@ export function renderSwift(
 		clearProtocolHighlight();
 		renderDetail();
 		renderVisibleRows();
+	}
+
+	/** Select a type reached from the detail pane and reveal it in the list. */
+	function selectAndRevealType(type: SwiftType): void {
+		const leavingCrossBinary = xbin.active;
+		if (leavingCrossBinary) {
+			xbin.active = false;
+			leftPanel
+				.querySelector(".sb-extra-toggle--active")
+				?.classList.remove("sb-extra-toggle--active");
+		}
+
+		let index = filteredTypes.indexOf(type);
+		if (leavingCrossBinary || index === -1) {
+			// Reset filters so the selected type cannot be filtered out of the list.
+			kindFilter = "all";
+			moduleFilter = "";
+			for (const [i, btn] of kindButtons.entries()) {
+				btn.classList.toggle("swift-filter-btn--active", KIND_FILTERS[i]?.id === "all");
+			}
+			moduleSelect.value = "";
+			updateFilterBarDisabled();
+			searchBar.setValue("", false);
+			filterTerm = "";
+			filterRegex = false;
+			filterCase = false;
+			applyFilters();
+			index = filteredTypes.indexOf(type);
+		}
+
+		if (index >= 0) {
+			setSelection(index);
+		} else {
+			selectType(type);
+		}
 	}
 
 	function selectProtocol(protocol: SwiftProtocol): void {
