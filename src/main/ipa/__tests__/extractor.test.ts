@@ -8,7 +8,8 @@ import {
 	discoverAppBundle,
 	discoverBinaries,
 	discoverMacOSBinaries,
-	extractIPA
+	extractIPA,
+	resolveWrappedAppBundle
 } from "../extractor";
 
 /** Create a unique temp directory for each test */
@@ -350,6 +351,79 @@ describe("discoverMacOSBinaries – CFBundleExecutable traversal", () => {
 
 		expect(extension).toBeDefined();
 		expect(extension!.path).toBe(path.join(pluginDir, "Contents", "MacOS", "WidgetExt"));
+	});
+});
+
+describe("resolveWrappedAppBundle", () => {
+	/** Build the `Name.app/Wrapper/Name.app` + `WrappedBundle` layout. */
+	function makeWrapper(tmpDir: string, name: string): { outer: string; inner: string } {
+		const outer = path.join(tmpDir, `${name}.app`);
+		const inner = path.join(outer, "Wrapper", `${name}.app`);
+		fs.mkdirSync(inner, { recursive: true });
+		fs.writeFileSync(path.join(inner, `${name}`), Buffer.from([0xfe, 0xed, 0xfa, 0xce]));
+		fs.symlinkSync(path.join("Wrapper", `${name}.app`), path.join(outer, "WrappedBundle"));
+		return { outer, inner };
+	}
+
+	it("should resolve the inner bundle through the WrappedBundle symlink", () => {
+		const tmpDir = makeTempDir("wrapper");
+		tempDirs.push(tmpDir);
+
+		const { outer, inner } = makeWrapper(tmpDir, "Wrapped");
+		expect(resolveWrappedAppBundle(outer)).toBe(fs.realpathSync(inner));
+	});
+
+	it("should resolve the inner bundle without the symlink", () => {
+		const tmpDir = makeTempDir("wrapper-nolink");
+		tempDirs.push(tmpDir);
+
+		const { outer, inner } = makeWrapper(tmpDir, "Wrapped");
+		fs.unlinkSync(path.join(outer, "WrappedBundle"));
+		expect(resolveWrappedAppBundle(outer)).toBe(fs.realpathSync(inner));
+	});
+
+	it("should return null for a flat iOS bundle", () => {
+		const tmpDir = makeTempDir("flat");
+		tempDirs.push(tmpDir);
+
+		const appDir = path.join(tmpDir, "Flat.app");
+		fs.mkdirSync(appDir, { recursive: true });
+		fs.writeFileSync(path.join(appDir, "Flat"), Buffer.from([0xfe, 0xed, 0xfa, 0xce]));
+
+		expect(resolveWrappedAppBundle(appDir)).toBeNull();
+	});
+
+	it("should return null for a macOS bundle", () => {
+		const tmpDir = makeTempDir("macos");
+		tempDirs.push(tmpDir);
+
+		const macosDir = path.join(tmpDir, "Mac.app", "Contents", "MacOS");
+		fs.mkdirSync(macosDir, { recursive: true });
+
+		expect(resolveWrappedAppBundle(path.join(tmpDir, "Mac.app"))).toBeNull();
+	});
+
+	it("should ignore a WrappedBundle symlink that escapes the bundle", () => {
+		const tmpDir = makeTempDir("wrapper-escape");
+		tempDirs.push(tmpDir);
+
+		const outer = path.join(tmpDir, "Wrapped.app");
+		fs.mkdirSync(path.join(outer, "Wrapper"), { recursive: true });
+		const outside = path.join(tmpDir, "Outside.app");
+		fs.mkdirSync(outside, { recursive: true });
+		fs.symlinkSync(outside, path.join(outer, "WrappedBundle"));
+
+		expect(resolveWrappedAppBundle(outer)).toBeNull();
+	});
+
+	it("should return null when Wrapper holds no .app", () => {
+		const tmpDir = makeTempDir("wrapper-nobundle");
+		tempDirs.push(tmpDir);
+
+		const outer = path.join(tmpDir, "Wrapped.app");
+		fs.mkdirSync(path.join(outer, "Wrapper", "resources"), { recursive: true });
+
+		expect(resolveWrappedAppBundle(outer)).toBeNull();
 	});
 });
 

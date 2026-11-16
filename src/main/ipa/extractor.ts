@@ -210,6 +210,69 @@ export function isMacOSAppBundle(appBundlePath: string): boolean {
 }
 
 /**
+ * Resolve the real bundle inside the wrapper macOS creates when installing an
+ * iOS app on Apple silicon: `Name.app/Wrapper/Name.app`, also reachable through
+ * the `WrappedBundle` symlink. The outer directory holds no `Contents/` and no
+ * binary of its own, so discovery has to look inside the wrapper.
+ *
+ * Returns the inner bundle, or null when `appBundlePath` is not a wrapper.
+ */
+export function resolveWrappedAppBundle(appBundlePath: string): string | null {
+	// A flat iOS bundle or a macOS bundle has its own contents at the root.
+	if (fs.existsSync(path.join(appBundlePath, "Contents"))) return null;
+
+	let root: string;
+	try {
+		// Compare against the resolved root so /var vs /private/var (macOS) and
+		// symlinked install locations do not look like escapes.
+		root = fs.realpathSync(appBundlePath);
+	} catch {
+		return null;
+	}
+
+	const candidates: string[] = [];
+
+	// `WrappedBundle` is a symlink pointing at the inner .app
+	try {
+		candidates.push(fs.realpathSync(path.join(appBundlePath, "WrappedBundle")));
+	} catch {
+		/* fall back to the Wrapper directory */
+	}
+
+	try {
+		const wrapperDir = path.join(appBundlePath, "Wrapper");
+		for (const entry of fs.readdirSync(wrapperDir, { withFileTypes: true })) {
+			if (entry.isDirectory() && entry.name.endsWith(".app")) {
+				candidates.push(path.join(wrapperDir, entry.name));
+			}
+		}
+	} catch {
+		/* no wrapper directory */
+	}
+
+	for (const candidate of candidates) {
+		// Keep the resolved bundle inside the opened directory: the symlink and
+		// directory names come from the bundle itself.
+		let resolved: string;
+		try {
+			resolved = fs.realpathSync(candidate);
+		} catch {
+			continue;
+		}
+		const rel = path.relative(root, resolved);
+		if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+		if (!resolved.endsWith(".app")) continue;
+		try {
+			if (fs.statSync(resolved).isDirectory()) return resolved;
+		} catch {
+			/* missing or unreadable */
+		}
+	}
+
+	return null;
+}
+
+/**
  * Read CFBundleExecutable from an Info.plist (handles both binary and XML format).
  */
 function readCFBundleExecutable(plistPath: string): string | null {

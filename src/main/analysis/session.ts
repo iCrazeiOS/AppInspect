@@ -53,7 +53,8 @@ import {
 	discoverBinaries,
 	discoverMacOSBinaries,
 	extractIPA,
-	isMacOSAppBundle
+	isMacOSAppBundle,
+	resolveWrappedAppBundle
 } from "../ipa/extractor";
 import { parseInfoPlist, parseMobileprovision, parsePlistBuffer } from "../parser/plist";
 import {
@@ -1176,18 +1177,22 @@ export class AnalysisSession {
 		appPath: string,
 		progressCallback: (phase: string, percent: number) => void
 	): Promise<AnalysisResult> {
+		// iOS apps installed on Apple silicon sit inside a wrapper bundle whose
+		// only payload is `Wrapper/<Name>.app`. Analyse the inner bundle, but
+		// keep the path the user opened for display.
+		const bundlePath = resolveWrappedAppBundle(appPath) ?? appPath;
 		this.filePath = appPath;
 		this.asarArchive = null;
 
 		// macOS .app bundles use Contents/ structure
-		const isMacOS = isMacOSAppBundle(appPath);
-		this.appBundlePath = appPath;
+		const isMacOS = isMacOSAppBundle(bundlePath);
+		this.appBundlePath = bundlePath;
 
 		// Step 1: Discover binaries
 		progressCallback("Discovering binaries...", 5);
 		await yieldToEventLoop();
 
-		const binaries = isMacOS ? discoverMacOSBinaries(appPath) : discoverBinaries(appPath);
+		const binaries = isMacOS ? discoverMacOSBinaries(bundlePath) : discoverBinaries(bundlePath);
 		this.binaries = binaries;
 		this.searchIndex = null;
 
@@ -1197,7 +1202,7 @@ export class AnalysisSession {
 
 		// Step 2: Parse Info.plist
 		let infoPlistData: Record<string, PlistValue> = {};
-		const plistDir = isMacOS ? path.join(appPath, "Contents") : appPath;
+		const plistDir = isMacOS ? path.join(bundlePath, "Contents") : bundlePath;
 		// parseInfoPlist signals a malformed plist in-band as { ok: false } and a
 		// missing one as null, so only a thrown error reaches the catch below.
 		if (this.needsSection("overview", "infoPlist")) {
@@ -1214,7 +1219,7 @@ export class AnalysisSession {
 				console.warn(`[plist] Failed to read ${plistDir}: ${msg}`);
 				// Try the .app root as fallback
 				try {
-					const plistResult = parseInfoPlist(appPath);
+					const plistResult = parseInfoPlist(bundlePath);
 					if (plistResult?.ok) {
 						infoPlistData = plistResult.data.raw as Record<string, PlistValue>;
 					}
@@ -1235,7 +1240,7 @@ export class AnalysisSession {
 		const finalEntitlements = binaryResult.entitlements;
 
 		// Detect app frameworks
-		const bundleRoot = isMacOS ? path.join(appPath, "Contents") : appPath;
+		const bundleRoot = isMacOS ? path.join(bundlePath, "Contents") : bundlePath;
 		const libNames = binaryResult.libraries.map((l) => l.name);
 		const appFrameworks = this.needsSection("overview")
 			? detectAppFrameworks(bundleRoot, libNames)
@@ -1266,7 +1271,7 @@ export class AnalysisSession {
 
 		// Detect an Electron bundle and scan app.asar.
 		const electronInfo = this.needsSection("electron", "security")
-			? await this.loadElectron(appPath, isMacOS, progressCallback, 82)
+			? await this.loadElectron(bundlePath, isMacOS, progressCallback, 82)
 			: null;
 
 		// Extract localisation strings from .lproj directories
@@ -1309,7 +1314,7 @@ export class AnalysisSession {
 		if (this.needsSection("files")) {
 			progressCallback("Building file tree...", 95);
 			await yieldToEventLoop();
-			files = buildFileTree(appPath);
+			files = buildFileTree(bundlePath);
 			if (
 				isMacOS &&
 				files.length === 1 &&
@@ -1321,14 +1326,14 @@ export class AnalysisSession {
 			}
 		}
 
-		const appName = path.basename(appPath, ".app");
+		const appName = path.basename(bundlePath, ".app");
 		const result = buildAnalysisResult(
 			binaryResult,
 			{
 				sourceType: "app",
 				filePath: appPath,
 				ipa: {
-					bundlePath: appPath,
+					bundlePath,
 					appName,
 					binaries: assembleBinaryList(binaries)
 				},
