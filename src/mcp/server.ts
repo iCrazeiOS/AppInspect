@@ -30,7 +30,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { MAX_HEX_MATCHES } from "../main/analysis/hex";
-import type { SearchableTab } from "../main/analysis/orchestrator";
+import type { SearchableSection } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
 import { ARCH_NAMES, type ArchPreference, parseArch } from "../shared/arch";
@@ -265,19 +265,19 @@ server.registerTool(
 			"binary name and index.",
 		inputSchema: {
 			query: z.string().describe("Search query"),
-			tab: z
+			section: z
 				.enum(["objc", "strings", "symbols", "libraries", "swift"])
-				.describe("Data type to search (objc matches ObjC class names)"),
+				.describe("Section to search (objc matches ObjC class names)"),
 			isRegex: z.boolean().optional().describe("Treat query as regex (default: false)"),
 			caseSensitive: z.boolean().optional().describe("Case-sensitive match (default: false)"),
 			path: pathParam
 		}
 	},
-	async ({ query, tab, isRegex, caseSensitive, path }) => {
+	async ({ query, section, isRegex, caseSensitive, path }) => {
 		const session = getSession(path);
 		const results = await session.searchAllBinaries(
 			query,
-			tab as SearchableTab,
+			section as SearchableSection,
 			noop,
 			isRegex,
 			caseSensitive

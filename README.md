@@ -167,7 +167,7 @@ Verify with `opencode mcp list` — the server should show as **connected**.
 | `list_asar` | List files inside an Electron `app.asar` (flat, sorted by path). Optional `filter`, `offset`, `limit` |
 | `read_asar_file` | Read a file from `app.asar` by archive-relative path (text up to `maxBytes`, 512 KB default and 32 MB max; images and other binary content return metadata only). Optional `maxBytes` |
 | `extract_asar` | Extract every file from `app.asar` into an `outputDir`, preserving archive paths (packed, unpacked and linked entries). Returns written/skipped counts |
-| `search` | Cross-binary search across all binaries in the loaded container. `tab`: `objc`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
+| `search` | Cross-binary search across all binaries in the loaded container. `section`: `objc`, `strings`, `symbols`, `libraries`, `swift` (Swift type full names) |
 | `get_library_graph` | Dependency graph across all binaries (nodes + edges). Optional `category` (`system`, `framework`, `swift`, `embedded`) |
 | `search_hex` | Find a byte pattern (hex, or `text:` prefix for a string) in a binary; returns file offsets. Optional `regionOffset`, `regionSize`, `caseInsensitive`, `binary` |
 | `read_hex` | Read raw hex bytes from the binary. Supports offset, length, and hexdump or raw output format. |
@@ -186,7 +186,7 @@ Fat binaries default to the arm64 slice (or the first slice when arm64 is absent
 1. Agent calls `analyse_file` with a path to an IPA → gets an overview summary
 2. Agent calls `get_section` with `section: "security"` → sees security findings
 3. Agent calls `get_section` with `section: "strings", filter: "api.example.com"` → finds matching strings
-4. Agent calls `search` with `query: "UIWebView", tab: "objc"` → searches across all binaries
+4. Agent calls `search` with `query: "UIWebView", section: "objc"` → searches across all binaries
 
 ### Parallel analysis
 

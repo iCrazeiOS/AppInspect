@@ -13,10 +13,10 @@ import { exportAnalysis } from "../main/export/json";
 import { exportSarif, findingsAtOrAbove } from "../main/export/sarif";
 import type { ArchPreference } from "../shared/arch";
 import { ARCH_NAMES, parseArch } from "../shared/arch";
-import type { TabName } from "../shared/ipc-types";
+import type { SectionName } from "../shared/ipc-types";
 import type { AnalysisResult } from "../shared/types";
 
-const SECTION_NAMES: TabName[] = [
+const SECTION_NAMES: SectionName[] = [
 	"overview",
 	"strings",
 	"headers",
@@ -41,7 +41,7 @@ type OutputFormat = "json" | "sarif";
 export interface CliOptions {
 	file?: string;
 	format: OutputFormat;
-	sections?: TabName[];
+	sections?: SectionName[];
 	binary?: number;
 	arch?: ArchPreference;
 	out?: string;
@@ -91,7 +91,7 @@ export function parseArgs(argv: string[]): CliOptions {
 		version: false,
 		help: false
 	};
-	const sections: TabName[] = [];
+	const sections: SectionName[] = [];
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
@@ -120,10 +120,10 @@ export function parseArgs(argv: string[]): CliOptions {
 				break;
 			case "--section": {
 				const value = argv[++i];
-				if (!value || !SECTION_NAMES.includes(value as TabName)) {
+				if (!value || !SECTION_NAMES.includes(value as SectionName)) {
 					throw new UsageError(`--section requires one of: ${SECTION_NAMES.join(", ")}`);
 				}
-				sections.push(value as TabName);
+				sections.push(value as SectionName);
 				break;
 			}
 			case "--binary": {

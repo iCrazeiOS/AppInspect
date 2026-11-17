@@ -86,7 +86,7 @@ describe("analyseBinaryFile light path (search index)", () => {
 	});
 });
 
-describe("AnalysisSession.searchAllBinaries swift tab", () => {
+describe("AnalysisSession.searchAllBinaries swift section", () => {
 	async function sessionWithSwift(swift: string[]): Promise<AnalysisSession> {
 		const session = new AnalysisSession();
 		await session.analyseMachO(TEST_FILE, () => {});

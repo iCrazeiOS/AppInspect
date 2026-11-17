@@ -81,7 +81,7 @@ afterAll(() => {
 });
 
 describe("section-scoped analysis", () => {
-	it("runs only the parsers needed for the strings tab", async () => {
+	it("runs only the parsers needed for the strings section", async () => {
 		const session = new AnalysisSession();
 		session.setRequestedSections(["strings"]);
 		const phases: string[] = [];

@@ -10,12 +10,12 @@ contextBridge.exposeInMainWorld("api", {
 		cpuType?: number,
 		cpuSubtype?: number
 	) => ipcRenderer.invoke("analyse-binary", { sessionId, binaryIndex, cpuType, cpuSubtype }),
-	getTabData: (sessionId: string, tab: string) =>
-		ipcRenderer.invoke("get-tab-data", { sessionId, tab }),
+	getSectionData: (sessionId: string, section: string) =>
+		ipcRenderer.invoke("get-section-data", { sessionId, section }),
 	savePNG: (defaultName: string, data: Uint8Array) =>
 		ipcRenderer.invoke("save-png", { defaultName, data }),
-	exportJSON: (sessionId: string, tabs?: string[]) =>
-		ipcRenderer.invoke("export-json", { sessionId, tabs }),
+	exportJSON: (sessionId: string, sections?: string[]) =>
+		ipcRenderer.invoke("export-json", { sessionId, sections }),
 	exportHeaders: (sessionId: string) => ipcRenderer.invoke("export-headers", { sessionId }),
 	exportAsar: (sessionId: string) => ipcRenderer.invoke("export-asar", { sessionId }),
 	openFilePicker: () => ipcRenderer.invoke("open-file-picker", { mode: "file" }),
@@ -30,14 +30,14 @@ contextBridge.exposeInMainWorld("api", {
 	searchAllBinaries: (
 		sessionId: string,
 		query: string,
-		tab: string,
+		section: string,
 		isRegex?: boolean,
 		caseSensitive?: boolean
 	) =>
 		ipcRenderer.invoke("search-all-binaries", {
 			sessionId,
 			query,
-			tab,
+			section,
 			isRegex,
 			caseSensitive
 		}),

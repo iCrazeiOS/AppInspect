@@ -27,6 +27,8 @@ Three Electron processes with strict context isolation:
 
 IPC: renderer invokes main via typed channels defined in `src/shared/ipc-types.ts`. Main sends progress/completion/error events back. All IPC types are in `InvokeChannelMap` and `SendChannelMap`.
 
+Analysis data is split into **sections** (`overview`, `strings`, `headers`, `libraries`, `symbols`, `objc`, `swift`, `entitlements`, `infoPlist`, `electron`, `hooks`, `security`, `files`, `size`), named by `SectionName` in `ipc-types.ts`. Everything outside the renderer (IPC, session, JSON export, CLI `--section`, MCP `get_section`/`search`) calls them sections; "tab" is reserved for renderer UI, where each section is shown in a tab.
+
 ### Analysis pipeline
 
 `src/main/analysis/orchestrator.ts` runs a multi-step pipeline: extract container → discover binaries → parse Mach-O headers → load commands → chained fixups → strings → symbols → ObjC metadata → code signature → security scan → hook detection → framework detection → bundle file scan → file tree + localisation.

@@ -3,7 +3,7 @@
  * objc, strings, symbols, and libraries tabs.
  */
 
-import type { CrossBinarySearchResult, SearchableTab } from "../../shared/ipc-types";
+import type { CrossBinarySearchResult, SearchableSection } from "../../shared/ipc-types";
 import { EmptyState, type SearchBar } from "../components";
 import { formatCount } from "./format";
 
@@ -52,7 +52,7 @@ export function addAllBinariesToggle(
 export function doCrossBinarySearch(
 	sessionId: string,
 	term: string,
-	tab: SearchableTab,
+	section: SearchableSection,
 	state: CrossBinaryState,
 	onResults: () => void,
 	isRegex?: boolean,
@@ -76,7 +76,7 @@ export function doCrossBinarySearch(
 			state.results = await window.api.searchAllBinaries(
 				sessionId,
 				term,
-				tab,
+				section,
 				isRegex,
 				caseSensitive
 			);
@@ -97,7 +97,7 @@ export function doCrossBinarySearch(
 export function buildShowAllLink(
 	sessionId: string,
 	label: string,
-	tab: SearchableTab,
+	section: SearchableSection,
 	state: CrossBinaryState,
 	onResults: () => void
 ): HTMLAnchorElement {
@@ -107,7 +107,7 @@ export function buildShowAllLink(
 	link.href = "#";
 	link.addEventListener("click", (e) => {
 		e.preventDefault();
-		showAllAcrossBinaries(sessionId, tab, state, onResults);
+		showAllAcrossBinaries(sessionId, section, state, onResults);
 	});
 	return link;
 }
@@ -146,7 +146,7 @@ export function createCrossBinaryHint(parent: HTMLElement): HTMLDivElement {
  * @param hint - The hint element from createCrossBinaryHint
  * @param state - Cross-binary state
  * @param searchValue - Current search bar value
- * @param tab - The SearchableTab to search
+ * @param section - The section to search
  * @param label - Display label (e.g. "symbols", "strings", "libraries")
  * @param onResults - Callback when results arrive from "Show all"
  */
@@ -155,7 +155,7 @@ export function updateCrossBinaryHint(
 	hint: HTMLDivElement,
 	state: CrossBinaryState,
 	searchValue: string,
-	tab: SearchableTab,
+	section: SearchableSection,
 	label: string,
 	onResults: () => void
 ): void {
@@ -165,7 +165,7 @@ export function updateCrossBinaryHint(
 		const text = document.createElement("span");
 		text.textContent = `Type a ${singular} name to search across all binaries.`;
 		hint.appendChild(text);
-		hint.appendChild(buildShowAllLink(sessionId, label, tab, state, onResults));
+		hint.appendChild(buildShowAllLink(sessionId, label, section, state, onResults));
 		hint.style.display = "flex";
 	} else {
 		hint.style.display = "none";
@@ -203,9 +203,9 @@ export function mountEmptyBinaryState(
 /** List every entry across binaries, as the "Show all" link does. */
 export function showAllAcrossBinaries(
 	sessionId: string,
-	tab: SearchableTab,
+	section: SearchableSection,
 	state: CrossBinaryState,
 	onResults: () => void
 ): void {
-	doCrossBinarySearch(sessionId, ".", tab, state, onResults, true, false);
+	doCrossBinarySearch(sessionId, ".", section, state, onResults, true, false);
 }

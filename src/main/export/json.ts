@@ -2,14 +2,14 @@
  * JSON Export
  *
  * Serializes analysis data as JSON with metadata wrapper.
- * Supports full export or per-tab filtered export.
+ * Supports full export or export filtered to chosen sections.
  */
 
-import type { TabName } from "../../shared/ipc-types";
+import type { SectionName } from "../../shared/ipc-types";
 import type { AnalysisResult } from "../../shared/types";
 
-/** Map of tab names to their key in AnalysisResult */
-const TAB_KEY_MAP: Record<TabName, keyof AnalysisResult> = {
+/** Map of section names to their key in AnalysisResult */
+const SECTION_KEY_MAP: Record<SectionName, keyof AnalysisResult> = {
 	overview: "overview",
 	strings: "strings",
 	headers: "headers",
@@ -59,22 +59,22 @@ function appVersion(result: AnalysisResult): string {
  * Serialize analysis data as JSON.
  *
  * @param result - The full analysis result
- * @param tabs - If specified, include only these tabs' data. If omitted, export everything.
+ * @param sections - If specified, include only these sections' data. If omitted, export everything.
  * @returns JSON string with metadata wrapper
  */
-export function exportAnalysis(result: AnalysisResult, tabs?: TabName[]): string {
+export function exportAnalysis(result: AnalysisResult, sections?: SectionName[]): string {
 	const appName = result.overview?.ipa?.appName ?? "Unknown";
 
 	let data: Record<string, unknown>;
 
-	if (!tabs || tabs.length === 0) {
+	if (!sections || sections.length === 0) {
 		// Export everything
 		data = { ...result } as Record<string, unknown>;
 	} else {
-		// Export only requested tabs
+		// Export only requested sections
 		data = {};
-		for (const tab of tabs) {
-			const key = TAB_KEY_MAP[tab];
+		for (const section of sections) {
+			const key = SECTION_KEY_MAP[section];
 			if (key && key in result) {
 				data[key] = result[key];
 			}

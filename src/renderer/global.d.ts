@@ -6,14 +6,14 @@ import type {
 	SizeTreeNode
 } from "../shared/types";
 import type {
-	TabData,
-	TabName,
+	SectionData,
+	SectionName,
 	ProgressPayload,
 	AnalysisCompletePayload,
 	AnalysisErrorPayload,
 	CrossBinarySearchResult,
 	InvokeChannelMap,
-	SearchableTab
+	SearchableSection
 } from "../shared/ipc-types";
 
 export interface AppInspectAPI {
@@ -25,8 +25,11 @@ export interface AppInspectAPI {
 		cpuType?: number,
 		cpuSubtype?: number
 	): Promise<AnalysisResult>;
-	getTabData(sessionId: string, tab: TabName): Promise<TabData>;
-	exportJSON(sessionId: string, tabs?: TabName[]): Promise<{ success: boolean; path?: string }>;
+	getSectionData(sessionId: string, section: SectionName): Promise<SectionData>;
+	exportJSON(
+		sessionId: string,
+		sections?: SectionName[]
+	): Promise<{ success: boolean; path?: string }>;
 	exportHeaders(sessionId: string): Promise<{ success: boolean; path?: string; files?: number }>;
 	exportAsar(
 		sessionId: string
@@ -43,7 +46,7 @@ export interface AppInspectAPI {
 	searchAllBinaries(
 		sessionId: string,
 		query: string,
-		tab: SearchableTab,
+		section: SearchableSection,
 		isRegex?: boolean,
 		caseSensitive?: boolean
 	): Promise<CrossBinarySearchResult[]>;
