@@ -11,10 +11,10 @@ import { type BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { entitlementsToObject } from "../../shared/entitlements";
 import { FILE_PREVIEW_BYTES } from "../../shared/file-preview";
 import { formatCount, formatSize } from "../../shared/format";
-import type { TabName } from "../../shared/ipc-types";
+import type { SectionName } from "../../shared/ipc-types";
 import type { AppSettings } from "../../shared/types";
 import { clearCache, getCacheInfo } from "../analysis/cache";
-import type { SearchableTab } from "../analysis/orchestrator";
+import type { SearchableSection } from "../analysis/orchestrator";
 import { AnalysisSession, isSupportedFile } from "../analysis/orchestrator";
 import { buildHeaders } from "../export/headers";
 import { exportAnalysis } from "../export/json";
@@ -158,75 +158,113 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 		}
 	);
 
-	// ── get-tab-data ──
-	ipcMain.handle("get-tab-data", async (_event, args: { sessionId: string; tab: TabName }) => {
-		const { sessionId } = args;
-		try {
-			const session = getSession(sessionId);
-			const cached = session.getResult();
-			if (!cached) {
-				throw new Error("No analysis result available");
-			}
+	// ── get-section-data ──
+	ipcMain.handle(
+		"get-section-data",
+		async (_event, args: { sessionId: string; section: SectionName }) => {
+			const { sessionId } = args;
+			try {
+				const session = getSession(sessionId);
+				const cached = session.getResult();
+				if (!cached) {
+					throw new Error("No analysis result available");
+				}
 
-			const { tab } = args;
+				const { section } = args;
 
-			switch (tab) {
-				case "overview":
-					return sanitizeBigInts({
-						tab: "overview",
-						data: { ...cached.overview, hooks: cached.hooks, electron: cached.electron }
-					});
-				case "strings":
-					return sanitizeBigInts({
-						tab: "strings",
-						data: {
-							binary: cached.strings,
-							localisation: cached.localisationStrings ?? []
-						}
-					});
-				case "headers":
-					return sanitizeBigInts({ tab: "headers", data: cached.headers });
-				case "libraries":
-					return sanitizeBigInts({ tab: "libraries", data: cached.libraries });
-				case "symbols":
-					return sanitizeBigInts({ tab: "symbols", data: cached.symbols });
-				case "swift":
-					return sanitizeBigInts({ tab: "swift", data: cached.swift });
-				case "objc":
-					return sanitizeBigInts({ tab: "objc", data: cached.objc });
-				case "entitlements":
-					return sanitizeBigInts({
-						tab: "entitlements",
-						data: {
-							entries: entitlementsToObject(cached.entitlements),
-							raw: cached.entitlementsRaw
-						}
-					});
-				case "infoPlist":
-					return sanitizeBigInts({ tab: "infoPlist", data: cached.infoPlist });
-				case "electron":
-					if (!cached.electron) throw new Error("No Electron bundle in this analysis");
-					return sanitizeBigInts({
-						tab: "electron",
-						data: { info: cached.electron, files: session.getAsarTree() }
-					});
-				case "security":
-					return sanitizeBigInts({ tab: "security", data: cached.security });
-				case "files":
-					return sanitizeBigInts({ tab: "files", data: cached.files });
-				case "hooks":
-					return sanitizeBigInts({ tab: "hooks", data: cached.hooks });
-				case "size":
-					return sanitizeBigInts({ tab: "size", data: cached.size });
-				default:
-					throw new Error(`Unknown tab: ${tab}`);
+				switch (section) {
+					case "overview":
+						return sanitizeBigInts({
+							section: "overview",
+							data: {
+								...cached.overview,
+								hooks: cached.hooks,
+								electron: cached.electron
+							}
+						});
+					case "strings":
+						return sanitizeBigInts({
+							section: "strings",
+							data: {
+								binary: cached.strings,
+								localisation: cached.localisationStrings ?? []
+							}
+						});
+					case "headers":
+						return sanitizeBigInts({
+							section: "headers",
+							data: cached.headers
+						});
+					case "libraries":
+						return sanitizeBigInts({
+							section: "libraries",
+							data: cached.libraries
+						});
+					case "symbols":
+						return sanitizeBigInts({
+							section: "symbols",
+							data: cached.symbols
+						});
+					case "swift":
+						return sanitizeBigInts({
+							section: "swift",
+							data: cached.swift
+						});
+					case "objc":
+						return sanitizeBigInts({
+							section: "objc",
+							data: cached.objc
+						});
+					case "entitlements":
+						return sanitizeBigInts({
+							section: "entitlements",
+							data: {
+								entries: entitlementsToObject(cached.entitlements),
+								raw: cached.entitlementsRaw
+							}
+						});
+					case "infoPlist":
+						return sanitizeBigInts({
+							section: "infoPlist",
+							data: cached.infoPlist
+						});
+					case "electron":
+						if (!cached.electron)
+							throw new Error("No Electron bundle in this analysis");
+						return sanitizeBigInts({
+							section: "electron",
+							data: { info: cached.electron, files: session.getAsarTree() }
+						});
+					case "security":
+						return sanitizeBigInts({
+							section: "security",
+							data: cached.security
+						});
+					case "files":
+						return sanitizeBigInts({
+							section: "files",
+							data: cached.files
+						});
+					case "hooks":
+						return sanitizeBigInts({
+							section: "hooks",
+							data: cached.hooks
+						});
+					case "size":
+						return sanitizeBigInts({
+							section: "size",
+							data: cached.size
+						});
+					default:
+						throw new Error(`Unknown section: ${section}`);
+				}
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId, message });
+				return null;
 			}
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			win.webContents.send("analysis-error", { sessionId, message });
-			return null;
 		}
-	});
+	);
 
 	// ── search-all-binaries ──
 	ipcMain.handle(
@@ -236,7 +274,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 			args: {
 				sessionId: string;
 				query: string;
-				tab: SearchableTab;
+				section: SearchableSection;
 				isRegex?: boolean;
 				caseSensitive?: boolean;
 			}
@@ -246,7 +284,7 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 				const session = getSession(sessionId);
 				const results = await session.searchAllBinaries(
 					args.query,
-					args.tab,
+					args.section,
 					(phase, percent) => {
 						win.webContents.send("update-progress", {
 							sessionId,
@@ -380,48 +418,51 @@ export function registerIPCHandlers(win: BrowserWindow): void {
 	);
 
 	// ── export-json ──
-	ipcMain.handle("export-json", async (_event, args: { sessionId: string; tabs?: TabName[] }) => {
-		const { sessionId } = args;
-		try {
-			const session = getSession(sessionId);
-			const cached = session.getResult();
-			if (!cached) {
-				throw new Error("No analysis result available");
-			}
+	ipcMain.handle(
+		"export-json",
+		async (_event, args: { sessionId: string; sections?: SectionName[] }) => {
+			const { sessionId } = args;
+			try {
+				const session = getSession(sessionId);
+				const cached = session.getResult();
+				if (!cached) {
+					throw new Error("No analysis result available");
+				}
 
-			const jsonString = exportAnalysis(cached, args.tabs);
+				const jsonString = exportAnalysis(cached, args.sections);
 
-			// Build filename from app/input name + active binary
-			const appName = cached.overview?.ipa?.appName;
-			const inputFile = cached.overview?.filePath;
-			const inputName =
-				appName ??
-				(inputFile ? path.basename(inputFile, path.extname(inputFile)) : null) ??
-				"appinspect";
-			const binaryName = session.getActiveBinaryName();
-			const needsBinarySuffix =
-				binaryName && binaryName !== appName && binaryName !== inputName;
-			const defaultPath = needsBinarySuffix
-				? `${inputName}-${binaryName}-export.json`
-				: `${inputName}-export.json`;
+				// Build filename from app/input name + active binary
+				const appName = cached.overview?.ipa?.appName;
+				const inputFile = cached.overview?.filePath;
+				const inputName =
+					appName ??
+					(inputFile ? path.basename(inputFile, path.extname(inputFile)) : null) ??
+					"appinspect";
+				const binaryName = session.getActiveBinaryName();
+				const needsBinarySuffix =
+					binaryName && binaryName !== appName && binaryName !== inputName;
+				const defaultPath = needsBinarySuffix
+					? `${inputName}-${binaryName}-export.json`
+					: `${inputName}-export.json`;
 
-			const { canceled, filePath } = await dialog.showSaveDialog(win, {
-				defaultPath,
-				filters: [{ name: "JSON", extensions: ["json"] }]
-			});
+				const { canceled, filePath } = await dialog.showSaveDialog(win, {
+					defaultPath,
+					filters: [{ name: "JSON", extensions: ["json"] }]
+				});
 
-			if (canceled || !filePath) {
+				if (canceled || !filePath) {
+					return { success: false };
+				}
+
+				writeFileSync(filePath, jsonString, "utf-8");
+				return { success: true, path: filePath };
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				win.webContents.send("analysis-error", { sessionId, message });
 				return { success: false };
 			}
-
-			writeFileSync(filePath, jsonString, "utf-8");
-			return { success: true, path: filePath };
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			win.webContents.send("analysis-error", { sessionId, message });
-			return { success: false };
 		}
-	});
+	);
 
 	// ── export-headers ──
 	ipcMain.handle("export-headers", async (_event, args: { sessionId: string }) => {

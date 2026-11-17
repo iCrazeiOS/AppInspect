@@ -13,7 +13,7 @@ export interface BinarySearchIndex {
 	swift: string[];
 }
 
-export type SearchableTab = "objc" | "strings" | "symbols" | "libraries" | "swift";
+export type SearchableSection = "objc" | "strings" | "symbols" | "libraries" | "swift";
 
 export interface CrossBinarySearchResult {
 	binaryIndex: number;

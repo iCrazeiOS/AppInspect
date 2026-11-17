@@ -30,7 +30,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { MAX_HEX_MATCHES } from "../main/analysis/hex";
-import type { SearchableTab } from "../main/analysis/orchestrator";
+import type { SearchableSection } from "../main/analysis/orchestrator";
 import { AnalysisSession, formatHexdump, pruneCache } from "../main/analysis/orchestrator";
 import { isInside } from "../main/util/safe-path";
 import { ARCH_NAMES, type ArchPreference, parseArch } from "../shared/arch";
@@ -277,7 +277,7 @@ server.registerTool(
 		const session = getSession(path);
 		const results = await session.searchAllBinaries(
 			query,
-			section as SearchableTab,
+			section as SearchableSection,
 			noop,
 			isRegex,
 			caseSensitive

@@ -7,6 +7,7 @@
 
 import { entitlementsToObject } from "../shared/entitlements";
 import { plural } from "../shared/format";
+import type { SectionName } from "../shared/ipc-types";
 import type {
 	AnalysisResult,
 	LibraryGraphData,
@@ -16,6 +17,7 @@ import type {
 
 export const DEFAULT_LIMIT = 200;
 
+/** Sections get_section serves: every section except the overview, which get_overview covers. */
 export const SECTION_NAMES = [
 	"strings",
 	"headers",
@@ -30,12 +32,12 @@ export const SECTION_NAMES = [
 	"files",
 	"hooks",
 	"size"
-] as const;
+] as const satisfies readonly SectionName[];
 
-export type SectionName = (typeof SECTION_NAMES)[number];
+export type DetailSectionName = (typeof SECTION_NAMES)[number];
 
 /** Sections that return filterable/paginatable arrays */
-export const PAGINATED_SECTIONS = new Set<SectionName>([
+export const PAGINATED_SECTIONS = new Set<DetailSectionName>([
 	"strings",
 	"symbols",
 	"objc",
@@ -61,7 +63,7 @@ export function sanitize<T>(obj: T): T {
 
 // ── Section data helpers ─────────────────────────────────────────────
 
-export function getSectionData(cached: AnalysisResult, section: SectionName): unknown {
+export function getSectionData(cached: AnalysisResult, section: DetailSectionName): unknown {
 	switch (section) {
 		case "strings":
 			return { binary: cached.strings, localisation: cached.localisationStrings ?? [] };
@@ -101,20 +103,20 @@ export function getSectionData(cached: AnalysisResult, section: SectionName): un
 }
 
 /** Extract the filterable array from a section's data */
-export function getArray(data: unknown, section: SectionName): unknown[] {
+export function getArray(data: unknown, section: DetailSectionName): unknown[] {
 	if (section === "strings") return (data as { binary: unknown[] }).binary;
 	if (section === "objc") return (data as { classes: unknown[] }).classes;
 	return data as unknown[];
 }
 
 /** Primary field to filter on per section */
-export function filterField(section: SectionName): string {
+export function filterField(section: DetailSectionName): string {
 	return section === "strings" ? "value" : "name";
 }
 
 export function buildPaginatedResult(
 	data: unknown,
-	section: SectionName,
+	section: DetailSectionName,
 	filter?: string,
 	offset = 0,
 	limit = DEFAULT_LIMIT

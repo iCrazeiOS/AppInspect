@@ -17,7 +17,7 @@ import {
 	FILE_PREVIEW_IMAGE_BYTES,
 	imageMimeType
 } from "../../shared/file-preview";
-import type { TabName } from "../../shared/ipc-types";
+import type { SectionName } from "../../shared/ipc-types";
 import { compileSafeRegex } from "../../shared/safe-regex";
 import type {
 	AnalysisResult,
@@ -92,7 +92,7 @@ import { discoverFolderBinaries } from "./folder";
 import { detectAppFrameworks } from "./framework-detection";
 import { type HexReadResult, readHexAt, searchHexInFile } from "./hex";
 import { buildLibraryGraph } from "./library-graph";
-import type { BinarySearchIndex, CrossBinarySearchResult, SearchableTab } from "./search-index";
+import type { BinarySearchIndex, CrossBinarySearchResult, SearchableSection } from "./search-index";
 import { adjustElectronHardeningFindings, scanBundleFileContents } from "./security";
 import { buildSizeTree } from "./size-tree";
 
@@ -110,8 +110,8 @@ export class AnalysisSession {
 	private electronFindings: SecurityFinding[] = [];
 	/** Architecture slice requested for every binary parsed in this session. */
 	private preferredArch: ArchPreference | null = null;
-	/** Tabs the caller will read; null means run the full analysis. */
-	private requestedSections: Set<TabName> | null = null;
+	/** Sections the caller will read; null means run the full analysis. */
+	private requestedSections: Set<SectionName> | null = null;
 	/** Static libraries extracted for this session: cache directory → library path. */
 	private staticLibraries = new Map<string, string>();
 	/** Lazily-computed results for non-active binaries, keyed by binary index. */
@@ -137,23 +137,23 @@ export class AnalysisSession {
 	}
 
 	/**
-	 * Restrict analysis to what the given tabs need. Passing null (or omitting)
+	 * Restrict analysis to what the given sections need. Passing null (or omitting)
 	 * restores the full analysis. Every skipped parser yields its empty default,
-	 * so the result shape is unchanged and only the requested tabs are populated.
+	 * so the result shape is unchanged and only the requested sections are populated.
 	 */
-	setRequestedSections(sections: TabName[] | null): void {
+	setRequestedSections(sections: SectionName[] | null): void {
 		this.requestedSections = sections && sections.length > 0 ? new Set(sections) : null;
 		this.binaryCache.clear();
 		this.searchIndex = null;
 	}
 
-	/** True when the full result is needed or one of `tabs` was requested. */
-	private needsSection(...tabs: TabName[]): boolean {
+	/** True when the full result is needed or one of `sections` was requested. */
+	private needsSection(...sections: SectionName[]): boolean {
 		if (!this.requestedSections) return true;
-		return tabs.some((tab) => this.requestedSections!.has(tab));
+		return sections.some((section) => this.requestedSections!.has(section));
 	}
 
-	/** Skip flags matching the requested tabs, honouring their dependencies. */
+	/** Skip flags matching the requested sections, honouring their dependencies. */
 	private scanOptions(): ScanOptions {
 		if (!this.requestedSections) return {};
 		const symbols = this.needsSection(
@@ -516,7 +516,7 @@ export class AnalysisSession {
 	/** Search across all binaries in the container for a query string. */
 	async searchAllBinaries(
 		query: string,
-		tab: SearchableTab,
+		section: SearchableSection,
 		progressCallback: (phase: string, percent: number) => void,
 		isRegex?: boolean,
 		caseSensitive?: boolean
@@ -542,7 +542,7 @@ export class AnalysisSession {
 		for (const [binaryIndex, entry] of index) {
 			const bin = this.binaries[binaryIndex];
 			if (!bin) continue;
-			const values = entry[tab];
+			const values = entry[section];
 			for (let i = 0; i < values.length; i++) {
 				const value = values[i]!;
 				if (matcher(value)) {
@@ -552,7 +552,7 @@ export class AnalysisSession {
 						binaryType: bin.type,
 						match: value
 					};
-					if (tab === "symbols") result.symbolType = entry.symbolTypes[i];
+					if (section === "symbols") result.symbolType = entry.symbolTypes[i];
 					results.push(result);
 				}
 			}

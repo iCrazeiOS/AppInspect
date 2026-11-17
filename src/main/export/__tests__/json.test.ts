@@ -132,7 +132,7 @@ describe("json export", () => {
 		expect(filtered.data).not.toHaveProperty("infoPlist");
 	});
 
-	it("exports the objc tab as a single consolidated key", () => {
+	it("exports the objc section as a single consolidated key", () => {
 		const filtered = JSON.parse(exportAnalysis(makeResult(), ["objc"]));
 		expect(filtered.data).toHaveProperty("objc");
 		expect(filtered.data.objc).toHaveProperty("classes");

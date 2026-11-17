@@ -11,5 +11,5 @@ export { pruneCache } from "./cache";
 export { buildFileTree } from "./file-tree";
 export { detectFileType, isSupportedFile } from "./file-type";
 export { formatHexdump } from "./hex";
-export type { CrossBinarySearchResult, SearchableTab } from "./search-index";
+export type { CrossBinarySearchResult, SearchableSection } from "./search-index";
 export { AnalysisSession } from "./session";

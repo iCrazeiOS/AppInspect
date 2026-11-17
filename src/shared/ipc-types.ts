@@ -25,23 +25,23 @@ import type {
 	SymbolEntry
 } from "./types";
 
-// ── Tab-specific return types ──
+// ── Section data returned by get-section-data ──
 
-export interface OverviewTabData {
-	tab: "overview";
+export interface OverviewSectionData {
+	section: "overview";
 	data: AnalysisResult["overview"] & { hooks: HookInfo; electron: ElectronInfo | null };
 }
 
-export interface StringsTabData {
-	tab: "strings";
+export interface StringsSectionData {
+	section: "strings";
 	data: {
 		binary: StringEntry[];
 		localisation: LocalisationString[];
 	};
 }
 
-export interface HeadersTabData {
-	tab: "headers";
+export interface HeadersSectionData {
+	section: "headers";
 	data: {
 		machO: MachOHeader;
 		fatArchs: FatArch[];
@@ -49,28 +49,28 @@ export interface HeadersTabData {
 	};
 }
 
-export interface LibrariesTabData {
-	tab: "libraries";
+export interface LibrariesSectionData {
+	section: "libraries";
 	data: LinkedLibrary[];
 }
 
-export interface SymbolsTabData {
-	tab: "symbols";
+export interface SymbolsSectionData {
+	section: "symbols";
 	data: SymbolEntry[];
 }
 
-export interface ObjCTabData {
-	tab: "objc";
+export interface ObjCSectionData {
+	section: "objc";
 	data: ObjCMetadata;
 }
 
-export interface SwiftTabData {
-	tab: "swift";
+export interface SwiftSectionData {
+	section: "swift";
 	data: SwiftMetadata;
 }
 
-export interface EntitlementsTabData {
-	tab: "entitlements";
+export interface EntitlementsSectionData {
+	section: "entitlements";
 	data: {
 		entries: Record<string, unknown>;
 		/** Raw XML plist exactly as embedded in the code signature, when present. */
@@ -78,67 +78,67 @@ export interface EntitlementsTabData {
 	};
 }
 
-export interface InfoPlistTabData {
-	tab: "infoPlist";
+export interface InfoPlistSectionData {
+	section: "infoPlist";
 	data: { [key: string]: PlistValue };
 }
 
-export interface ElectronTabData {
-	tab: "electron";
+export interface ElectronSectionData {
+	section: "electron";
 	data: { info: ElectronInfo; files: AsarEntry[] };
 }
 
-export interface SecurityTabData {
-	tab: "security";
+export interface SecuritySectionData {
+	section: "security";
 	data: {
 		findings: SecurityFinding[];
 		hardening: BinaryHardening;
 	};
 }
 
-export interface FilesTabData {
-	tab: "files";
+export interface FilesSectionData {
+	section: "files";
 	data: FileEntry[];
 }
 
-export interface SizeTabData {
-	tab: "size";
+export interface SizeSectionData {
+	section: "size";
 	data: SizeBreakdown;
 }
 
-export interface HooksTabData {
-	tab: "hooks";
+export interface HooksSectionData {
+	section: "hooks";
 	data: HookInfo;
 }
 
-export type TabData =
-	| OverviewTabData
-	| StringsTabData
-	| HeadersTabData
-	| LibrariesTabData
-	| SymbolsTabData
-	| ObjCTabData
-	| SwiftTabData
-	| EntitlementsTabData
-	| InfoPlistTabData
-	| ElectronTabData
-	| SecurityTabData
-	| FilesTabData
-	| HooksTabData
-	| SizeTabData;
+export type SectionData =
+	| OverviewSectionData
+	| StringsSectionData
+	| HeadersSectionData
+	| LibrariesSectionData
+	| SymbolsSectionData
+	| ObjCSectionData
+	| SwiftSectionData
+	| EntitlementsSectionData
+	| InfoPlistSectionData
+	| ElectronSectionData
+	| SecuritySectionData
+	| FilesSectionData
+	| HooksSectionData
+	| SizeSectionData;
 
 export interface CrossBinarySearchResult {
 	binaryIndex: number;
 	binaryName: string;
 	binaryType: string;
 	match: string;
-	/** Symbol type (exported/imported/local) — only present for symbols tab results. */
+	/** Symbol type (exported/imported/local) — only present for symbols section results. */
 	symbolType?: string;
 }
 
-export type SearchableTab = "objc" | "strings" | "symbols" | "libraries" | "swift";
+export type SearchableSection = "objc" | "strings" | "symbols" | "libraries" | "swift";
 
-export type TabName = TabData["tab"];
+export type SectionName = SectionData["section"];
 
 // ── Invoke channels (renderer -> main) ──
 
@@ -151,16 +151,16 @@ export type InvokeChannelMap = {
 		params: { path: string };
 		result: { sessionId: string; result: AnalysisResult };
 	};
-	"get-tab-data": {
-		params: { sessionId: string; tab: TabName };
-		result: TabData;
+	"get-section-data": {
+		params: { sessionId: string; section: SectionName };
+		result: SectionData;
 	};
 	"save-png": {
 		params: { defaultName: string; data: Uint8Array };
 		result: { success: boolean; path?: string };
 	};
 	"export-json": {
-		params: { sessionId: string; tabs?: TabName[] };
+		params: { sessionId: string; sections?: SectionName[] };
 		result: { success: boolean; path?: string };
 	};
 	"export-headers": {
@@ -191,7 +191,7 @@ export type InvokeChannelMap = {
 		params: {
 			sessionId: string;
 			query: string;
-			tab: SearchableTab;
+			section: SearchableSection;
 			isRegex?: boolean;
 			caseSensitive?: boolean;
 		};

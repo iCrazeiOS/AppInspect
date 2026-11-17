@@ -7,7 +7,7 @@ import {
 	CPU_TYPE_X86,
 	CPU_TYPE_X86_64
 } from "../shared/arch";
-import type { TabName } from "../shared/ipc-types";
+import type { SectionName } from "../shared/ipc-types";
 import type { AnalysisResult, BinaryInfo } from "../shared/types";
 import { showToast } from "./components/toast";
 import {
@@ -472,65 +472,65 @@ async function loadTabData(tabId: string): Promise<void> {
 	}
 
 	try {
-		// The sidebar uses the legacy "infoplist" id while the IPC tab name is "infoPlist"
-		const tabName: TabName = tabId === "infoplist" ? "infoPlist" : (tabId as TabName);
-		const tabData = await window.api.getTabData(tab.sessionId, tabName);
+		// The sidebar uses the legacy "infoplist" id while the section name is "infoPlist"
+		const section: SectionName = tabId === "infoplist" ? "infoPlist" : (tabId as SectionName);
+		const sectionData = await window.api.getSectionData(tab.sessionId, section);
 		tab.loadedSectionTabs.add(tabId);
 
 		const panel = document.getElementById(`tab-${tabId}`);
-		if (panel && tabData != null) {
+		if (panel && sectionData != null) {
 			const sid = tab.sessionId;
 			const binCount = tab.analysisResult?.overview?.ipa?.binaries?.length ?? 1;
 			const currentBinary =
 				tab.analysisResult?.overview?.ipa?.binaries?.[tab.currentBinaryIndex];
-			switch (tabData.tab) {
+			switch (sectionData.section) {
 				case "overview":
-					renderOverview(panel, tabData.data, sid);
+					renderOverview(panel, sectionData.data, sid);
 					break;
 				case "libraries":
-					renderLibraries(panel, tabData.data, binCount, sid);
+					renderLibraries(panel, sectionData.data, binCount, sid);
 					break;
 				case "headers":
-					renderHeaders(panel, tabData.data);
+					renderHeaders(panel, sectionData.data);
 					break;
 				case "strings":
-					renderStrings(panel, tabData.data, binCount, sid);
+					renderStrings(panel, sectionData.data, binCount, sid);
 					break;
 				case "symbols":
-					renderSymbols(panel, tabData.data, binCount, sid);
+					renderSymbols(panel, sectionData.data, binCount, sid);
 					break;
 				case "security":
 					renderSecurity(
 						panel,
-						tabData.data,
+						sectionData.data,
 						sid,
 						tab.analysisResult,
 						tab.currentBinaryIndex
 					);
 					break;
 				case "files":
-					renderFiles(panel, tabData.data, sid);
+					renderFiles(panel, sectionData.data, sid);
 					break;
 				case "objc":
-					renderObjC(panel, tabData.data, binCount, sid);
+					renderObjC(panel, sectionData.data, binCount, sid);
 					break;
 				case "swift":
-					renderSwift(panel, tabData.data, sid, currentBinary, binCount);
+					renderSwift(panel, sectionData.data, sid, currentBinary, binCount);
 					break;
 				case "entitlements":
-					renderEntitlements(panel, tabData.data, sid);
+					renderEntitlements(panel, sectionData.data, sid);
 					break;
 				case "infoPlist":
-					renderPlist(panel, tabData.data, sid);
+					renderPlist(panel, sectionData.data, sid);
 					break;
 				case "hooks":
-					renderHooks(panel, tabData.data);
+					renderHooks(panel, sectionData.data);
 					break;
 				case "electron":
-					renderElectron(panel, tabData.data, sid);
+					renderElectron(panel, sectionData.data, sid);
 					break;
 				case "size":
-					renderSize(panel, tabData.data, sid);
+					renderSize(panel, sectionData.data, sid);
 					break;
 				default:
 					break;
@@ -545,7 +545,7 @@ async function loadTabData(tabId: string): Promise<void> {
 			focusTabContent(tabId);
 		}
 
-		console.log(`[AppInspect] Tab data loaded for: ${tabId}`, tabData);
+		console.log(`[AppInspect] Section data loaded for: ${tabId}`, sectionData);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		showToast(`Failed to load ${tabId} tab: ${message}`, "error");
@@ -1114,7 +1114,7 @@ async function handleExportTab(tabName: string): Promise<void> {
 	const tab = getActiveFileTab();
 	if (!tab) return;
 	try {
-		const result = await window.api.exportJSON(tab.sessionId, [tabName as TabName]);
+		const result = await window.api.exportJSON(tab.sessionId, [tabName as SectionName]);
 		if (result.success) {
 			showToast(`Exported ${tabName} to ${result.path}`, "success");
 		}
