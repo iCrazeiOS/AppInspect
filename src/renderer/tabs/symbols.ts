@@ -171,9 +171,7 @@ export function renderSymbols(
 
 	const table = new DataTable(COLUMNS, 28);
 	table.setStorageKey("cols:symbols");
-	table.setInitialCap(200);
 	table.mount(tableWrap);
-	table.onCapChange(() => updateCount());
 
 	// ── Cross-binary "show all" hint ──
 	const xbinHint = createCrossBinaryHint(tableWrap);

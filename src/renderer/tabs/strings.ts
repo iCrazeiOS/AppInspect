@@ -208,9 +208,7 @@ export function renderStrings(
 
 	const table = new DataTable(BINARY_COLUMNS, 28);
 	table.setStorageKey("cols:strings:binary");
-	table.setInitialCap(200);
 	table.mount(tableWrap);
-	table.onCapChange(() => updateCount());
 
 	// ── Cross-binary "show all" hint ──
 	const xbinHint = createCrossBinaryHint(tableWrap);
