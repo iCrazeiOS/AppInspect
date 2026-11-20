@@ -423,6 +423,29 @@
   color: var(--text-muted);
 }
 
+/* Collapsible protocol badge group in the detail scroll area */
+.cls-protocol-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px 8px;
+}
+
+.cls-protocol-badges[hidden] {
+  display: none;
+}
+
+.cls-protocol-toggle {
+  cursor: pointer;
+  user-select: none;
+  transition: color 150ms ease;
+}
+
+.cls-protocol-toggle:hover {
+  color: var(--text);
+}
+
 .cls-proto-badge {
   display: inline-block;
   padding: 2px 6px;

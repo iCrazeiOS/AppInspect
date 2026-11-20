@@ -145,6 +145,8 @@ export function renderObjC(
 	let selectedCategory: ObjCCategory | null = null;
 	/** Member-group titles (e.g. "Properties") the user has collapsed; persists across re-renders. */
 	const collapsedGroups = new Set<string>();
+	/** Whether the "Conforms to" protocol badge list is collapsed; persists across re-renders. */
+	let protocolsCollapsed = false;
 
 	/** Stable key for a category (className+name), used for nav + highlighting. */
 	const categoryKey = (c: ObjCCategory): string => `${c.className}+${c.name}`;
@@ -838,18 +840,20 @@ export function renderObjC(
 		heading.textContent = `@protocol ${selectedProtocol.name}`;
 		detailHeader.appendChild(heading);
 
-		if (selectedProtocol.protocols && selectedProtocol.protocols.length > 0) {
-			detailHeader.appendChild(buildProtocolBadges(selectedProtocol.protocols));
-		}
-
 		const properties = selectedProtocol.properties ?? [];
 		const hasAnyMethods =
 			selectedProtocol.instanceMethods.length > 0 ||
 			selectedProtocol.classMethods.length > 0 ||
 			selectedProtocol.optionalInstanceMethods.length > 0 ||
 			selectedProtocol.optionalClassMethods.length > 0;
+		const inheritedProtocols = selectedProtocol.protocols ?? [];
+		const hasProtocols = appendProtocolGroup(
+			methodListContainer,
+			inheritedProtocols,
+			"cls-proto-method-group"
+		);
 
-		if (!hasAnyMethods && properties.length === 0) {
+		if (!hasAnyMethods && properties.length === 0 && !hasProtocols) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
 			hint.textContent = "No methods or properties defined in this protocol.";
@@ -1195,9 +1199,11 @@ export function renderObjC(
 		].join(" · ");
 		detailHeader.appendChild(countEl);
 
-		if (cls.protocols && cls.protocols.length > 0) {
-			detailHeader.appendChild(buildProtocolBadges(cls.protocols));
-		}
+		const hasProtocols = appendProtocolGroup(
+			methodListContainer,
+			cls.protocols ?? [],
+			"cls-member-group"
+		);
 
 		const list = document.createElement("ul");
 		list.className = "cls-method-list";
@@ -1257,7 +1263,7 @@ export function renderObjC(
 			propEntries.length + ivarEntries.length + instanceEntries.length + classEntries.length;
 		methodSearchBar.updateCount(shown, total);
 
-		if (shown === 0) {
+		if (shown === 0 && !hasProtocols) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
 			hint.textContent = methodSearchTerm
@@ -1290,16 +1296,18 @@ export function renderObjC(
 		].join(" · ");
 		detailHeader.appendChild(countEl);
 
-		if (cat.protocols.length > 0) {
-			detailHeader.appendChild(buildProtocolBadges(cat.protocols));
-		}
-
 		const matcher = buildSearchMatcher();
 		const instanceMethods = cat.methods.filter((m) => !m._isClassMethod);
 		const classMethods = cat.methods.filter((m) => m._isClassMethod);
 
 		const list = document.createElement("ul");
 		list.className = "cls-method-list";
+
+		const hasProtocols = appendProtocolGroup(
+			methodListContainer,
+			cat.protocols,
+			"cls-member-group"
+		);
 
 		const propEntries = cat.properties
 			.filter((p) => !matcher || matcher(formatProperty(p)) || matcher(p.name))
@@ -1343,7 +1351,7 @@ export function renderObjC(
 			classMethods.filter((m) => !matcher || matcher(m.signature)).map(methodEntry)
 		);
 
-		if (list.childElementCount === 0) {
+		if (list.childElementCount === 0 && !hasProtocols) {
 			const hint = document.createElement("div");
 			hint.className = "cls-detail-hint";
 			hint.textContent = methodSearchTerm
@@ -1445,23 +1453,47 @@ export function renderObjC(
 		methodListContainer.appendChild(list);
 	}
 
-	/** Build the "Conforms to:" protocol badge row. */
-	function buildProtocolBadges(protocols: string[]): HTMLElement {
-		const protoLine = document.createElement("div");
-		protoLine.className = "cls-detail-protos";
-		const label = document.createElement("span");
-		label.className = "cls-detail-protos-label";
-		label.textContent = "Conforms to:";
-		protoLine.appendChild(label);
+	/** Append a collapsible "Conforms to" protocol badge group; returns false when there are none. */
+	function appendProtocolGroup(
+		container: HTMLElement,
+		protocols: string[],
+		headerClass: string
+	): boolean {
+		if (protocols.length === 0) return false;
+
+		const section = document.createElement("div");
+		section.className = "cls-protocol-section";
+
+		const header = document.createElement("div");
+		header.className = `${headerClass} cls-protocol-toggle`;
+		const setLabel = () => {
+			header.textContent = `${protocolsCollapsed ? "▶" : "▼"} Conforms to (${protocols.length})`;
+		};
+		setLabel();
+
+		const body = document.createElement("div");
+		body.className = "cls-protocol-badges";
+		body.hidden = protocolsCollapsed;
+
 		for (const proto of protocols) {
 			const badge = document.createElement("span");
 			badge.className = "cls-proto-badge";
 			badge.textContent = proto;
 			badge.title = `Click to view ${proto}`;
 			badge.addEventListener("click", () => scrollToProtocol(proto));
-			protoLine.appendChild(badge);
+			body.appendChild(badge);
 		}
-		return protoLine;
+
+		header.addEventListener("click", () => {
+			protocolsCollapsed = !protocolsCollapsed;
+			body.hidden = protocolsCollapsed;
+			setLabel();
+		});
+
+		section.appendChild(header);
+		section.appendChild(body);
+		container.appendChild(section);
+		return true;
 	}
 
 	/** Open the sidebar and restore its persisted width. Returns the inner container. */
