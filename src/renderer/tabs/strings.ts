@@ -76,13 +76,34 @@ export function renderStrings(
 		localisationEntries = Array.isArray(d.localisation) ? d.localisation : [];
 	}
 
+	// Collect individual section names for binary filter chips
+	const sectionCounts = new Map<string, number>();
+	for (const e of binaryEntries) {
+		for (const s of (e.sectionSource ?? "").split(", ")) {
+			if (s) sectionCounts.set(s, (sectionCounts.get(s) ?? 0) + 1);
+		}
+	}
+	const sections = [...sectionCounts.entries()]
+		.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+		.map(([name]) => name);
+	const sectionIndex = new Map(sections.map((s, i) => [s, i]));
+
 	// Convert raw entries to table row format
-	const binaryRows = binaryEntries.map((e) => ({
-		value: e.value,
-		source: e.sectionSource ?? "",
-		offsetHex: `0x${(e.offset >>> 0).toString(16).padStart(4, "0")}`,
-		_offset: typeof e.offset === "number" ? e.offset : 0
-	}));
+	const binaryRows = binaryEntries.map((e) => {
+		const source = e.sectionSource ?? "";
+		let sourceMask = 0;
+		for (const s of source.split(", ")) {
+			const idx = sectionIndex.get(s);
+			if (idx !== undefined) sourceMask |= 1 << idx;
+		}
+		return {
+			value: e.value,
+			source,
+			offsetHex: `0x${(e.offset >>> 0).toString(16).padStart(4, "0")}`,
+			_offset: typeof e.offset === "number" ? e.offset : 0,
+			_sourceMask: sourceMask
+		};
+	});
 
 	const localisationRows = localisationEntries.map((e) => ({
 		key: e.key,
@@ -95,14 +116,13 @@ export function renderStrings(
 	const savedMode = getTabState<"binary" | "localisation">(sessionId, "strings", "mode");
 	let mode: "binary" | "localisation" = savedMode ?? "binary";
 
-	// Collect unique sections for binary filter chips
-	const sectionSet = new Set<string>();
-	for (const r of binaryRows) {
-		if (r.source) sectionSet.add(r.source);
-	}
-	const sections = [...sectionSet].sort();
 	const savedSections = getTabState<string[]>(sessionId, "strings", "sections");
-	const activeSections = new Set<string>(savedSections ?? sections);
+	const knownSections = savedSections?.filter((s) => sectionCounts.has(s));
+	const activeSections = new Set<string>(
+		knownSections && (knownSections.length > 0 || savedSections?.length === 0)
+			? knownSections
+			: sections
+	);
 
 	// Collect unique languages for localisation filter chips
 	const langSet = new Set<string>();
@@ -196,11 +216,6 @@ export function renderStrings(
 	chipBar.className = "filter-chip-bar";
 	wrapper.appendChild(chipBar);
 
-	// ── Row count ──
-	const rowCount = document.createElement("div");
-	rowCount.className = "tab-row-count";
-	wrapper.appendChild(rowCount);
-
 	// ── Data table ──
 	const tableWrap = document.createElement("div");
 	tableWrap.style.cssText = "flex:1;min-height:0;overflow:hidden;";
@@ -228,8 +243,7 @@ export function renderStrings(
 	function updateCount(): void {
 		const shown = table.filteredCount;
 		const total = table.totalCount;
-		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "string")}`;
-		searchBar.updateCount(shown, total);
+		searchBar.updateCount(shown, total, plural(total, "string"));
 		updateCrossBinaryHint(
 			sessionId,
 			xbinHint,
@@ -304,9 +318,14 @@ export function renderStrings(
 
 	function applyFilters(): void {
 		if (mode === "binary") {
+			let activeMask = 0;
+			for (const s of activeSections) {
+				const idx = sectionIndex.get(s);
+				if (idx !== undefined) activeMask |= 1 << idx;
+			}
 			table.setFilter((row) => {
-				const src = String(row.source ?? "");
-				if (src && !activeSections.has(src)) return false;
+				const mask = Number(row._sourceMask ?? 0);
+				if (mask !== 0 && (mask & activeMask) === 0) return false;
 				return matchesSearch(String(row.value ?? ""));
 			});
 		} else {
@@ -394,8 +413,8 @@ export function renderStrings(
 			return;
 		}
 
-		if (row.source && !activeSections.has(row.source)) {
-			activeSections.add(row.source);
+		if (row.source && !row.source.split(", ").some((s) => activeSections.has(s))) {
+			for (const s of row.source.split(", ")) activeSections.add(s);
 			setTabState(sessionId, "strings", "sections", [...activeSections]);
 			buildChips();
 		}

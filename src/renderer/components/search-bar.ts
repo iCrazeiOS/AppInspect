@@ -156,13 +156,14 @@ export class SearchBar {
 		}
 	}
 
-	updateCount(shown: number, total: number): void {
+	updateCount(shown: number, total: number, unit?: string): void {
 		if (this.countEl) {
 			if (shown === 0 && total > 0) {
 				this.countEl.textContent = "No matches";
 				this.countEl.classList.add("sb-count-empty");
 			} else {
-				this.countEl.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}`;
+				const suffix = unit ? ` ${unit}` : "";
+				this.countEl.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()}${suffix}`;
 				this.countEl.classList.remove("sb-count-empty");
 			}
 		}

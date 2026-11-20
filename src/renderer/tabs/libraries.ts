@@ -210,10 +210,6 @@ export function renderLibraries(
 			searchBar.setValue(t, searchBar.isRegexMode(), searchBar.isCaseSensitive());
 		});
 
-		// ── Row count ──
-		const rowCount = el("div", "tab-row-count");
-		wrapper.appendChild(rowCount);
-
 		// ── Data Table ──
 		const tableContainer = el("div", "lib-table");
 		wrapper.appendChild(tableContainer);
@@ -251,8 +247,7 @@ export function renderLibraries(
 		function updateCount(): void {
 			const shown = table.filteredCount;
 			const total = table.totalCount;
-			rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "library", "libraries")}`;
-			searchBar.updateCount(shown, total);
+			searchBar.updateCount(shown, total, plural(total, "library", "libraries"));
 			updateCrossBinaryHint(
 				sessionId,
 				xbinHint,

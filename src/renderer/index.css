@@ -1314,7 +1314,7 @@ body.platform-darwin .app-title-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 6px 0;
+  padding: 6px 0 12px;
 }
 
 .filter-chip {
@@ -1384,14 +1384,6 @@ body.platform-darwin .app-title-row {
   color: var(--accent);
   border-color: var(--accent);
   z-index: 2;
-}
-
-/* ── Tab row count ── */
-.tab-row-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 4px 0;
-  flex-shrink: 0;
 }
 
 /* ── Symbol type badges ── */

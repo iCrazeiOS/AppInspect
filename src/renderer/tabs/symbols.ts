@@ -159,11 +159,6 @@ export function renderSymbols(
 
 	wrapper.appendChild(filterBar);
 
-	// ── Row count ──
-	const rowCount = document.createElement("div");
-	rowCount.className = "tab-row-count";
-	wrapper.appendChild(rowCount);
-
 	// ── Data table ──
 	const tableWrap = document.createElement("div");
 	tableWrap.style.cssText = "flex:1;min-height:0;overflow:hidden;";
@@ -192,8 +187,7 @@ export function renderSymbols(
 	function updateCount(): void {
 		const shown = table.filteredCount;
 		const total = table.totalCount;
-		rowCount.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} ${plural(total, "symbol")}`;
-		searchBar.updateCount(shown, total);
+		searchBar.updateCount(shown, total, plural(total, "symbol"));
 		updateCrossBinaryHint(
 			sessionId,
 			xbinHint,
