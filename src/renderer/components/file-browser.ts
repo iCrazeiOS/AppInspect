@@ -5,22 +5,48 @@
  */
 
 import type { FilePreviewContent } from "../../shared/types";
+import { announce } from "../navigation";
 import { getSearchState, registerSearchBar, saveSearchState } from "../search-state";
 import { getTabState, setTabState } from "../tab-state";
 import { el } from "../utils/dom";
-import type { BrowserTreeNode, FileBadge } from "../utils/file-browser";
+import type { BrowserTreeNode, FileBadge, FileSortKey, SortDirection } from "../utils/file-browser";
 import {
 	collectMatchedPaths,
 	compilePathMatcher,
 	countMatchedFiles,
 	countTreeFiles,
 	fileIcon,
-	findEntry
+	findEntry,
+	sortTree
 } from "../utils/file-browser";
-import { formatSize } from "../utils/format";
+import { formatRelativeTime, formatSize } from "../utils/format";
 import { initPanelResize } from "../utils/panel-resize";
 import { FilePreviewPane } from "./file-preview";
 import { SearchBar } from "./search-bar";
+
+const SORT_LABELS: Record<FileSortKey, string> = {
+	name: "Name",
+	size: "Size",
+	modified: "Modified"
+};
+
+const SORT_NAMES: Record<FileSortKey, string> = {
+	name: "name",
+	size: "size",
+	modified: "modification time"
+};
+
+const SORT_DIRECTIONS: Record<FileSortKey, SortDirection> = {
+	name: "asc",
+	size: "desc",
+	modified: "desc"
+};
+
+const SORT_ORDER_LABELS: Record<FileSortKey, Record<SortDirection, string>> = {
+	name: { asc: "A to Z", desc: "Z to A" },
+	size: { asc: "smallest first", desc: "largest first" },
+	modified: { asc: "oldest first", desc: "newest first" }
+};
 
 export interface FilePreviewProvider {
 	read(path: string, maxBytes: number, includeImage: boolean): Promise<FilePreviewContent | null>;
@@ -61,6 +87,12 @@ export class FileBrowser<T extends BrowserTreeNode> {
 	private rowMap = new Map<string, HTMLElement>();
 	private totalFileCount = 0;
 
+	private sortedEntries: T[] = [];
+	private sortKey: FileSortKey = "name";
+	private sortDir: SortDirection = "asc";
+	private supportsModified = false;
+	private sortGroup: HTMLElement | null = null;
+
 	private activeMenu: HTMLElement | null = null;
 	private focusedRow: HTMLElement | null = null;
 	private menuDismiss: ((event: MouseEvent) => void) | null = null;
@@ -74,12 +106,24 @@ export class FileBrowser<T extends BrowserTreeNode> {
 	mount(container: HTMLElement): void {
 		const { entries, sessionId, stateKey, widthKey } = this.options;
 
+		this.supportsModified = entries.some((entry) => typeof entry.mtimeMs === "number");
+		const keys = this.sortKeys();
+		const savedKey = getTabState<FileSortKey>(sessionId, stateKey, "sortKey");
+		const savedDir = getTabState<SortDirection>(sessionId, stateKey, "sortDir");
+		this.sortKey = savedKey && keys.includes(savedKey) ? savedKey : "name";
+		this.sortDir =
+			savedKey === this.sortKey && (savedDir === "asc" || savedDir === "desc")
+				? savedDir
+				: SORT_DIRECTIONS[this.sortKey];
+		this.sortedEntries = sortTree(entries, this.sortKey, this.sortDir);
+
 		const panes = el("div", "fb-panes");
 		const sidebar = el("div", "fb-sidebar");
 		const resizeHandle = el("div", "fb-resize-handle");
 		const previewHost = el("div", "fb-preview");
 		const searchWrap = el("div", "fb-search");
 		const treeEl = el("div", "fb-tree");
+		sidebar.appendChild(this.buildSortBar());
 		sidebar.appendChild(searchWrap);
 		sidebar.appendChild(treeEl);
 		panes.appendChild(sidebar);
@@ -100,8 +144,8 @@ export class FileBrowser<T extends BrowserTreeNode> {
 
 		initPanelResize(resizeHandle, () => sidebar, {
 			side: "left",
-			min: 240,
-			max: () => Math.max(240, panes.getBoundingClientRect().width - 240),
+			min: 280,
+			max: () => Math.max(280, panes.getBoundingClientRect().width - 240),
 			storageKey: widthKey,
 			activeClass: "fb-resize-handle--active"
 		});
@@ -170,18 +214,89 @@ export class FileBrowser<T extends BrowserTreeNode> {
 		return value.replaceAll("\\", "/");
 	}
 
+	private sortKeys(): FileSortKey[] {
+		return this.supportsModified ? ["name", "size", "modified"] : ["name", "size"];
+	}
+
+	private buildSortBar(): HTMLElement {
+		const bar = el("div", "fb-sort");
+		bar.appendChild(el("span", "fb-sort-label", "Sort by"));
+
+		const group = el("div", "fb-sort-group");
+		group.setAttribute("role", "group");
+		group.setAttribute("aria-label", "Sort files by");
+		this.sortGroup = group;
+
+		for (const key of this.sortKeys()) {
+			const button = el("button", "fb-sort-btn");
+			button.type = "button";
+			button.dataset.sort = key;
+			button.addEventListener("click", () => this.changeSort(key));
+			group.appendChild(button);
+		}
+
+		bar.appendChild(group);
+		this.updateSortButtons();
+		return bar;
+	}
+
+	private sortDescription(key: FileSortKey): string {
+		if (key !== this.sortKey) return `Sort by ${SORT_NAMES[key]}`;
+		return `Sorted ${SORT_ORDER_LABELS[key][this.sortDir]}, click to reverse`;
+	}
+
+	private updateSortButtons(): void {
+		if (!this.sortGroup) return;
+		this.sortGroup.querySelectorAll<HTMLButtonElement>(".fb-sort-btn").forEach((button) => {
+			const key = button.dataset.sort as FileSortKey;
+			const active = key === this.sortKey;
+			const description = this.sortDescription(key);
+			button.classList.toggle("fb-sort-btn--active", active);
+			button.setAttribute("aria-pressed", String(active));
+			button.setAttribute("aria-label", description);
+			button.title = description;
+			button.textContent = SORT_LABELS[key];
+			if (active) {
+				const arrow = el(
+					"span",
+					"fb-sort-arrow",
+					this.sortDir === "asc" ? "\u25B2" : "\u25BC"
+				);
+				arrow.setAttribute("aria-hidden", "true");
+				button.appendChild(arrow);
+			}
+		});
+	}
+
+	private changeSort(key: FileSortKey): void {
+		if (key === this.sortKey) {
+			this.sortDir = this.sortDir === "asc" ? "desc" : "asc";
+		} else {
+			this.sortKey = key;
+			this.sortDir = SORT_DIRECTIONS[key];
+		}
+		setTabState(this.options.sessionId, this.options.stateKey, "sortKey", this.sortKey);
+		setTabState(this.options.sessionId, this.options.stateKey, "sortDir", this.sortDir);
+		this.sortedEntries = sortTree(this.options.entries, this.sortKey, this.sortDir);
+		this.updateSortButtons();
+		this.renderTree();
+		announce(
+			`Sorted by ${SORT_NAMES[this.sortKey]}, ${SORT_ORDER_LABELS[this.sortKey][this.sortDir]}`
+		);
+	}
+
 	private renderTree(): void {
 		const treeEl = this.treeEl;
 		if (!treeEl) return;
 		this.removeContextMenu();
 		treeEl.innerHTML = "";
 		this.rowMap.clear();
-		if (this.options.entries.length === 0) {
+		if (this.sortedEntries.length === 0) {
 			treeEl.appendChild(el("div", "fb-empty", this.options.emptyMessage ?? "No files."));
 			return;
 		}
 		const fragment = document.createDocumentFragment();
-		for (const entry of this.options.entries) {
+		for (const entry of this.sortedEntries) {
 			fragment.appendChild(this.renderNode(entry, 0));
 		}
 		treeEl.appendChild(fragment);
@@ -211,6 +326,7 @@ export class FileBrowser<T extends BrowserTreeNode> {
 		row.appendChild(el("span", "fb-tree-icon", fileIcon(entry.name, entry.isDirectory)));
 
 		const nameEl = el("span", "fb-tree-name", entry.name);
+		nameEl.title = entry.name;
 		if (this.activeMatcher?.(entry.name)) nameEl.classList.add("fb-name-match");
 		row.appendChild(nameEl);
 
@@ -225,9 +341,17 @@ export class FileBrowser<T extends BrowserTreeNode> {
 			row.appendChild(badgeEl);
 		}
 
-		if (!entry.isDirectory) {
-			row.appendChild(el("span", "fb-tree-size", formatSize(entry.size)));
+		const meta = el("div", "fb-tree-meta");
+		const sizeEl = el("span", "fb-tree-size", formatSize(entry.size));
+		sizeEl.title = entry.isDirectory ? "Total size of folder contents" : "File size";
+		meta.appendChild(sizeEl);
+		if (this.supportsModified && typeof entry.mtimeMs === "number") {
+			const modifiedEl = el("span", "fb-tree-modified", formatRelativeTime(entry.mtimeMs));
+			modifiedEl.title = `${entry.isDirectory ? "Latest modification" : "Modified"}: ${new Date(entry.mtimeMs).toLocaleString()}`;
+			meta.appendChild(modifiedEl);
 		}
+		row.appendChild(meta);
+
 		row.classList.toggle("fb-tree-row--selected", entry.path === this.selectedPath);
 		wrap.appendChild(row);
 

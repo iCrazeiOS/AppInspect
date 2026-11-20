@@ -392,7 +392,10 @@ export interface SymtabInfo {
 export interface FileEntry {
 	name: string;
 	path: string;
+	/** Bytes; for a directory, the total size of the files it contains. */
 	size: number;
+	/** Epoch milliseconds; for a directory, the latest modification in its subtree. */
+	mtimeMs: number;
 	isDirectory: boolean;
 	children?: FileEntry[];
 }

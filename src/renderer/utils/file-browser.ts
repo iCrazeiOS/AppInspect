@@ -12,7 +12,46 @@ export interface BrowserTreeNode {
 	path: string;
 	size: number;
 	isDirectory: boolean;
+	mtimeMs?: number;
 	children?: BrowserTreeNode[];
+}
+
+export type FileSortKey = "name" | "size" | "modified";
+export type SortDirection = "asc" | "desc";
+
+function compareNames(a: BrowserTreeNode, b: BrowserTreeNode): number {
+	return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * Copy the tree with every level sorted. Name order always groups directories
+ * first; size and modified order mixes them so the biggest/newest entry in a
+ * folder ranks by its own value.
+ */
+export function sortTree<T extends BrowserTreeNode>(
+	entries: T[],
+	key: FileSortKey,
+	direction: SortDirection
+): T[] {
+	const sign = direction === "asc" ? 1 : -1;
+	const sorted = [...entries].sort((a, b) => {
+		if (key === "name") {
+			if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+			return compareNames(a, b) * sign;
+		}
+		const aValue = key === "size" ? a.size : (a.mtimeMs ?? 0);
+		const bValue = key === "size" ? b.size : (b.mtimeMs ?? 0);
+		const order = aValue - bValue;
+		if (order !== 0) return order * sign;
+		// Ties keep directories first, then fall back to a stable name order.
+		if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+		return compareNames(a, b);
+	});
+	return sorted.map((entry) =>
+		entry.children
+			? ({ ...entry, children: sortTree(entry.children as T[], key, direction) } as T)
+			: entry
+	);
 }
 
 export interface FileBadge {

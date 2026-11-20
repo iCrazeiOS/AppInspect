@@ -22,11 +22,10 @@ function buildTree(dirPath: string): FileEntry[] {
 
 		for (const entry of entries) {
 			const fullPath = path.join(dirPath, entry.name);
-			let size = 0;
+			let stat: fs.Stats;
 
 			try {
-				const stat = fs.statSync(fullPath);
-				size = stat.size;
+				stat = fs.statSync(fullPath);
 			} catch {
 				// skip entries we can't stat
 				continue;
@@ -34,10 +33,19 @@ function buildTree(dirPath: string): FileEntry[] {
 
 			if (entry.isDirectory()) {
 				const children = buildFileTree(fullPath);
+				let size = 0;
+				// Ignore the directory's own mtime: extraction tools often stamp it
+				// with the unpack time, so the contents are more meaningful.
+				let mtimeMs = children.length > 0 ? 0 : stat.mtimeMs;
+				for (const child of children) {
+					size += child.size;
+					mtimeMs = Math.max(mtimeMs, child.mtimeMs);
+				}
 				result.push({
 					name: entry.name,
 					path: fullPath,
 					size,
+					mtimeMs,
 					isDirectory: true,
 					children
 				});
@@ -45,7 +53,8 @@ function buildTree(dirPath: string): FileEntry[] {
 				result.push({
 					name: entry.name,
 					path: fullPath,
-					size,
+					size: stat.size,
+					mtimeMs: stat.mtimeMs,
 					isDirectory: false
 				});
 			}

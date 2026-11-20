@@ -2,14 +2,17 @@ import { describe, expect, it } from "bun:test";
 import type { AsarEntry } from "../../../shared/types";
 import {
 	ancestorPaths,
+	type BrowserTreeNode,
 	collectMatchedPaths,
 	compilePathMatcher,
 	countMatchedFiles,
 	countTreeFiles,
 	fileIcon,
 	findEntry,
+	sortTree,
 	treeTotals
 } from "../file-browser";
+import { formatRelativeTime } from "../format";
 
 const file = (path: string): AsarEntry => ({
 	name: path.split("/").pop() ?? path,
@@ -150,6 +153,116 @@ describe("findEntry", () => {
 
 	it("returns null for a missing path", () => {
 		expect(findEntry(entries, "missing.js")).toBeNull();
+	});
+});
+
+describe("sortTree", () => {
+	const node = (
+		path: string,
+		size: number,
+		mtimeMs: number,
+		children?: BrowserTreeNode[]
+	): BrowserTreeNode => ({
+		name: path.split("/").pop() ?? path,
+		path,
+		size,
+		mtimeMs,
+		isDirectory: children !== undefined,
+		children
+	});
+
+	const tree = (): BrowserTreeNode[] => [
+		node("z.txt", 10, 400),
+		node("Docs", 100, 300, [node("Docs/b.txt", 1, 500), node("Docs/a.txt", 2, 600)]),
+		node("a2.txt", 3, 200),
+		node("a10.txt", 4, 100)
+	];
+
+	it("sorts names A to Z with directories first", () => {
+		expect(sortTree(tree(), "name", "asc").map((entry) => entry.name)).toEqual([
+			"Docs",
+			"a2.txt",
+			"a10.txt",
+			"z.txt"
+		]);
+	});
+
+	it("sorts names Z to A but keeps directories first", () => {
+		expect(sortTree(tree(), "name", "desc").map((entry) => entry.name)).toEqual([
+			"Docs",
+			"z.txt",
+			"a10.txt",
+			"a2.txt"
+		]);
+	});
+
+	it("sorts by size across files and folders", () => {
+		expect(sortTree(tree(), "size", "desc").map((entry) => entry.name)).toEqual([
+			"Docs",
+			"z.txt",
+			"a10.txt",
+			"a2.txt"
+		]);
+		expect(sortTree(tree(), "size", "asc").map((entry) => entry.name)).toEqual([
+			"a2.txt",
+			"a10.txt",
+			"z.txt",
+			"Docs"
+		]);
+	});
+
+	it("sorts by modification time across files and folders", () => {
+		expect(sortTree(tree(), "modified", "desc").map((entry) => entry.name)).toEqual([
+			"z.txt",
+			"Docs",
+			"a2.txt",
+			"a10.txt"
+		]);
+		expect(sortTree(tree(), "modified", "asc").map((entry) => entry.name)).toEqual([
+			"a10.txt",
+			"a2.txt",
+			"Docs",
+			"z.txt"
+		]);
+	});
+
+	it("sorts every level of the tree without mutating the input", () => {
+		const original = tree();
+		const sorted = sortTree(original, "name", "asc");
+		expect(sorted[0]?.children?.map((entry) => entry.name)).toEqual(["a.txt", "b.txt"]);
+		expect(original[1]?.children?.map((entry) => entry.name)).toEqual(["b.txt", "a.txt"]);
+		expect(original.map((entry) => entry.name)).toEqual(["z.txt", "Docs", "a2.txt", "a10.txt"]);
+	});
+
+	it("keeps directories first when values tie", () => {
+		const entries = [node("b.txt", 5, 1), node("a.txt", 5, 1), node("Dir", 5, 1, [])];
+		expect(sortTree(entries, "size", "asc").map((entry) => entry.name)).toEqual([
+			"Dir",
+			"a.txt",
+			"b.txt"
+		]);
+	});
+});
+
+describe("formatRelativeTime", () => {
+	const now = Date.UTC(2026, 0, 1);
+	const day = 86_400_000;
+
+	it("formats recent timestamps", () => {
+		expect(formatRelativeTime(now - 30_000, now)).toBe("just now");
+		expect(formatRelativeTime(now - 5 * 60_000, now)).toBe("5m ago");
+		expect(formatRelativeTime(now - 3 * 3_600_000, now)).toBe("3h ago");
+	});
+
+	it("formats days, weeks, months and years", () => {
+		expect(formatRelativeTime(now - 2 * day, now)).toBe("2d ago");
+		expect(formatRelativeTime(now - 22 * day, now)).toBe("3w ago");
+		expect(formatRelativeTime(now - 65 * day, now)).toBe("2mo ago");
+		expect(formatRelativeTime(now - 800 * day, now)).toBe("2y ago");
+	});
+
+	it("treats future timestamps as just now", () => {
+		expect(formatRelativeTime(now + 5 * day, now)).toBe("just now");
 	});
 });
 
