@@ -414,8 +414,9 @@ function switchSectionTab(tabId: string): void {
 	// Lazy-load tab data
 	if (tab?.analysisResult && !tab.loadedSectionTabs.has(tabId)) {
 		loadTabData(tabId);
-	} else if (changed && tab) {
-		restoreScroll(tab, tabId);
+	} else {
+		if (changed && tab) restoreScroll(tab, tabId);
+		updateSectionTabLoading();
 	}
 }
 
@@ -450,6 +451,64 @@ function handleNavigation(sessionId: string, target: NavigationTarget): void {
 
 registerNavigationHost(handleNavigation);
 
+// ── Section tab loading indicator ──
+
+/** How long a section may load before the spinner appears, so fast loads don't flash. */
+const SECTION_LOAD_SPINNER_DELAY_MS = 150;
+
+/** In-flight section loads, keyed by `sessionId:tabId`. */
+const pendingTabLoads = new Set<string>();
+let tabLoadTimer: ReturnType<typeof setTimeout> | null = null;
+
+function tabLoadKey(sessionId: string, tabId: string): string {
+	return `${sessionId}:${tabId}`;
+}
+
+function setSectionTabLoading(sessionId: string, tabId: string, loading: boolean): void {
+	const key = tabLoadKey(sessionId, tabId);
+
+	if (loading) {
+		pendingTabLoads.add(key);
+		if (tabLoadTimer === null) {
+			tabLoadTimer = setTimeout(() => {
+				tabLoadTimer = null;
+				updateSectionTabLoading();
+			}, SECTION_LOAD_SPINNER_DELAY_MS);
+		}
+		return;
+	}
+
+	pendingTabLoads.delete(key);
+	if (pendingTabLoads.size === 0 && tabLoadTimer !== null) {
+		clearTimeout(tabLoadTimer);
+		tabLoadTimer = null;
+	}
+	updateSectionTabLoading();
+}
+
+/** Mount or remove the spinner depending on whether the active section tab is loading. */
+function updateSectionTabLoading(): void {
+	const tab = getActiveFileTab();
+	const loading = tab
+		? pendingTabLoads.has(tabLoadKey(tab.sessionId, tab.currentSectionTab))
+		: false;
+
+	let overlay = document.getElementById("tab-loading-overlay");
+	if (!loading) {
+		overlay?.remove();
+		return;
+	}
+
+	if (!overlay) {
+		overlay = document.createElement("div");
+		overlay.id = "tab-loading-overlay";
+		overlay.className = "tab-loading-overlay";
+		overlay.innerHTML =
+			'<div class="ld-root"><div class="ld-spinner"></div><div class="ld-phase">Loading\u2026</div></div>';
+		tabContent.appendChild(overlay);
+	}
+}
+
 async function loadTabData(tabId: string): Promise<void> {
 	const tab = getActiveFileTab();
 	if (!tab) return;
@@ -471,13 +530,18 @@ async function loadTabData(tabId: string): Promise<void> {
 		return;
 	}
 
+	// Drop any content left from a previous render so stale data (e.g. from
+	// another file tab) can't be mistaken for this section while it loads.
+	const panel = document.getElementById(`tab-${tabId}`);
+	if (panel) panel.innerHTML = "";
+
+	setSectionTabLoading(tab.sessionId, tabId, true);
 	try {
 		// The sidebar uses the legacy "infoplist" id while the section name is "infoPlist"
 		const section: SectionName = tabId === "infoplist" ? "infoPlist" : (tabId as SectionName);
 		const sectionData = await window.api.getSectionData(tab.sessionId, section);
 		tab.loadedSectionTabs.add(tabId);
 
-		const panel = document.getElementById(`tab-${tabId}`);
 		if (panel && sectionData != null) {
 			const sid = tab.sessionId;
 			const binCount = tab.analysisResult?.overview?.ipa?.binaries?.length ?? 1;
@@ -550,6 +614,8 @@ async function loadTabData(tabId: string): Promise<void> {
 		const message = err instanceof Error ? err.message : String(err);
 		showToast(`Failed to load ${tabId} tab: ${message}`, "error");
 		console.error(`[AppInspect] Failed to load tab data for ${tabId}:`, err);
+	} finally {
+		setSectionTabLoading(tab.sessionId, tabId, false);
 	}
 
 	// A render that did not consume its pending target (missing data, failed
@@ -622,7 +688,6 @@ function setBinarySwitchLoading(show: boolean): void {
 			overlay.className = "binary-loading-overlay";
 			overlay.innerHTML =
 				'<div class="binary-loading-inner"><div class="ld-spinner"></div><span class="binary-loading-text">Switching binary...</span></div>';
-			tabContent.style.position = "relative";
 			tabContent.appendChild(overlay);
 		}
 		overlay.classList.remove("hidden");

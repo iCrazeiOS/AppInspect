@@ -736,10 +736,23 @@ body.platform-darwin .app-title-row {
 
 /* ── Tab content ── */
 .tab-content {
+  position: relative;
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ── Section tab loading overlay ── */
+.tab-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: tab-fade-in 150ms ease;
 }
 
 .tab-panel {
